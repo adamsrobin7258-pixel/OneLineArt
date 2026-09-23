@@ -2,3 +2,7 @@ export * from './types';
 export * from './pathCursor';
 export * from './tracePath';
 export * from './svg';
+export * from './colorSpace';
+export * from './renderSettings';
+export * from './colorSampling';
+export * from './renderer';

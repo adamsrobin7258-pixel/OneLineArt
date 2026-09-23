@@ -1,4 +1,5 @@
-import type { AnimationSettings, OneLinePath, RenderStyle } from '../models';
+import type { AnimationSettings, OneLinePath } from '../models';
+import type { RenderSettings } from '../rendering';
 
 /** A finished file ready to hand to the platform (download, share sheet, gallery). */
 export interface ExportResult {
@@ -10,11 +11,11 @@ export interface ExportResult {
 /** Still image export (SVG/PNG). Implemented in part 8. */
 export interface ArtworkExporter {
   readonly format: string;
-  export(path: OneLinePath, style: RenderStyle): Promise<ExportResult>;
+  export(path: OneLinePath, settings: RenderSettings): Promise<ExportResult>;
 }
 
 /** Creation video export, driven by the animation timeline. Implemented in part 8. */
 export interface VideoExporter {
   readonly format: string;
-  export(path: OneLinePath, style: RenderStyle, animation: AnimationSettings): Promise<ExportResult>;
+  export(path: OneLinePath, settings: RenderSettings, animation: AnimationSettings): Promise<ExportResult>;
 }

@@ -4,17 +4,19 @@ import { Button } from '../../ui/components/Button';
 import { ImageViewer } from '../../ui/components/ImageViewer';
 import { SegmentedControl } from '../../ui/components/SegmentedControl';
 import { StatusPanel } from '../../ui/components/StatusPanel';
-import { DETAIL_LEVEL_LABELS, PATH_ERROR_MESSAGES } from '../drawingLabels';
+import { DETAIL_LEVEL_LABELS, DISPLAY_OPTIONS, PATH_ERROR_MESSAGES } from '../drawingLabels';
 import { ANALYSIS_ERROR_MESSAGES } from '../importMessages';
-import { usePathBitmap } from '../preview/usePathBitmap';
+import { PREVIEW_RENDER_EDGE } from '../preview/previewConfig';
+import { useArtwork } from '../preview/useArtwork';
 import type { ImageImportController } from '../state/useImageImport';
+import type { RenderSettingsController } from '../state/useRenderSettings';
 
-const BLANK = { kind: 'blank' } as const;
 const DETAIL_OPTIONS = DETAIL_LEVELS.map((value) => ({ value, ...DETAIL_LEVEL_LABELS[value] }));
 
 interface SettingsScreenProps {
   session: ImageSession<ImageBitmap>;
   controller: ImageImportController;
+  render: RenderSettingsController;
   onBack: () => void;
 }
 
@@ -23,7 +25,8 @@ interface SettingsScreenProps {
  * recomputes only the line (the image analysis is reused); the previous
  * drawing stays visible, dimmed, until the new one is ready.
  */
-export function SettingsScreen({ session, controller, onBack }: SettingsScreenProps) {
+export function SettingsScreen({ session, controller, render, onBack }: SettingsScreenProps) {
+  const { renderSettings, updateRenderSettings } = render;
   const { oneLine, path, pathStatus, analysisStatus } = session;
   const { generatePath, setDrawing, retryAnalysis } = controller;
 
@@ -36,13 +39,25 @@ export function SettingsScreen({ session, controller, onBack }: SettingsScreenPr
   const [lastPath, setLastPath] = useState<OneLinePath | null>(path);
   if (path && path !== lastPath) setLastPath(path);
   const shown = path ?? lastPath;
-  const bitmap = usePathBitmap(shown, shown ? BLANK : null, shown ? keyOf(shown) : '');
+  // The artwork is rendered from the path; black ↔ colour only re-draws it.
+  const { artwork } = useArtwork({ path: shown, settings: renderSettings, longEdge: PREVIEW_RENDER_EDGE, image: session.processed.pixels, backgroundImage: session.preview });
+  const bitmap = artwork?.image ?? null;
+  const display = DISPLAY_OPTIONS.find((o) => o.colorMode === renderSettings.colorMode)?.value ?? 'black';
 
   const busy = pathStatus === 'running' || (pathStatus === 'idle' && analysisStatus === 'ready');
   const level = oneLine.drawing.detailLevel;
 
   return (
-    <section className="settings" data-testid="settings-screen" data-path-status={pathStatus} data-detail-level={level} data-path-current={path ? 'true' : 'false'}>
+    <section
+      className="settings"
+      data-testid="settings-screen"
+      data-path-status={pathStatus}
+      data-detail-level={level}
+      data-path-current={path ? 'true' : 'false'}
+      data-color-mode={renderSettings.colorMode}
+      data-render-size={artwork ? `${artwork.size.width}x${artwork.size.height}` : ''}
+      data-rendered-mode={artwork?.metrics.renderColorMode ?? ''}
+    >
       <div className={`settings__stage${busy && bitmap ? ' is-busy' : ''}`}>
         {analysisStatus === 'failed' && session.analysisError ? (
           <StatusPanel title={ANALYSIS_ERROR_MESSAGES[session.analysisError].title} detail={ANALYSIS_ERROR_MESSAGES[session.analysisError].detail}>
@@ -67,20 +82,19 @@ export function SettingsScreen({ session, controller, onBack }: SettingsScreenPr
         <Button variant="quiet" onClick={onBack}>
           Zurück
         </Button>
-        <SegmentedControl label="Detailgrad" options={DETAIL_OPTIONS} value={level} onChange={(detailLevel) => setDrawing({ detailLevel })} />
+        <div className="settings__controls">
+          <SegmentedControl label="Detailgrad" options={DETAIL_OPTIONS} value={level} onChange={(detailLevel) => setDrawing({ detailLevel })} />
+          <SegmentedControl
+            label="Darstellung"
+            options={DISPLAY_OPTIONS}
+            value={display}
+            onChange={(value) => updateRenderSettings({ colorMode: DISPLAY_OPTIONS.find((o) => o.value === value)!.colorMode })}
+          />
+        </div>
         <Button disabled title="Folgt in einem späteren Schritt">
           Weiter
         </Button>
       </footer>
     </section>
   );
-}
-
-/** Identity of a path object for bitmap caching (paths are immutable). */
-const pathIds = new WeakMap<OneLinePath, number>();
-let nextPathId = 0;
-function keyOf(path: OneLinePath): string {
-  let id = pathIds.get(path);
-  if (id === undefined) pathIds.set(path, (id = ++nextPathId));
-  return `path-${id}`;
 }

@@ -1,4 +1,4 @@
-import type { OneLinePath, RenderedArtwork, RenderStyle } from '../models';
+import type { OneLinePath, SvgArtwork, RenderStyle } from '../models';
 import { fullCursor, type PathCursor } from './pathCursor';
 import { tracePath } from './tracePath';
 
@@ -14,7 +14,7 @@ export function toSvgPathData(path: OneLinePath, cursor: PathCursor = fullCursor
   return parts.join('');
 }
 
-export function renderSvg(path: OneLinePath, style: RenderStyle, cursor: PathCursor = fullCursor(path)): RenderedArtwork {
+export function renderSvg(path: OneLinePath, style: RenderStyle, cursor: PathCursor = fullCursor(path)): SvgArtwork {
   const { width, height } = path.bounds;
   const bg = style.backgroundColor ? `<rect width="100%" height="100%" fill="${style.backgroundColor}"/>` : '';
   const data =

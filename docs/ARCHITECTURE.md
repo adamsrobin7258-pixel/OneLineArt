@@ -24,7 +24,7 @@ aufgesetzt.
 src/
   app/              Screens, App-Shell                    (React)
   ui/               Wiederverwendbare Komponenten, Theme  (React)
-  platform/         Browser-Adapter (Bild-Decoder, Analyse- und Pfad-Worker, Canvas; später IndexedDB, Video)
+  platform/         Browser-Adapter (Bild-Decoder, Analyse- und Pfad-Worker, Artwork-Renderer; später IndexedDB, Video)
   core/             UI- und plattformfreie Kernlogik
     models/           Datenmodelle
     utils/            Seeded RNG, Hashing, Mathe
@@ -34,7 +34,7 @@ src/
     engine/           OneLinePath-API, Pipeline, Validierung, Metriken
       oneLine/          One-Line-Engine (Teil 4), Parametergrenzen (Teil 5)
     drawing/          Detailstufen, Zeichenoptionen, effektive Einstellungen (Teil 5)
-    rendering/        PathCursor, tracePath, SVG-Rendering
+    rendering/        PathCursor, tracePath, SVG, Render-Einstellungen, Farb-Sampling, Renderer (Teil 6)
     animation/        AnimationTimeline (Zeit -> Position auf dem echten Pfad)
     export/           Exporter-Schnittstellen                 (Impl. Teil 8)
     storage/          ProjectRepository + In-Memory-Impl.     (IndexedDB Teil 8)
@@ -325,3 +325,62 @@ Engine-ID und -Version, Schlüssel) — ausreichend, um ein Werk zu reproduziere
 | Kaffeetasse 600×400 | 1,0 s | 1,6 s | 2,7 s |
 | Rakete 640×427 | 1,2 s | 1,7 s | 2,8 s |
 | Kameramann 256² | 1,4 s | 1,5 s | 3,2 s |
+
+## Farbe und Rendering (Teil 6)
+
+### Datenfluss
+
+```
+ProcessedImage.pixels ─┐
+OneLinePath ───────────┼─► [core] sampleLineColors   (nur 'sampled-color', einmal pro Pfad, gecacht)
+RenderSettings ────────┘   [core] planArtwork        Zielgröße prüfen, Linienbreite normieren, Farbabschnitte
+                           [core] drawArtworkBackground / drawArtworkLine  (gegen RenderContext2D)
+                           [platform] renderArtwork  Canvas/OffscreenCanvas → NEUES ImageBitmap + RenderMetrics
+                           ► RasterArtwork (Original unverändert)
+```
+
+Render-only-Änderungen (Schwarz ↔ Farbe, Hintergrund, Breite, Deckkraft) zeichnen denselben Pfad neu;
+die Engine wird dafür nie gestartet. Eine neue Detailstufe erzeugt einen neuen Pfad (ohne neue Analyse)
+und danach ein neues Rendering.
+
+### Eine Linie
+`drawArtworkLine` zeichnet ausschließlich die Punkte der `OneLinePath` (über `tracePath` bzw. dieselbe
+Punktfolge). Monochrom: ein `moveTo`, n−1 `lineTo`, ein `stroke`. Farbe: Canvas kann die Farbe innerhalb
+eines Strichs nicht ändern, daher wird dieselbe Punktfolge in aufeinanderfolgenden Farbabschnitten
+gezeichnet; jeder Abschnitt beginnt am letzten Punkt des vorherigen — kein Punkt wird hinzugefügt,
+verschoben oder ausgelassen. Deckkraft wird einmal auf die ganze Linie angewendet (eigene Linienebene).
+Über `PathCursor` zeichnet dieselbe Funktion später die Animationsframes (Teil 7).
+
+### Render-Einstellungen (`rendering/renderSettings.ts`)
+| Einstellung | Werte | UI in Teil 6 |
+|---|---|---|
+| `colorMode` | monochrome, sampled-color; vorbereitet: custom-color, gradient | Schwarz / Farbe |
+| `lineColor` | beliebige #rgb/#rrggbb, Standard #000000 | – |
+| `lineWidth` | px bei `REFERENCE_RENDER_EDGE` = 1000, skaliert mit der Renderkante | – |
+| `lineOpacity` | 0…1, Standard 1 | – |
+| `background` | white, black, original, transparent, custom | – (Standard white; original in der Entwickleransicht) |
+| `sampling` | Stationsabstand, Radius, Ausreißer-Trim, Glättung, Stärke, Helligkeitsbereiche | – |
+
+Validierung zentral (`sanitizeRenderSettings`): NaN/Infinity → `RenderError`, Bereiche begrenzt,
+ungültige Farben/Modi → Standardwert (gemeldet). `RENDERER_VERSION` versioniert die Ausgabe.
+
+### Farb-Sampling
+1. Stationen in festem Abstand entlang der Bogenlänge (nicht an jedem Rohpunkt; nie dichter als die Glättung auflösen kann)
+2. 5×5-Umgebung je Station (Radius ≥ 2 Bildpixel), über Weiß komponiert, in linearem Licht
+3. getrimmter Mittelwert je Kanal (Ausreißer verworfen)
+4. Gauß-Glättung des Farbverlaufs entlang der Linie
+5. OKLab: Helligkeit auf lesbaren Bereich begrenzt (hell: 0,20–0,55; dunkler Hintergrund: 0,62–0,95), Chroma × Stärke
+6. jeder Pfadpunkt erhält die Farbe seiner Station
+
+### Auflösung
+Processing (≤ 2048 px, Analyse/Engine) und Render-Auflösung sind getrennt: `renderArtwork({ path, settings,
+longEdge })` rendert in jeder Größe bis 8192 px mit exakt erhaltenem Seitenverhältnis (verzerrende Zielgrößen
+werden abgelehnt). Vorschau: `PREVIEW_RENDER_EDGE` = 2048.
+
+### Laufzeiten (Desktop-Chromium, Pfad mit 51–120 Tsd. Punkten)
+| | 1024 px | 2048 px | 4096 px |
+|---|---|---|---|
+| Rendering Balanced (Schwarz / Farbe) | 110 / 95–130 ms | 150–170 / 140–165 ms | 250–265 / 220–280 ms |
+| Rendering Detail (Schwarz / Farbe) | 240–255 / 180–220 ms | 295–330 / 225–310 ms | 410–485 / 350–425 ms |
+| Farb-Sampling (einmal pro Pfad) | 130 ms (Balanced), 180 ms (Detail) | | |
+| Pfadberechnung (zum Vergleich) | 1,5–1,6 s (Balanced), 2,6–3,0 s (Detail) | | |

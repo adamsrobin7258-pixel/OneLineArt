@@ -3,7 +3,7 @@ import {
   ARTWORK_PROJECT_SCHEMA_VERSION,
   DEFAULT_ANIMATION_SETTINGS,
   resolveOneLineSettings,
-  DEFAULT_RENDER_STYLE,
+  DEFAULT_RENDER_SETTINGS,
   createMemoryRepository,
   type ArtworkProject,
 } from '../../src/core';
@@ -22,7 +22,7 @@ const project = (id: string, updatedAt: string): ArtworkProject => ({
     contentHash: '00000000',
   },
   oneLine: resolveOneLineSettings(),
-  renderStyle: DEFAULT_RENDER_STYLE,
+  render: DEFAULT_RENDER_SETTINGS,
   animation: DEFAULT_ANIMATION_SETTINGS,
   path: null,
 });

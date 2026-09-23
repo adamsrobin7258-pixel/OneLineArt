@@ -2,7 +2,7 @@ import type { AnimationSettings } from './animationSettings';
 import type { OneLinePath } from './oneLinePath';
 import type { EffectiveOneLineSettings } from '../drawing';
 import type { OriginalImage } from './originalImage';
-import type { RenderStyle } from './renderedArtwork';
+import type { RenderSettings } from '../rendering';
 
 export const ARTWORK_PROJECT_SCHEMA_VERSION = 1;
 
@@ -16,7 +16,8 @@ export interface ArtworkProject {
   readonly image: OriginalImage;
   /** Detail level, seed, effective engine parameters and engine version: enough to reproduce the path. */
   readonly oneLine: EffectiveOneLineSettings;
-  readonly renderStyle: RenderStyle;
+  /** How the line is rendered (colour mode, background, width, opacity). */
+  readonly render: RenderSettings;
   readonly animation: AnimationSettings;
   /** Null until a path was generated. */
   readonly path: OneLinePath | null;

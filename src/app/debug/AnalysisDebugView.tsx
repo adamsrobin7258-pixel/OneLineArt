@@ -4,6 +4,8 @@ import {
   DETAIL_LEVELS,
   measureImportanceRepresentation,
   resolveAllDetailLevels,
+  DEFAULT_RENDER_SETTINGS,
+  type RenderSettings,
   fieldStats,
   hashBytes,
   validateOneLinePath,
@@ -17,8 +19,19 @@ import type { ImageImportController } from '../state/useImageImport';
 import { ImageViewer } from '../../ui/components/ImageViewer';
 import { useFieldBitmap } from './useFieldBitmap';
 import { usePathBitmap } from '../preview/usePathBitmap';
+import { PREVIEW_RENDER_EDGE } from '../preview/previewConfig';
+import { useArtwork } from '../preview/useArtwork';
 
-type PathLayer = 'pathOnOriginal' | 'pathOnImportance' | 'pathOnly';
+type PathLayer = 'pathOnOriginal' | 'pathOnImportance' | 'pathOnly' | ArtLayer;
+type ArtLayer = 'artMono' | 'artColor' | 'artOriginal';
+
+/** Render settings behind each artwork layer (developer comparison). */
+const ART_LAYER_SETTINGS: Record<ArtLayer, RenderSettings> = {
+  artMono: DEFAULT_RENDER_SETTINGS,
+  artColor: { ...DEFAULT_RENDER_SETTINGS, colorMode: 'sampled-color' },
+  artOriginal: { ...DEFAULT_RENDER_SETTINGS, background: 'original' },
+};
+const isArtLayer = (layer: string): layer is ArtLayer => layer in ART_LAYER_SETTINGS;
 type DebugLayer = 'original' | AnalysisLayerName | PathLayer;
 
 const LABELS: Record<DebugLayer, string> = {
@@ -34,9 +47,12 @@ const LABELS: Record<DebugLayer, string> = {
   pathOnOriginal: 'Pfad + Original',
   pathOnImportance: 'Pfad + Importance',
   pathOnly: 'Pfad',
+  artMono: 'Artwork Schwarz',
+  artColor: 'Artwork Farbe',
+  artOriginal: 'Artwork + Original',
 };
 
-const PATH_LAYERS: readonly PathLayer[] = ['pathOnOriginal', 'pathOnImportance', 'pathOnly'];
+const PATH_LAYERS: readonly PathLayer[] = ['pathOnOriginal', 'pathOnImportance', 'pathOnly', 'artMono', 'artColor', 'artOriginal'];
 const isPathLayer = (layer: DebugLayer): layer is PathLayer => (PATH_LAYERS as readonly string[]).includes(layer);
 
 interface AnalysisDebugViewProps {
@@ -80,10 +96,25 @@ export function AnalysisDebugView({ session, controller }: AnalysisDebugViewProp
         ? { kind: 'field', field: analysis.importance }
         : { kind: 'blank' };
   const pathHash = useMemo(() => (path ? hashBytes(new Uint8Array(path.coords.buffer, path.coords.byteOffset, path.coords.byteLength)) : ''), [path]);
-  const overlay = usePathBitmap(path, background, `${pathHash}:${layer}`);
+  const overlay = usePathBitmap(isArtLayer(layer) ? null : path, isArtLayer(layer) ? null : background, `${pathHash}:${layer}`);
+  const { artwork } = useArtwork({
+    path: isArtLayer(layer) ? path : null,
+    settings: isArtLayer(layer) ? ART_LAYER_SETTINGS[layer] : DEFAULT_RENDER_SETTINGS,
+    longEdge: PREVIEW_RENDER_EDGE,
+    image: session.processed.pixels,
+    backgroundImage: session.preview,
+  });
   const validation = useMemo(() => (path ? validateOneLinePath(path) : null), [path]);
 
-  const shown = layer === 'original' ? session.preview : isPathLayer(layer) ? (overlay ?? session.preview) : (fieldBitmap ?? session.preview);
+  const shown =
+    layer === 'original'
+      ? session.preview
+      : isArtLayer(layer)
+        ? (artwork?.image ?? session.preview)
+        : isPathLayer(layer)
+          ? (overlay ?? session.preview)
+          : (fieldBitmap ?? session.preview);
+  const rm = isArtLayer(layer) ? artwork?.metrics : undefined;
   const m = pathRun?.metrics;
 
   return (
@@ -99,6 +130,7 @@ export function AnalysisDebugView({ session, controller }: AnalysisDebugViewProp
       data-path-source={path?.meta.sourceImageId ?? ''}
       data-detail-level={session.oneLine.drawing.detailLevel}
       data-config-key={session.oneLine.key}
+      data-render-mode={rm?.renderColorMode ?? ''}
     >
       <div className="debug__bar">
         {(['original', ...ANALYSIS_LAYERS] as DebugLayer[]).map((name) => (
@@ -259,6 +291,27 @@ export function AnalysisDebugView({ session, controller }: AnalysisDebugViewProp
           </dd>
           <dt>Parameter</dt>
           <dd className="debug__params">{JSON.stringify({ settings: pathRun.effective.settings, parameters: pathRun.effective.parameters })}</dd>
+        </dl>
+      )}
+      {rm && (
+        <dl className="debug__metrics" data-testid="render-metrics">
+          <dt>Rendering</dt>
+          <dd>
+            Renderer v{rm.rendererVersion} · Detailstufe {DETAIL_LEVEL_LABELS[session.oneLine.drawing.detailLevel].label} · Farbmodus {rm.renderColorMode} · Hintergrund{' '}
+            {rm.renderBackgroundMode}
+          </dd>
+          <dt>Auflösung</dt>
+          <dd>
+            {rm.renderWidth}×{rm.renderHeight} px · Linie {fmt(rm.lineWidth, 2)} (Referenz) → {fmt(rm.lineWidthPx, 2)} px · Deckkraft {fmt(rm.lineOpacity * 100, 0)} %
+          </dd>
+          <dt>Pfad</dt>
+          <dd>
+            {rm.pathPoints.toLocaleString('de-DE')} Punkte · {fmt(rm.pathLength, 0)} px · {rm.strokeRuns.toLocaleString('de-DE')} Strich-Abschnitte
+          </dd>
+          <dt>Farb-Sampling</dt>
+          <dd>{rm.colorSampling ? `ja · ${rm.sampleCount.toLocaleString('de-DE')} Stationen · Glättung σ ${fmt(rm.colorSmoothingWindowPx, 1)} px` : 'nein'}</dd>
+          <dt>Laufzeit</dt>
+          <dd data-testid="render-runtime">{fmt(rm.renderRuntimeMs, 0)} ms (nur Rendering)</dd>
         </dl>
       )}
       <div className="debug__viewer">

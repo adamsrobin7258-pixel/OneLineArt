@@ -1,4 +1,4 @@
-import type { OneLineDetailLevel, PathErrorCode } from '../core';
+import type { OneLineDetailLevel, PathErrorCode, RenderColorMode } from '../core';
 import type { UserMessage } from './importMessages';
 
 /** User-facing names of the detail levels. No technical terms. */
@@ -17,3 +17,9 @@ export const PATH_ERROR_MESSAGES: Record<PathErrorCode, UserMessage> = {
   'invalid-result': { title: 'Die Zeichnung konnte nicht berechnet werden', detail: 'Bitte erneut versuchen.' },
   'generation-failed': { title: 'Die Zeichnung konnte nicht berechnet werden', detail: 'Bitte erneut versuchen.' },
 };
+
+/** The two user-facing display choices and the render mode behind each. No technical terms. */
+export const DISPLAY_OPTIONS: readonly { readonly value: 'black' | 'color'; readonly label: string; readonly colorMode: RenderColorMode }[] = [
+  { value: 'black', label: 'Schwarz', colorMode: 'monochrome' },
+  { value: 'color', label: 'Farbe', colorMode: 'sampled-color' },
+];

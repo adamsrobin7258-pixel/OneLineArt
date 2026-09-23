@@ -1,3 +1,4 @@
+import type { RenderMetrics, RenderSettings } from '../rendering';
 import type { Size } from './geometry';
 
 export interface RenderStyle {
@@ -12,5 +13,20 @@ export const DEFAULT_RENDER_STYLE: RenderStyle = {
   backgroundColor: '#ffffff',
 };
 
-/** Output of the rendering stage. More formats (PNG) follow in parts 6/8. */
-export type RenderedArtwork = { readonly format: 'svg'; readonly data: string; readonly size: Size };
+/** Simple vector style for the SVG output (monochrome). */
+export type SvgArtwork = { readonly format: 'svg'; readonly data: string; readonly size: Size };
+
+/**
+ * A rendered raster artwork. Always a NEW image — the original is never
+ * modified. `image` is a platform handle (e.g. an ImageBitmap in the browser).
+ */
+export interface RasterArtwork<TImage = unknown> {
+  readonly format: 'raster';
+  readonly size: Size;
+  readonly image: TImage;
+  readonly settings: RenderSettings;
+  readonly metrics: RenderMetrics & { readonly renderRuntimeMs: number };
+}
+
+/** Output of the rendering stage. */
+export type RenderedArtwork<TImage = unknown> = SvgArtwork | RasterArtwork<TImage>;
