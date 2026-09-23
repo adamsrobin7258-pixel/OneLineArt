@@ -543,6 +543,45 @@ button.steps__link:hover {
   justify-self: end;
 }
 
+.controlbar__start {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* Three choices in the middle (drawing step): narrower columns, stacks earlier. */
+.controlbar--wide {
+  grid-template-columns: minmax(max-content, 1fr) auto minmax(max-content, 1fr);
+}
+
+.controlbar--wide .controlbar__options {
+  grid-auto-columns: minmax(200px, max-content);
+}
+
+/* Phones: while fine control is open it replaces the three choices, so the drawing stays visible. */
+@media (max-width: 639px) {
+  .settings:has(> .adjust) .controlbar__options {
+    display: none;
+  }
+  .controlbar__start .button--ghost {
+    padding: 0 14px;
+  }
+}
+
+/* Narrow phones: "Zurück" shows its arrow only (the name stays for screen readers). */
+@media (max-width: 420px) {
+  .controlbar__start > :first-child {
+    padding: 0 14px;
+  }
+  .controlbar__collapsible {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
 @media (max-width: 900px) {
   .controlbar {
     display: flex;
@@ -561,6 +600,35 @@ button.steps__link:hover {
   }
   .controlbar__nav > :last-child:not(:first-child) {
     flex: 1;
+  }
+}
+
+@media (max-width: 1100px) {
+  .controlbar--wide {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+  .controlbar--wide .controlbar__options {
+    grid-auto-flow: row;
+    grid-auto-columns: auto;
+    gap: var(--space-3);
+  }
+  .controlbar--wide .controlbar__nav {
+    display: flex;
+    gap: var(--space-2);
+  }
+  .controlbar--wide .controlbar__nav > :last-child:not(:first-child) {
+    flex: 1;
+  }
+}
+
+/* Landscape tablets: the three choices side by side (detail may carry a 4th "Eigene" option). */
+@media (max-width: 1100px) and (min-width: 900px) {
+  .controlbar--wide .controlbar__options {
+    grid-auto-flow: row;
+    grid-template-columns: minmax(0, 1fr) minmax(max-content, 1.5fr) minmax(0, 1fr);
   }
 }
 
@@ -885,6 +953,99 @@ button.steps__link:hover {
   box-shadow: var(--shadow-float);
   font-size: 14px;
   white-space: nowrap;
+}
+
+.settings:has(> .adjust) {
+  grid-template-rows: minmax(0, 1fr) auto auto;
+}
+
+/* ---------- Fine control ("Anpassen") ---------- */
+
+.adjust {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 4fr) auto;
+  align-items: start;
+  gap: var(--space-3) var(--space-5);
+  padding: var(--space-3) 0 0;
+  border-top: 1px solid var(--color-line);
+}
+
+.adjust__group {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-2) var(--space-4);
+  min-width: 0;
+}
+
+.adjust__title {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.adjust__actions {
+  align-self: end;
+}
+
+@media (max-width: 1100px) {
+  .adjust {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+    max-height: 40vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .adjust__actions {
+    justify-self: start;
+  }
+}
+
+.slider {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.slider__head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.slider__label {
+  font-weight: 600;
+  color: var(--color-ink-soft);
+}
+
+.slider__value {
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.slider__input {
+  width: 100%;
+  height: 32px;
+  margin: 0;
+  accent-color: var(--color-ink);
+  cursor: pointer;
+}
+
+.slider__hint {
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
+.slider.is-disabled {
+  opacity: 0.5;
+}
+
+.slider.is-disabled .slider__input {
+  cursor: not-allowed;
 }
 
 /* ---------- Preview (drawing process) ---------- */

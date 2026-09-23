@@ -1,3 +1,4 @@
+import { isCustomDrawing } from '../drawing';
 import type { ArtworkProject } from '../models';
 import {
   outdatedParts,
@@ -116,6 +117,8 @@ export function createProjectRepository(backend: StorageBackend, options: Projec
             createdAt: r.createdAt,
             updatedAt: r.updatedAt,
             detailLevel: r.oneLine.drawing.detailLevel,
+            style: r.oneLine.drawing.style,
+            custom: isCustomDrawing(r.oneLine.drawing),
             colorMode: r.render.colorMode,
             imageSize: { width: r.image.metadata.width, height: r.image.metadata.height },
             pointCount: r.path.pointCount,
@@ -132,6 +135,8 @@ export function createProjectRepository(backend: StorageBackend, options: Projec
             createdAt: text(partial?.createdAt),
             updatedAt: text(partial?.updatedAt),
             detailLevel: null,
+            style: null,
+            custom: false,
             colorMode: null,
             imageSize: null,
             pointCount: 0,

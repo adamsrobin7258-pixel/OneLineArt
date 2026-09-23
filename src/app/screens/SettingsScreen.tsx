@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
-import type { ImageSession, OneLinePath } from '../../core';
+import { useEffect, useId, useState } from 'react';
+import { isCustomDrawing, type ImageSession, type OneLinePath } from '../../core';
 import { Button } from '../../ui/components/Button';
 import { ImageViewer } from '../../ui/components/ImageViewer';
 import { Icon } from '../../ui/components/Icon';
 import { StatusPanel } from '../../ui/components/StatusPanel';
-import { DetailChoice, DisplayChoice } from '../controls';
+import { AdjustPanel } from '../AdjustPanel';
+import { DetailChoice, DisplayChoice, StyleChoice } from '../controls';
 import { PATH_ERROR_MESSAGES } from '../drawingLabels';
 import { ANALYSIS_ERROR_MESSAGES } from '../importMessages';
 import { useZoomResolution } from '../preview/useZoomResolution';
@@ -22,9 +23,10 @@ interface SettingsScreenProps {
 }
 
 /**
- * Step 2: choose the detail level and see the drawing. Changing the level
+ * Step 2: choose style and detail and see the drawing. Changing them
  * recomputes only the line (the image analysis is reused); the previous
- * drawing stays visible, dimmed, until the new one is ready.
+ * drawing stays visible, dimmed, until the new one is ready. Fine control
+ * sits behind "Anpassen"; render-only controls never recompute the line.
  */
 export function SettingsScreen({ session, controller, render, onBack, onContinue }: SettingsScreenProps) {
   const { renderSettings } = render;
@@ -48,6 +50,9 @@ export function SettingsScreen({ session, controller, render, onBack, onContinue
   const busy = pathStatus === 'running' || (pathStatus === 'idle' && analysisStatus !== 'failed');
   const busyText = analysisStatus === 'ready' ? 'Zeichnung wird berechnet …' : 'Bild wird analysiert …';
   const level = oneLine.drawing.detailLevel;
+  const custom = isCustomDrawing(oneLine.drawing);
+  const [adjusting, setAdjusting] = useState(false);
+  const panelId = useId();
 
   return (
     <section
@@ -55,6 +60,9 @@ export function SettingsScreen({ session, controller, render, onBack, onContinue
       data-testid="settings-screen"
       data-path-status={pathStatus}
       data-detail-level={level}
+      data-detail-custom={custom ? 'true' : 'false'}
+      data-style={oneLine.drawing.style}
+      data-engine={oneLine.engineId}
       data-path-current={path ? 'true' : 'false'}
       data-color-mode={renderSettings.colorMode}
       data-render-size={artwork ? `${artwork.size.width}x${artwork.size.height}` : ''}
@@ -81,16 +89,25 @@ export function SettingsScreen({ session, controller, render, onBack, onContinue
           </p>
         )}
       </div>
-      <footer className="controlbar">
+      {adjusting && <AdjustPanel id={panelId} oneLine={oneLine} setDrawing={setDrawing} render={render} />}
+      <footer className="controlbar controlbar--wide">
         <div className="controlbar__options">
-          <DetailChoice value={level} onChange={(detailLevel) => setDrawing({ detailLevel })} fill />
+          <StyleChoice value={oneLine.drawing.style} onChange={(style) => setDrawing({ style })} fill />
+          {/* A preset sets all line parameters (continuous detail and smoothing back to the preset). */}
+          <DetailChoice value={level} custom={custom} onChange={(detailLevel) => setDrawing({ detailLevel, detail: null, smoothing: null })} fill />
           <DisplayChoice render={render} fill />
         </div>
         <div className="controlbar__nav">
-          <Button variant="quiet" onClick={onBack}>
-            <Icon name="arrowLeft" size={18} />
-            Zurück
-          </Button>
+          <div className="controlbar__start">
+            <Button variant="quiet" onClick={onBack}>
+              <Icon name="arrowLeft" size={18} />
+              <span className="controlbar__collapsible">Zurück</span>
+            </Button>
+            <Button variant="ghost" aria-expanded={adjusting} aria-controls={adjusting ? panelId : undefined} onClick={() => setAdjusting((open) => !open)}>
+              <Icon name="sliders" size={18} />
+              Anpassen
+            </Button>
+          </div>
           <Button disabled={pathStatus !== 'ready'} onClick={onContinue}>
             Weiter
             <Icon name="arrowRight" size={18} />

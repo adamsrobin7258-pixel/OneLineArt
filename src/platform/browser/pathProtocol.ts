@@ -14,6 +14,8 @@ export interface PathRequest {
   readonly analysis: ImageAnalysis;
   readonly settings: OneLineSettings;
   readonly parameters: OneLineEngineParameters;
+  /** Engine registry id (the drawing style's engine). */
+  readonly engineId: string;
   /** Hard safety limit; exceeding it fails the run (never truncates the result). */
   readonly timeLimitMs: number;
 }

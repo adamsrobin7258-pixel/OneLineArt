@@ -4,7 +4,7 @@ import { Button } from '../../ui/components/Button';
 import { Dialog } from '../../ui/components/Dialog';
 import { Icon } from '../../ui/components/Icon';
 import { StatusPanel } from '../../ui/components/StatusPanel';
-import { DETAIL_LEVEL_LABELS } from '../drawingLabels';
+import { CUSTOM_DETAIL_LABEL, DETAIL_LEVEL_LABELS, DRAWING_STYLE_LABELS } from '../drawingLabels';
 import { STORAGE_ERROR_MESSAGES } from '../exportMessages';
 import type { ProjectsController } from '../state/useProjects';
 
@@ -148,7 +148,7 @@ function GalleryCard({ item, busy, onOpen, onRename, onDelete }: { item: Project
           <p className="card__title">{title}</p>
           <p className="card__detail">
             {ok
-              ? [item.detailLevel && DETAIL_LEVEL_LABELS[item.detailLevel].label, formatDate(item.updatedAt)].filter(Boolean).join(' · ')
+              ? [item.style && DRAWING_STYLE_LABELS[item.style].label, item.custom ? CUSTOM_DETAIL_LABEL.label : item.detailLevel && DETAIL_LEVEL_LABELS[item.detailLevel].label, formatDate(item.updatedAt)].filter(Boolean).join(' · ')
               : item.status === 'incompatible'
                 ? 'Mit einer anderen App-Version erstellt'
                 : 'Kann nicht geöffnet werden'}

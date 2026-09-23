@@ -1,5 +1,5 @@
 import type { ArtworkProject, BinarySource, ProjectVersions, Size } from '../models';
-import type { OneLineDetailLevel } from '../drawing';
+import type { DrawingStyle, OneLineDetailLevel } from '../drawing';
 import type { RenderColorMode } from '../rendering';
 import { DEFAULT_IMPORT_OPTIONS } from '../imageImport/options';
 
@@ -59,6 +59,10 @@ export interface ProjectSummary {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly detailLevel: OneLineDetailLevel | null;
+  /** Drawing style; null for unreadable projects. */
+  readonly style: DrawingStyle | null;
+  /** True when detail or smoothing deviate from the preset. */
+  readonly custom: boolean;
   readonly colorMode: RenderColorMode | null;
   readonly imageSize: Size | null;
   readonly pointCount: number;

@@ -56,3 +56,50 @@ export const DETAIL_PROFILES: Readonly<Record<OneLineDetailLevel, DetailProfile>
     },
   },
 };
+
+/** Presets ordered along the continuous detail axis (the anchors of the slider). */
+export const DETAIL_ANCHORS: readonly OneLineDetailLevel[] = [...DETAIL_LEVELS].sort((a, b) => DETAIL_PROFILES[a].detail - DETAIL_PROFILES[b].detail);
+
+/** The preset sitting exactly at `detail`, if any. */
+export function detailLevelAt(detail: number): OneLineDetailLevel | null {
+  return DETAIL_ANCHORS.find((level) => DETAIL_PROFILES[level].detail === detail) ?? null;
+}
+
+type Numeric = number | { readonly [key: string]: Numeric };
+
+function lerpValue(a: Numeric, b: Numeric, t: number, integer: (key: string) => boolean, key: string): Numeric {
+  if (typeof a === 'number' && typeof b === 'number') {
+    const v = a + (b - a) * t;
+    return integer(key) ? Math.round(v) : v;
+  }
+  if (typeof a === 'object' && typeof b === 'object') {
+    return Object.fromEntries(Object.keys(a).map((k) => [k, lerpValue(a[k]!, b[k]!, t, integer, `${key}.${k}`)]));
+  }
+  return a;
+}
+
+/**
+ * Continuous detail: the full parameter sets of the two neighbouring presets
+ * are interpolated linearly (integers rounded). Exactly at a preset the
+ * preset's own parameters are returned unchanged; outside the anchors the
+ * nearest preset's parameters apply (the line budget still follows `detail`).
+ */
+export function interpolateDetailParameters<P extends object>(
+  detail: number,
+  resolvePreset: (level: OneLineDetailLevel) => P,
+  integer: (key: string) => boolean = () => false,
+): P {
+  const exact = detailLevelAt(detail);
+  if (exact) return resolvePreset(exact);
+  const first = DETAIL_ANCHORS[0]!;
+  const last = DETAIL_ANCHORS[DETAIL_ANCHORS.length - 1]!;
+  if (detail <= DETAIL_PROFILES[first].detail) return resolvePreset(first);
+  if (detail >= DETAIL_PROFILES[last].detail) return resolvePreset(last);
+  const upperIndex = DETAIL_ANCHORS.findIndex((level) => DETAIL_PROFILES[level].detail > detail);
+  const lower = DETAIL_ANCHORS[upperIndex - 1]!;
+  const upper = DETAIL_ANCHORS[upperIndex]!;
+  const t = (detail - DETAIL_PROFILES[lower].detail) / (DETAIL_PROFILES[upper].detail - DETAIL_PROFILES[lower].detail);
+  const a = resolvePreset(lower) as unknown as Record<string, Numeric>;
+  const b = resolvePreset(upper) as unknown as Record<string, Numeric>;
+  return Object.fromEntries(Object.keys(a).map((k) => [k, lerpValue(a[k]!, b[k]!, t, integer, k)])) as P;
+}

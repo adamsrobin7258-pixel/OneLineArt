@@ -1,14 +1,14 @@
-import { EngineError, computePathMetrics, createRandom, generateOneLine, type PathErrorCode } from '../../core';
+import { EngineError, computePathMetrics, createRandom, oneLineEngine, type PathErrorCode } from '../../core';
 import type { PathRequest, PathResponse } from './pathProtocol';
 
-/** Runs the pure One-Line engine off the main thread and measures the result. */
+/** Runs the pure One-Line engine (of the requested style) off the main thread and measures the result. */
 self.addEventListener('message', (event: MessageEvent<PathRequest>) => {
-  const { processed, analysis, settings, parameters, timeLimitMs } = event.data;
+  const { processed, analysis, settings, parameters, engineId, timeLimitMs } = event.data;
   const started = performance.now();
   let response: PathResponse;
   let transfer: Transferable[] = [];
   try {
-    const result = generateOneLine({ image: processed.pixels, analysis, settings }, parameters, {
+    const result = oneLineEngine(engineId).run({ image: processed.pixels, analysis, settings }, parameters, {
       rng: createRandom(settings.seed),
       shouldAbort: () => performance.now() - started > timeLimitMs,
     });

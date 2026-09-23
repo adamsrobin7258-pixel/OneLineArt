@@ -149,6 +149,25 @@ describe('damaged and incompatible data', () => {
     return { backend, repo, record };
   }
 
+  it('projects saved before drawing styles open as Organic presets with their key unchanged', async () => {
+    const { backend, repo, record } = await stored();
+    const oneLine = record.oneLine as { drawing: Record<string, unknown>; key: string };
+    const legacyDrawing = Object.fromEntries(Object.entries(oneLine.drawing).filter(([k]) => !['style', 'detail', 'smoothing'].includes(k)));
+    backend.stores.get('projects')!.set('a', { ...record, oneLine: { ...oneLine, drawing: legacyDrawing } });
+    const { project: loaded } = await repo.load('a');
+    expect(loaded.oneLine.drawing).toMatchObject({ style: 'organic', detail: null, smoothing: null, detailLevel: 'detail' });
+    expect(loaded.oneLine.key).toBe(oneLine.key);
+    expect((await repo.list())[0]).toMatchObject({ status: 'ok', style: 'organic', custom: false, detailLevel: 'detail' });
+  });
+
+  it('stores style and custom detail and shows them in the gallery data', async () => {
+    const repo = createProjectRepository(createMemoryStorageBackend());
+    const p = { ...project('g'), oneLine: resolveOneLineSettings({ style: 'geometric', detail: 0.7, seed: 42 }) };
+    await repo.save(p, null);
+    expect((await repo.load('g')).project.oneLine).toEqual(p.oneLine);
+    expect((await repo.list())[0]).toMatchObject({ style: 'geometric', custom: true });
+  });
+
   it('a newer project format is reported as incompatible, never guessed', async () => {
     const { backend, repo, record } = await stored();
     backend.stores.get('projects')!.set('a', { ...record, formatVersion: 99 });
@@ -164,6 +183,8 @@ describe('damaged and incompatible data', () => {
       ['bad settings', { ...record, render: { ...(record.render as object), lineWidth: Number.NaN } }],
       ['out-of-range settings', { ...record, render: { ...(record.render as object), lineWidth: 1000 } }],
       ['unknown level', { ...record, oneLine: { ...(record.oneLine as object), drawing: { detailLevel: 'ultra' } } }],
+      ['unknown style', { ...record, oneLine: { ...(record.oneLine as object), drawing: { detailLevel: 'detail', style: 'cubist' } } }],
+      ['bad custom detail', { ...record, oneLine: { ...(record.oneLine as object), drawing: { detailLevel: 'detail', detail: 'viel' } } }],
       ['bad date', { ...record, createdAt: 'yesterday' }],
       ['bad path info', { ...record, path: { ...(record.path as object), pointCount: 1 } }],
     ];

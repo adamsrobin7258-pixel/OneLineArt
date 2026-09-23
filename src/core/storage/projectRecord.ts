@@ -1,5 +1,5 @@
 import { sanitizeAnimationSettings } from '../animation/animationSettings';
-import { DETAIL_LEVELS, type EffectiveOneLineSettings } from '../drawing';
+import { DETAIL_LEVELS, DRAWING_STYLES, type EffectiveOneLineSettings } from '../drawing';
 import { ANALYSIS_ALGORITHM_VERSION } from '../imageAnalysis/parameters';
 import { ONE_LINE_ENGINE_VERSION } from '../engine/oneLine/parameters';
 import {
@@ -71,6 +71,7 @@ const isText = (v: unknown, max = 1000): v is string => typeof v === 'string' &&
 const isPositiveInt = (v: unknown): v is number => Number.isInteger(v) && (v as number) > 0;
 const isSize = (v: unknown): v is Size => isObject(v) && isPositiveInt(v.width) && isPositiveInt(v.height);
 const isDate = (v: unknown): v is string => isText(v, 40) && !Number.isNaN(Date.parse(v));
+const isOptionalNumber = (v: unknown): boolean => v === undefined || v === null || (typeof v === 'number' && Number.isFinite(v));
 
 function check<T>(ok: boolean, value: unknown, what: string): T {
   if (!ok) throw damaged(what);
@@ -127,17 +128,23 @@ export function parseProjectRecord(raw: unknown): ProjectRecord {
 
   const image = check<Record<string, unknown>>(isObject(record.image), record.image, 'image');
   const metadata = check<ImageMetadata>(isObject(image.metadata) && isPositiveInt(image.metadata.width) && isPositiveInt(image.metadata.height), image.metadata, 'image metadata');
-  const oneLine = check<EffectiveOneLineSettings>(
+  const stored = check<EffectiveOneLineSettings>(
     isObject(record.oneLine) &&
       isText(record.oneLine.key, 100_000) &&
       isText(record.oneLine.engineVersion) &&
       isObject(record.oneLine.drawing) &&
       (DETAIL_LEVELS as readonly unknown[]).includes(record.oneLine.drawing.detailLevel) &&
+      (record.oneLine.drawing.style === undefined || (DRAWING_STYLES as readonly unknown[]).includes(record.oneLine.drawing.style)) &&
+      isOptionalNumber(record.oneLine.drawing.detail) &&
+      isOptionalNumber(record.oneLine.drawing.smoothing) &&
       isObject(record.oneLine.settings) &&
       isObject(record.oneLine.parameters),
     record.oneLine,
     'drawing settings',
   );
+  // Projects saved before styles existed are Organic presets (same key, same path).
+  const legacy: Partial<EffectiveOneLineSettings['drawing']> = stored.drawing;
+  const oneLine: EffectiveOneLineSettings = { ...stored, drawing: { ...stored.drawing, style: legacy.style ?? 'organic', detail: legacy.detail ?? null, smoothing: legacy.smoothing ?? null } };
   const path = check<ProjectRecord['path']>(
     isObject(record.path) && isSize(record.path.bounds) && isObject(record.path.meta) && isPositiveInt(record.path.pointCount) && (record.path.pointCount as number) >= 2,
     record.path,

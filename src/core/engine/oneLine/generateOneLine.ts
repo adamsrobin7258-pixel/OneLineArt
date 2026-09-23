@@ -89,8 +89,40 @@ export function engineValidationOptions(
  * Every demand point is visited exactly once, so the line cannot get stuck in
  * one area, and the connections between regions come from the same route
  * optimization that shapes the details. Pure and deterministic.
+ *
+ * `generateOneLine` is the Organic style; other styles share steps 1–5 and 7
+ * and bring their own step 6 (see LineShape / lineStyles.ts).
  */
 export function generateOneLine(input: OneLineRunInput, rawParameters: OneLineEngineParameters, hooks: OneLineRunHooks): OneLineRunResult {
+  return runOneLineEngine(ORGANIC_LINE_SHAPE, input, rawParameters, hooks);
+}
+
+/**
+ * How a style turns the optimized tour (image px) into the final line —
+ * the only step in which the styles differ. Both functions must keep the
+ * polyline ONE connected path (in order, no new far-away points).
+ */
+export interface LineShape {
+  /** Engine identity of the style (stored in path meta and settings keys). */
+  readonly id: string;
+  /** Bump whenever this style's output for identical input changes. */
+  readonly version: string;
+  /** Tolerance-independent step on the raw tour (e.g. smoothing). */
+  prepare(raw: Float64Array, parameters: OneLineEngineParameters): Float64Array;
+  /** Final polyline at a simplification tolerance (coarsened while above maxPoints). */
+  finish(prepared: Float64Array, tolerance: number): Float64Array;
+}
+
+/** Organic: soft curves — Chaikin smoothing, then Douglas–Peucker. */
+export const ORGANIC_LINE_SHAPE: LineShape = {
+  id: ONE_LINE_ENGINE_ID,
+  version: ONE_LINE_ENGINE_VERSION,
+  prepare: (raw, parameters) => chaikinOpen(raw, Math.max(0, Math.floor(parameters.smoothingIterations)), parameters.smoothingRatio),
+  finish: (prepared, tolerance) => dropDuplicatePoints(simplifyPolyline(prepared, tolerance)),
+};
+
+/** Steps 1–7 with the style's line shape in step 6. */
+export function runOneLineEngine(shape: LineShape, input: OneLineRunInput, rawParameters: OneLineEngineParameters, hooks: OneLineRunHooks): OneLineRunResult {
   const { image, analysis } = input;
   // Central validation: rejects non-finite values, clamps to the safety limits.
   const parameters = sanitizeEngineParameters(rawParameters).value;
@@ -151,7 +183,7 @@ export function generateOneLine(input: OneLineRunInput, rawParameters: OneLineEn
   });
   progress(0.85);
 
-  // 6. Geometry in image coordinates
+  // 6. Geometry in image coordinates (style-specific shape)
   const sx = image.width / gw;
   const sy = image.height / gh;
   const raw = new Float64Array(order.length * 2);
@@ -159,13 +191,13 @@ export function generateOneLine(input: OneLineRunInput, rawParameters: OneLineEn
     raw[i * 2] = xs[order[i]!]! * sx;
     raw[i * 2 + 1] = ys[order[i]!]! * sy;
   }
-  const smoothed = chaikinOpen(raw, Math.max(0, Math.floor(parameters.smoothingIterations)), parameters.smoothingRatio);
+  const smoothed = shape.prepare(raw, parameters);
   let tolerance = Math.max(0, parameters.simplificationTolerance) * (Math.max(image.width, image.height) / REFERENCE_LONG_EDGE);
-  let simplified = dropDuplicatePoints(simplifyPolyline(smoothed, tolerance));
+  let simplified = shape.finish(smoothed, tolerance);
   // Respect the point cap by coarsening the tolerance (deterministic, bounded).
   for (let guard = 0; (simplified.length >> 1) > settings.maxPoints && guard < 24; guard++) {
     tolerance = Math.max(tolerance * 2, 0.01);
-    simplified = dropDuplicatePoints(simplifyPolyline(smoothed, tolerance));
+    simplified = shape.finish(smoothed, tolerance);
   }
   const coords = new Float32Array(simplified.length);
   for (let i = 0; i < simplified.length; i += 2) {
@@ -174,8 +206,8 @@ export function generateOneLine(input: OneLineRunInput, rawParameters: OneLineEn
   }
 
   const path = pathFromCoords(coords, { width: image.width, height: image.height }, {
-    generatorId: ONE_LINE_ENGINE_ID,
-    generatorVersion: ONE_LINE_ENGINE_VERSION,
+    generatorId: shape.id,
+    generatorVersion: shape.version,
     seed: settings.seed,
     ...(analysis.meta.sourceImageId ? { sourceImageId: analysis.meta.sourceImageId } : {}),
   });

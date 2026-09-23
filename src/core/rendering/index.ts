@@ -6,3 +6,4 @@ export * from './colorSpace';
 export * from './renderSettings';
 export * from './colorSampling';
 export * from './renderer';
+export * from './renderControls';

@@ -1,0 +1,177 @@
+import { expect, test, type Page } from '@playwright/test';
+import { colourfulness, createArtwork, exportAndDownload, exportScreen, goToExport, imagePanel, probeVideo, settingsScreen, trackWorkers, videoPanel, workers } from './exportHelpers';
+
+test.beforeEach(async ({ page }) => trackWorkers(page));
+
+const expectDrawing = (page: Page) => expect(settingsScreen(page)).toHaveAttribute('data-path-status', 'ready', { timeout: 60_000 });
+const openAdjust = async (page: Page) => {
+  await page.getByRole('button', { name: 'Anpassen' }).click();
+  await expect(page.getByTestId('adjust-panel')).toBeVisible();
+};
+/** Moves a slider with the keyboard (like a user) and releases it. */
+async function slide(page: Page, name: string, keys: string[]) {
+  await page.getByRole('slider', { name }).focus();
+  for (const key of keys) await page.keyboard.press(key);
+}
+
+/** Share of pixels that differ clearly from the paper (corner pixel), and the paper brightness. */
+const inkOnPaper = (page: Page, buffer: Buffer) =>
+  page.evaluate(async (base64) => {
+    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+    const ctx = new OffscreenCanvas(bitmap.width, bitmap.height).getContext('2d')!;
+    ctx.drawImage(bitmap, 0, 0);
+    const { data } = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+    const paper = (data[0]! + data[1]! + data[2]!) / 3;
+    let ink = 0;
+    for (let i = 0; i < data.length; i += 4 * 5) if (Math.abs((data[i]! + data[i + 1]! + data[i + 2]!) / 3 - paper) > 60) ink++;
+    return { paper, ink: ink / (data.length / 20) };
+  }, buffer.toString('base64'));
+
+test('style: Organic by default; Geometric draws its own line; switching back is instant', async ({ page }) => {
+  test.setTimeout(120_000);
+  await createArtwork(page, { width: 900, height: 700 });
+  const style = page.getByRole('radiogroup', { name: 'Stil' });
+  await expect(style.getByRole('radio')).toHaveText(['Organisch', 'Geometrisch']);
+  await expect(style.getByRole('radio', { name: 'Organisch' })).toHaveAttribute('aria-checked', 'true');
+  await expect(settingsScreen(page)).toHaveAttribute('data-engine', 'importance-stipple-tour');
+
+  await style.getByRole('radio', { name: 'Geometrisch' }).click();
+  await expect(settingsScreen(page)).toHaveAttribute('data-style', 'geometric');
+  await expect(settingsScreen(page)).toHaveAttribute('data-engine', 'geometric-stipple-tour');
+  await expectDrawing(page);
+  await expect(page.getByText('Gerade Linien mit klaren Ecken')).toBeVisible();
+  expect(await workers(page, 'pathGeneration')).toBe(2);
+
+  await style.getByRole('radio', { name: 'Organisch' }).click();
+  await expect(settingsScreen(page)).toHaveAttribute('data-path-status', 'ready');
+  expect(await workers(page, 'pathGeneration')).toBe(2); // cached
+  expect(await workers(page, 'analysis')).toBe(1);
+});
+
+test('detail slider: custom state "Eigene", presets restore; smoothing only in the organic style', async ({ page }) => {
+  test.setTimeout(120_000);
+  await createArtwork(page, { width: 900, height: 700 });
+  const detail = page.getByRole('radiogroup', { name: 'Detailgrad' });
+  await openAdjust(page);
+  await expect(page.getByRole('slider', { name: 'Detailgrad' })).toHaveAttribute('aria-valuetext', '50 %');
+
+  // Five steps up: a value between Balanced and Detail → "Eigene", one new line.
+  await slide(page, 'Detailgrad', ['ArrowRight', 'ArrowRight', 'ArrowRight', 'ArrowRight', 'ArrowRight']);
+  await expect(settingsScreen(page)).toHaveAttribute('data-detail-custom', 'true');
+  await expect(detail.getByRole('radio', { name: 'Eigene' })).toHaveAttribute('aria-checked', 'true');
+  await expectDrawing(page);
+  // Committed per key release: at most one computation per step, the last one wins.
+  expect(await workers(page, 'pathGeneration')).toBeLessThanOrEqual(6);
+  await expect(page.getByRole('slider', { name: 'Detailgrad' })).toHaveAttribute('aria-valuetext', '55 %');
+
+  // Smoothing changes the line too.
+  const before = await workers(page, 'pathGeneration');
+  await slide(page, 'Linienglättung', ['End']);
+  await expect(page.getByRole('slider', { name: 'Linienglättung' })).toHaveAttribute('aria-valuetext', '5');
+  await expectDrawing(page);
+  expect(await workers(page, 'pathGeneration')).toBe(before + 1);
+
+  // A preset restores everything (cached Balanced line, no new computation).
+  const computed = await workers(page, 'pathGeneration');
+  await detail.getByRole('radio', { name: 'Balanced' }).click();
+  await expect(settingsScreen(page)).toHaveAttribute('data-detail-custom', 'false');
+  await expect(detail.getByRole('radio')).toHaveText(['Minimal', 'Balanced', 'Detail']);
+  await expect(page.getByRole('slider', { name: 'Linienglättung' })).toHaveAttribute('aria-valuetext', '2');
+  await expect(settingsScreen(page)).toHaveAttribute('data-path-status', 'ready');
+  expect(await workers(page, 'pathGeneration')).toBe(computed);
+
+  // Geometric: straight lines, no smoothing.
+  await page.getByRole('button', { name: 'Anpassen' }).click(); // close
+  await page.getByRole('radio', { name: 'Geometrisch' }).click();
+  await openAdjust(page);
+  await expect(page.getByRole('slider', { name: 'Linienglättung' })).toBeDisabled();
+  await expect(page.getByText('Im geometrischen Stil bleiben die Linien gerade')).toBeVisible();
+  expect(await workers(page, 'analysis')).toBe(1);
+});
+
+test('render controls change only the drawing of the same line and reach the export', async ({ page }) => {
+  test.setTimeout(180_000);
+  await createArtwork(page, { width: 800, height: 600 });
+  await goToExport(page);
+  await imagePanel(page).getByRole('radio', { name: '2048 px', exact: true }).click();
+  const plain = await inkOnPaper(page, (await exportAndDownload(page, 'Bild')).buffer);
+  await page.getByRole('button', { name: 'Zurück' }).click();
+  await page.getByRole('button', { name: 'Zurück' }).click();
+  await expectDrawing(page);
+  const paths = await workers(page, 'pathGeneration');
+
+  await openAdjust(page);
+  await slide(page, 'Linienbreite', ['End']);
+  await expect(page.getByRole('slider', { name: 'Linienbreite' })).toHaveAttribute('aria-valuetext', '4,00');
+  await slide(page, 'Zeichenstärke', ['ArrowLeft', 'ArrowLeft']);
+  await expect(page.getByRole('slider', { name: 'Zeichenstärke' })).toHaveAttribute('aria-valuetext', '90 %');
+  await expect(page.getByRole('slider', { name: 'Farbintensität' })).toBeDisabled();
+  await page.getByRole('radio', { name: 'Farbe' }).click();
+  await expect(page.getByRole('slider', { name: 'Farbintensität' })).toBeEnabled();
+  await slide(page, 'Farbintensität', ['Home']);
+  await expect(page.getByRole('slider', { name: 'Farbintensität' })).toHaveAttribute('aria-valuetext', '0 %');
+  await page.getByRole('radio', { name: 'Schwarz' }).click();
+  await expect(settingsScreen(page)).toHaveAttribute('data-path-status', 'ready');
+  // Nothing of this recomputes the line or the analysis.
+  expect(await workers(page, 'pathGeneration')).toBe(paths);
+  expect(await workers(page, 'analysis')).toBe(1);
+
+  await goToExport(page);
+  await imagePanel(page).getByRole('radio', { name: '2048 px', exact: true }).click();
+  const wide = await inkOnPaper(page, (await exportAndDownload(page, 'Bild')).buffer);
+  expect(wide.paper).toBeGreaterThan(250);
+  expect(wide.ink).toBeGreaterThan(plain.ink * 1.5); // 4× line width
+
+  // Dark paper: the export follows, the line turns light.
+  await page.getByRole('button', { name: 'Zurück' }).click();
+  await page.getByRole('button', { name: 'Zurück' }).click();
+  await openAdjust(page);
+  await slide(page, 'Hintergrund', ['Home']);
+  await expect(page.getByText('Einfarbige Linie – auf dunklem Grund hell')).toBeVisible();
+  await goToExport(page);
+  const png = (await exportAndDownload(page, 'Bild')).buffer;
+  const dark = await inkOnPaper(page, png);
+  expect(dark.paper).toBeLessThan(5);
+  expect(dark.ink).toBeGreaterThan(0.02);
+  expect((await colourfulness(page, png, 'image/png')).coloured).toBeLessThan(0.02);
+  expect(await workers(page, 'pathGeneration')).toBe(paths);
+
+  // Reset restores the defaults.
+  await page.getByRole('button', { name: 'Zurück' }).click();
+  await page.getByRole('button', { name: 'Zurück' }).click();
+  await openAdjust(page);
+  await page.getByRole('button', { name: 'Zurücksetzen' }).click();
+  await expect(page.getByRole('slider', { name: 'Linienbreite' })).toHaveAttribute('aria-valuetext', '1,00');
+  await expect(page.getByRole('slider', { name: 'Hintergrund' })).toHaveAttribute('aria-valuetext', '100 %');
+  await expect(page.getByRole('button', { name: 'Zurücksetzen' })).toBeDisabled();
+});
+
+test('geometric style: animation finishes, image and video export work', async ({ page }) => {
+  test.setTimeout(240_000);
+  await createArtwork(page, { width: 800, height: 600 });
+  await page.getByRole('radio', { name: 'Geometrisch' }).click();
+  await expectDrawing(page);
+  const paths = await workers(page, 'pathGeneration');
+
+  await page.getByRole('button', { name: 'Weiter' }).click();
+  const canvas = page.getByTestId('animation-canvas');
+  await expect(canvas).toHaveAttribute('data-status', 'ready');
+  await page.getByRole('radio', { name: '5 s', exact: true }).click();
+  await page.getByRole('button', { name: 'Abspielen' }).click();
+  await expect(canvas).toHaveAttribute('data-status', 'finished', { timeout: 20_000 });
+  expect(Number(await canvas.getAttribute('data-progress'))).toBe(1);
+
+  await page.getByRole('button', { name: 'Weiter' }).click();
+  await expect(exportScreen(page)).toBeVisible();
+  await imagePanel(page).getByRole('radio', { name: '2048 px', exact: true }).click();
+  const image = await exportAndDownload(page, 'Bild');
+  expect((await inkOnPaper(page, image.buffer)).ink).toBeGreaterThan(0.01);
+
+  await videoPanel(page).getByRole('radio', { name: '5 s', exact: true }).click();
+  const video = await exportAndDownload(page, 'Video', 120_000);
+  const probe = await probeVideo(video.buffer);
+  expect(probe.width).toBeGreaterThan(0);
+  expect(probe.durationS).toBeGreaterThan(6);
+  expect(await workers(page, 'pathGeneration')).toBe(paths);
+});

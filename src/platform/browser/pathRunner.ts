@@ -4,7 +4,8 @@ import {
   EngineError,
   computePathMetrics,
   createRandom,
-  generateOneLine,
+  ONE_LINE_ENGINE_ID,
+  oneLineEngine,
   type ImageAnalysis,
   type OneLineDiagnostics,
   type OneLineEngineParameters,
@@ -62,6 +63,7 @@ export function runPathGeneration(
   analysis: ImageAnalysis,
   settings: OneLineSettings = DEFAULT_ONE_LINE_SETTINGS,
   parameters: OneLineEngineParameters = DEFAULT_ENGINE_PARAMETERS,
+  engineId: string = ONE_LINE_ENGINE_ID,
 ): PathJob {
   const worker = createWorker();
   let cancelled = false;
@@ -72,7 +74,7 @@ export function runPathGeneration(
         if (cancelled) return;
         const started = performance.now();
         try {
-          const result = generateOneLine({ image: processed.pixels, analysis, settings }, parameters, {
+          const result = oneLineEngine(engineId).run({ image: processed.pixels, analysis, settings }, parameters, {
             rng: createRandom(settings.seed),
             shouldAbort: () => cancelled || performance.now() - started > PATH_TIME_LIMIT_MS,
           });
@@ -106,7 +108,7 @@ export function runPathGeneration(
       if (!cancelled) reject(new PathGenerationError('generation-failed', `Worker error: ${event.message}`));
     });
     try {
-      active.postMessage({ processed, analysis, settings, parameters, timeLimitMs: PATH_TIME_LIMIT_MS });
+      active.postMessage({ processed, analysis, settings, parameters, engineId, timeLimitMs: PATH_TIME_LIMIT_MS });
     } catch (error) {
       active.terminate();
       reject(new PathGenerationError('out-of-memory', `Could not send data to worker: ${String(error)}`));

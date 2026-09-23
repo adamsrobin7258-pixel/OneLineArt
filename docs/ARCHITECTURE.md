@@ -698,3 +698,63 @@ Im Browser bleibt alles unverändert.
   ein laufender Export wird langsamer oder hält an und läuft beim Zurückkehren weiter.
 - Ob die Teilen-Ziel-App die Datei tatsächlich verschickt hat, meldet Android nicht zurück.
 - „Foto aufnehmen“ öffnet weiterhin den Dateiauswähler (keine Kamera-Berechtigung).
+
+## Zeichen-Engine und kreative Kontrolle (Phase 12.1)
+
+### Pfad-Parameter vs. Render-Parameter
+| Regler | wirkt auf | Umsetzung | Neuberechnung |
+|---|---|---|---|
+| Stil (Organisch/Geometrisch) | Pfad | `DrawingSettings.style` → Engine-ID | neuer Pfad (einmal je Konfiguration, danach Cache) |
+| Detailgrad (stufenlos) | Pfad | `DrawingSettings.detail` → `settings.detail` + interpolierte Profile | neuer Pfad beim Loslassen |
+| Linienglättung | Pfad | `DrawingSettings.smoothing` → vorhandenes `smoothingIterations` (Chaikin) | neuer Pfad beim Loslassen |
+| Linienbreite | Rendering | `RenderSettings.lineWidth` | nur Neuzeichnen |
+| Zeichenstärke | Rendering | `RenderSettings.lineOpacity` | nur Neuzeichnen |
+| Hintergrund (Helligkeit) | Rendering | `background: 'custom'` + Grauwert, Linie auf dunklem Grund hell | nur Neuzeichnen |
+| Farbintensität | Rendering | `RenderSettings.sampling.strength` (nur „Farbe“) | nur Neuzeichnen |
+
+Render-Parameter erreichen nie `resolveOneLineSettings`: Analyse und Pfad bleiben unberührt (per Test über
+Worker-Zähler abgesichert). Das Originalfoto wird nie verändert.
+
+### Stufenloser Detailgrad (`drawing/detailLevels.ts`)
+- Die Presets sind Ankerpunkte auf der vorhandenen Detail-Achse: Minimal 0,2 · Balanced 0,5 · Detail 1,0.
+- Zwischenwerte interpolieren die vollständigen Parametersätze der beiden Nachbar-Presets linear
+  (Ganzzahl-Parameter gerundet); das Linienbudget folgt `pointBudgetFor(detail)` wie bisher.
+- Ein Wert genau auf einem Anker **ist** dieses Preset (gleicher Schlüssel, gleicher Cache-Eintrag).
+- „Eigene“ (`isCustomDrawing`): Detail oder Glättung weichen vom Preset ab; Schlüssel-Präfix `custom-`.
+  Ein Klick auf ein Preset setzt Detail und Glättung zurück (Presets bilden alle Pfad-Parameter ab).
+
+### Stil-System (ohne Fallunterscheidung in der Engine)
+```
+DrawingStyle ──DRAWING_STYLE_PROFILES──▶ engineId ──oneLineEngine(id)──▶ OneLineEngine.run
+                                                        │
+                    runOneLineEngine(shape, …): Schritte 1–5 und 7 gemeinsam
+                                                        │
+                                   LineShape (Schritt 6): prepare + finish
+                                     ├─ ORGANIC_LINE_SHAPE:   Chaikin → Douglas–Peucker   (unverändert)
+                                     └─ GEOMETRIC_LINE_SHAPE: Douglas–Peucker → oktilineares Routing
+                                                              (0°/45°/90°) → gerade Läufe zusammenfassen
+```
+- Alle Engines liefern denselben `OneLinePath`; Rendering, Animation, Export, Galerie und Projekte
+  bleiben unverändert. `path.meta.generatorId` nennt die Engine.
+- Geometrisch: jeder Abschnitt wird zu höchstens zwei Teilstücken (gerade + diagonal); der Knick liegt im
+  Rechteck des Abschnitts, also nie außerhalb der Leinwand und ohne Sprünge. Weiterhin genau eine Linie.
+- Neuer Stil = neue `LineShape` im Registry-Eintrag (`engine/oneLine/lineStyles.ts`) + ein Eintrag in
+  `DRAWING_STYLE_PROFILES`. Glättung gilt nur für Stile mit `smoothing: true`.
+- Organic ist bitgenau unverändert: `tests/core/engine/organicGolden.test.ts` friert Pfad-Hashes und
+  Schlüssel aller drei Presets auf drei Motiven ein (vor dem Umbau aufgenommen).
+
+### Projekte
+Ältere Projekte (ohne `style`/`detail`/`smoothing`) werden beim Laden als Organic-Preset ergänzt; ihr
+Schlüssel bleibt gleich. Kein neues Speicherformat nötig. Die Galerie zeigt Stil und „Eigene“.
+
+### Oberfläche
+Schritt „Zeichnung“: Stil · Detailgrad · Darstellung wie bisher als Auswahl; alle Regler liegen hinter
+„Anpassen“ (zwei Gruppen: Linie, Darstellung; „Zurücksetzen“). Auf Telefonen ersetzt das Panel solange die
+drei Auswahlfelder, damit die Zeichnung sichtbar bleibt.
+
+### Bekannte Grenzen
+- Der geometrische Stil nutzt dieselbe Route wie Organic; er ist eine eigene Linienform, keine eigene
+  Routenplanung. Sehr dichte Bereiche wirken dadurch eher „labyrinthartig“ als flächig-geometrisch.
+- Glättung ist in 6 Stufen (0–5 Chaikin-Durchläufe), weil das die vorhandene Engine-Grenze ist.
+- Die Hintergrundhelligkeit gilt für den einfarbigen Papierhintergrund; die Einstellung „Originalfoto als
+  Hintergrund“ bleibt Entwickleransicht.

@@ -1,4 +1,4 @@
-import type { OneLineDetailLevel, PathErrorCode, RenderColorMode } from '../core';
+import type { DrawingStyle, OneLineDetailLevel, PathErrorCode, RenderColorMode } from '../core';
 import type { UserMessage } from './importMessages';
 
 /** User-facing names of the detail levels. No technical terms. */
@@ -6,6 +6,15 @@ export const DETAIL_LEVEL_LABELS: Record<OneLineDetailLevel, { readonly label: s
   minimal: { label: 'Minimal', hint: 'Weniger Linien, klare Formen' },
   balanced: { label: 'Balanced', hint: 'Ausgewogen zwischen Klarheit und Detail' },
   detail: { label: 'Detail', hint: 'Mehr feine Strukturen und Details' },
+};
+
+/** Shown instead of a preset when detail or smoothing were adjusted by hand. */
+export const CUSTOM_DETAIL_LABEL = { label: 'Eigene', hint: 'Eigene Einstellung unter „Anpassen“' } as const;
+
+/** User-facing names of the drawing styles. */
+export const DRAWING_STYLE_LABELS: Record<DrawingStyle, { readonly label: string; readonly hint: string }> = {
+  organic: { label: 'Organisch', hint: 'Weiche, frei fließende Linie' },
+  geometric: { label: 'Geometrisch', hint: 'Gerade Linien mit klaren Ecken' },
 };
 
 export const PATH_ERROR_MESSAGES: Record<PathErrorCode, UserMessage> = {
@@ -23,6 +32,9 @@ export const DISPLAY_OPTIONS: readonly { readonly value: 'black' | 'color'; read
   { value: 'black', label: 'Schwarz', hint: 'Klassische Linie in Schwarz', colorMode: 'monochrome' },
   { value: 'color', label: 'Farbe', hint: 'Die Linie übernimmt die Farben des Fotos', colorMode: 'sampled-color' },
 ];
+
+/** Caption of the monochrome choice when the line turns light on a dark background. */
+export const LIGHT_LINE_HINT = 'Einfarbige Linie – auf dunklem Grund hell';
 
 /** Current display choice for the render settings' colour mode. */
 export const displayOf = (colorMode: RenderColorMode) => DISPLAY_OPTIONS.find((o) => o.colorMode === colorMode) ?? DISPLAY_OPTIONS[0]!;

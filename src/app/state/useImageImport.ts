@@ -197,7 +197,7 @@ export function useImageImport(): ImageImportController {
         pathJob.current.job.cancel();
         pathJob.current.settle();
       }
-      const job = runPathGeneration(session.processed, session.analysis, effective.settings, effective.parameters);
+      const job = runPathGeneration(session.processed, session.analysis, effective.settings, effective.parameters, effective.engineId);
       let settle = () => {};
       const done = new Promise<void>((resolve) => {
         settle = resolve;
@@ -225,7 +225,7 @@ export function useImageImport(): ImageImportController {
   const generateAllLevels = useCallback(async () => {
     if (!session) return;
     for (const level of DETAIL_LEVELS) {
-      await generatePath(resolveOneLineSettings({ ...session.oneLine.drawing, detailLevel: level }));
+      await generatePath(resolveOneLineSettings({ ...session.oneLine.drawing, detailLevel: level, detail: null, smoothing: null }));
     }
   }, [session, generatePath]);
 
