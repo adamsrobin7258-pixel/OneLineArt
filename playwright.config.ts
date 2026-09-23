@@ -4,6 +4,8 @@ const PORT = 4174;
 
 export default defineConfig({
   testDir: 'e2e',
+  // Android bundle smoke test runs with its own config (npm run test:android-bundle).
+  testIgnore: ['android/**', 'benchmark/**'],
   timeout: 60_000,
   fullyParallel: true,
   reporter: 'list',

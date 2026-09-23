@@ -4,5 +4,5 @@
     "lib": ["ES2022"],
     "types": ["node"]
   },
-  "include": ["vite.config.ts", "eslint.config.js", "tests"]
+  "include": ["vite.config.ts", "eslint.config.js", "capacitor.config.ts", "tests"]
 }

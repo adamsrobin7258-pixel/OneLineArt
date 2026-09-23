@@ -14,14 +14,21 @@
     "check": "npm run typecheck && npm run lint && npm run test",
     "test:e2e": "playwright test",
     "check:all": "npm run check && npm run test:e2e",
-    "bench": "playwright test -c playwright.bench.config.ts"
+    "bench": "playwright test -c playwright.bench.config.ts",
+    "android:sync": "npm run build && cap sync android",
+    "android:build": "npm run android:sync && cd android && ./gradlew assembleDebug",
+    "android:open": "cap open android",
+    "test:android-bundle": "playwright test -c playwright.android.config.ts"
   },
   "dependencies": {
+    "@capacitor/android": "8.5.2",
+    "@capacitor/core": "8.5.2",
     "mediabunny": "1.59.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@capacitor/cli": "8.5.2",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.56.1",
     "@types/node": "^26.6.2",

@@ -626,3 +626,43 @@ Architekturtest pro Datei).
 - Service Worker für echten Offline-Betrieb/Installation.
 - Plattformabhängige Exportgrenzen nach Tests auf echten iOS-Geräten.
 - Vorschaubild statt leerer Leinwand vor dem Abspielen.
+
+## Android mit Capacitor (Phase 11, Teil 1)
+
+### Aufbau
+```
+Web-App (unverändert) → npm run build → dist/ → npx cap sync android → android/app/src/main/assets/public → Gradle → APK
+```
+- Capacitor **8.5.2** (`@capacitor/core`, `@capacitor/android`; CLI als devDependency), `capacitor.config.ts`:
+  App-ID **`com.onelineart.app`** (dauerhaft), Name **One Line Art**, `webDir: 'dist'`.
+- Die gebaute Web-App liegt im APK und wird von Capacitor lokal unter `https://localhost` ausgeliefert
+  (sicherer Kontext → WebCodecs, IndexedDB, Worker wie im Browser). Keine Dev-Server-URL.
+- Android-Projekt `android/` (Capacitor-Vorlage): minSdk 24 (Android 7.0), compileSdk/targetSdk 36,
+  Android Gradle Plugin 8.13.0, Gradle 8.14.3, Java 21. `versionName` = `package.json`-Version,
+  `versionCode` 1. Berechtigungen: nur `INTERNET` (Capacitor-Standard).
+- Release-Signierung vorbereitet: `android/keystore.properties` (Vorlage `keystore.properties.example`,
+  git-ignoriert zusammen mit `*.jks`/`*.keystore`); ohne Datei bleibt der Release-Build unsigniert.
+- Der Kern, alle Plattform-Adapter und die UI sind unverändert; es gibt noch keinen nativen Code.
+
+### Befehle
+| Zweck | Befehl |
+|---|---|
+| Web bauen + in Android kopieren | `npm run android:sync` |
+| Debug-APK bauen | `npm run android:build` → `android/app/build/outputs/apk/debug/app-debug.apk` |
+| Android Studio öffnen | `npm run android:open` |
+| Gebündelte Assets testen (Pixel-7-Emulation) | `npm run test:android-bundle` |
+
+Voraussetzung für den Gradle-Build: Android SDK (Plattform 36, Build-Tools) und Zugriff auf das
+Google-Maven-Repository (`dl.google.com`).
+
+### Verhalten in der Android-WebView (erwartet, noch nicht auf einem Gerät geprüft)
+- Bildauswahl: `<input type="file">` öffnet über Capacitors WebChromeClient den System-Dateiauswähler.
+  „Foto aufnehmen“ fällt ohne Kamera-Berechtigung auf den Dateiauswähler zurück (Kamera → Teil 2).
+- Worker, Canvas, IndexedDB, dynamische Imports: Standard der Chromium-WebView.
+- WebCodecs: in der Android-WebView verfügbar (Chromium ≥ 94); H.264 hängt vom Gerät ab, sonst WebM-Fallback.
+- **Dateien sichern/teilen**: „Herunterladen“ (Blob-Link) wird von der WebView nicht verarbeitet, und
+  `navigator.share` gibt es in der WebView nicht → exportierte Dateien können in Teil 1 das Gerät noch
+  nicht verlassen (natives Teilen/Speichern → Teil 2).
+- Zurück-Taste: beendet die App (keine Browser-Historie; Behandlung → Teil 2).
+- Lifecycle: Hintergrund → `visibilitychange` pausiert die Vorschau; Drehen erzeugt die Activity dank
+  `configChanges` nicht neu; gespeicherte Werke bleiben in IndexedDB.

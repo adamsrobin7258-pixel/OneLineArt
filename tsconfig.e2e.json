@@ -4,5 +4,5 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["node"]
   },
-  "include": ["e2e", "playwright.config.ts", "playwright.bench.config.ts"]
+  "include": ["e2e", "playwright.config.ts", "playwright.bench.config.ts", "playwright.android.config.ts"]
 }
