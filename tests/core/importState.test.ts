@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   EMPTY_IMPORT_STATE,
+  createRandom,
+  uniformAnalyzer,
   belongsToSession,
+  requireAnalysisSource,
   importReducer,
   type ImportAction,
   type ImportState,
@@ -63,7 +66,7 @@ describe('import state', () => {
     // Simulate results from later parts attached to image "a".
     const withResults: ImportState<Preview> =
       ready.status === 'ready'
-        ? { status: 'ready', session: { ...ready.session, analysis: { importance: { width: 1, height: 1, data: new Float32Array(1) } }, path: null } }
+        ? { status: 'ready', session: { ...ready.session, analysisStatus: 'ready', analysis: uniformAnalyzer.analyze(ready.session.processed.pixels, createRandom(1)), path: null } }
         : ready;
 
     const loading = importReducer(withResults, { type: 'import-started', requestId: 2, fileName: 'b.jpg' });
@@ -106,5 +109,109 @@ describe('import state', () => {
     // The picker yields no file on cancel; the controller then does not dispatch.
     const ready = run(loadImage(1, 'a'));
     expect(run([], ready)).toBe(ready);
+  });
+});
+
+describe('analysis in the image session', () => {
+  const ready = () => run(loadImage(1, 'a'));
+  const analysisFor = (imageId: string | null, width = 4, height = 3) => {
+    const a = uniformAnalyzer.analyze({ width, height, data: new Uint8ClampedArray(width * height * 4) }, createRandom(1));
+    return { ...a, meta: { ...a.meta, sourceImageId: imageId, sourceSize: { width, height } } };
+  };
+  const sessionOf = (state: ImportState<Preview>) => {
+    if (state.status !== 'ready') throw new Error(`expected ready, got ${state.status}`);
+    return state.session;
+  };
+
+  it('a new image starts with a pending analysis and no results', () => {
+    const s = sessionOf(ready());
+    expect(s.analysisStatus).toBe('pending');
+    expect(s.analysis).toBeNull();
+    expect(s.analysisError).toBeNull();
+  });
+
+  it('pending → running → ready stores the analysis', () => {
+    const s = sessionOf(
+      run(
+        [
+          { type: 'analysis-started', imageId: 'a' },
+          { type: 'analysis-succeeded', imageId: 'a', analysis: analysisFor('a') },
+        ],
+        ready(),
+      ),
+    );
+    expect(s.analysisStatus).toBe('ready');
+    expect(s.analysis?.meta.sourceImageId).toBe('a');
+  });
+
+  it('12. image change: a late analysis of the previous image is never used', () => {
+    let state = run([{ type: 'analysis-started', imageId: 'a' }], ready());
+    state = run(loadImage(2, 'b'), state);
+    state = importReducer(state, { type: 'analysis-succeeded', imageId: 'a', analysis: analysisFor('a') });
+    expect(sessionOf(state).original.id).toBe('b');
+    expect(sessionOf(state).analysis).toBeNull();
+    expect(sessionOf(state).analysisStatus).toBe('pending');
+  });
+
+  it('rejects an analysis whose metadata names another image, even if addressed correctly', () => {
+    const state = run(
+      [
+        { type: 'analysis-started', imageId: 'a' },
+        { type: 'analysis-succeeded', imageId: 'a', analysis: analysisFor('other') },
+      ],
+      ready(),
+    );
+    expect(sessionOf(state).analysis).toBeNull();
+  });
+
+  it('fails an analysis whose size does not match the working copy', () => {
+    const state = run(
+      [
+        { type: 'analysis-started', imageId: 'a' },
+        { type: 'analysis-succeeded', imageId: 'a', analysis: analysisFor('a', 9, 9) },
+      ],
+      ready(),
+    );
+    expect(sessionOf(state).analysisStatus).toBe('failed');
+    expect(sessionOf(state).analysisError).toBe('unexpected-dimensions');
+  });
+
+  it('failure and retry', () => {
+    let state = run(
+      [
+        { type: 'analysis-started', imageId: 'a' },
+        { type: 'analysis-failed', imageId: 'a', error: 'out-of-memory' },
+      ],
+      ready(),
+    );
+    expect(sessionOf(state).analysisError).toBe('out-of-memory');
+    state = importReducer(state, { type: 'analysis-retry', imageId: 'a' });
+    expect(sessionOf(state).analysisStatus).toBe('pending');
+    expect(sessionOf(state).analysisError).toBeNull();
+  });
+
+  it('removing the image drops the analysis', () => {
+    const state = run(
+      [
+        { type: 'analysis-started', imageId: 'a' },
+        { type: 'analysis-succeeded', imageId: 'a', analysis: analysisFor('a') },
+        { type: 'image-removed' },
+      ],
+      ready(),
+    );
+    expect(state).toEqual({ status: 'empty' });
+  });
+
+  it('analysis actions without an image are ignored; requireAnalysisSource reports no-image', () => {
+    expect(importReducer(EMPTY_IMPORT_STATE, { type: 'analysis-started', imageId: 'a' })).toBe(EMPTY_IMPORT_STATE);
+    expect(() => requireAnalysisSource(EMPTY_IMPORT_STATE)).toThrow(expect.objectContaining({ code: 'no-image' }));
+  });
+
+  it('requireAnalysisSource reports unavailable pixel data', () => {
+    const state = ready();
+    const s = sessionOf(state);
+    const broken: ImportState<Preview> = { status: 'ready', session: { ...s, processed: { ...s.processed, pixels: { width: 4, height: 3, data: new Uint8ClampedArray(0) } } } };
+    expect(() => requireAnalysisSource(broken)).toThrow(expect.objectContaining({ code: 'image-unavailable' }));
+    expect(requireAnalysisSource(state)).toBe(s.processed);
   });
 });

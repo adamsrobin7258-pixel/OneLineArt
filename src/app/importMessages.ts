@@ -1,4 +1,4 @@
-import { DEFAULT_IMPORT_OPTIONS, type ImageFormat, type ImageImportErrorCode } from '../core';
+import { DEFAULT_IMPORT_OPTIONS, type AnalysisErrorCode, type ImageFormat, type ImageImportErrorCode } from '../core';
 
 export interface UserMessage {
   readonly title: string;
@@ -34,3 +34,13 @@ export const FORMAT_LABELS: Record<ImageFormat, string> = { jpeg: 'JPG', png: 'P
 
 /** MIME types and extensions offered in the system picker. */
 export const ACCEPTED_FILE_TYPES = 'image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif';
+
+/** User-facing texts for analysis failures. Technical details go to the console only. */
+export const ANALYSIS_ERROR_MESSAGES: Record<AnalysisErrorCode, UserMessage> = {
+  'no-image': { title: 'Kein Bild ausgewählt', detail: 'Bitte zuerst ein Bild wählen.' },
+  'image-unavailable': { title: 'Das Bild ist nicht mehr verfügbar', detail: 'Bitte das Bild erneut auswählen.' },
+  'invalid-image': { title: 'Die Bilddaten sind ungültig', detail: 'Bitte das Bild erneut auswählen.' },
+  'unexpected-dimensions': { title: 'Das Bildformat ist ungewöhnlich', detail: 'Bitte ein anderes Bild versuchen.' },
+  'out-of-memory': { title: 'Nicht genug Speicher für die Analyse', detail: 'Bitte andere Apps oder Tabs schließen.' },
+  'analysis-failed': { title: 'Das Bild konnte nicht analysiert werden', detail: 'Bitte erneut versuchen.' },
+};

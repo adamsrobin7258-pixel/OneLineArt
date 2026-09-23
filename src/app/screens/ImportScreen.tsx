@@ -4,15 +4,18 @@ import { Button } from '../../ui/components/Button';
 import { ImageViewer } from '../../ui/components/ImageViewer';
 import { ImportArea } from '../../ui/components/ImportArea';
 import { StatusPanel } from '../../ui/components/StatusPanel';
-import { FORMAT_LABELS, IMPORT_ERROR_MESSAGES } from '../importMessages';
+import { isAnalysisDebugEnabled } from '../../platform/browser/debugFlags';
+import { AnalysisDebugView } from '../debug/AnalysisDebugView';
+import { ANALYSIS_ERROR_MESSAGES, FORMAT_LABELS, IMPORT_ERROR_MESSAGES } from '../importMessages';
 import { useFilePicker } from '../state/useFilePicker';
 import { useImageImport } from '../state/useImageImport';
 
 /** Step 1: choose a photo, inspect it, replace or remove it. */
 export function ImportScreen() {
-  const { state, selectFile, removeImage } = useImageImport();
+  const { state, selectFile, removeImage, retryAnalysis, analysisRun } = useImageImport();
   const picker = useFilePicker(selectFile);
   const canTakePhoto = useMemo(() => supportsCameraCapture(), []);
+  const debugAnalysis = useMemo(() => isAnalysisDebugEnabled(), []);
 
   const dropToReplace = {
     onDragOver: (e: DragEvent) => e.preventDefault(),
@@ -45,7 +48,11 @@ export function ImportScreen() {
       {state.status === 'ready' && (
         <>
           <div className="import__stage" {...dropToReplace}>
-            <ImageViewer key={state.session.original.id} image={state.session.preview} label={state.session.original.fileName} />
+            {debugAnalysis ? (
+              <AnalysisDebugView key={state.session.original.id} session={state.session} run={analysisRun} />
+            ) : (
+              <ImageViewer key={state.session.original.id} image={state.session.preview} label={state.session.original.fileName} />
+            )}
           </div>
           <footer
             className="toolbar"
@@ -53,11 +60,27 @@ export function ImportScreen() {
             data-image-size={`${state.session.original.metadata.width}x${state.session.original.metadata.height}`}
             data-processing-size={`${state.session.processed.pixels.width}x${state.session.processed.pixels.height}`}
             data-orientation={state.session.original.metadata.orientation}
+            data-image-id={state.session.original.id}
+            data-analysis-status={state.session.analysisStatus}
           >
             <p className="toolbar__meta">
               {state.session.original.metadata.width} × {state.session.original.metadata.height} ·{' '}
               {FORMAT_LABELS[state.session.original.metadata.format]}
+              {(state.session.analysisStatus === 'pending' || state.session.analysisStatus === 'running') && (
+                <span className="toolbar__status" role="status">
+                  {' '}
+                  · Bild wird analysiert
+                </span>
+              )}
             </p>
+            {state.session.analysisStatus === 'failed' && state.session.analysisError && (
+              <p className="toolbar__notice" role="alert">
+                {ANALYSIS_ERROR_MESSAGES[state.session.analysisError].title}.{' '}
+                <button type="button" className="toolbar__link" onClick={retryAnalysis}>
+                  Erneut versuchen
+                </button>
+              </p>
+            )}
             <div className="toolbar__actions">
               <Button variant="quiet" onClick={picker.chooseFile}>
                 Anderes Bild

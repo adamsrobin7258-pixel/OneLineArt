@@ -296,6 +296,81 @@ body {
   margin-left: auto;
 }
 
+.toolbar__status {
+  color: var(--color-faint);
+}
+
+.toolbar__notice {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-ink);
+}
+
+.toolbar__link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* ---------- Analysis debug view (developer only, ?debug=analysis) ---------- */
+
+.debug {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: var(--space-2);
+  height: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.debug__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.debug__tab {
+  padding: 4px 8px;
+  border: 1px solid var(--color-line);
+  border-radius: 4px;
+  background: var(--color-surface);
+  font: inherit;
+  cursor: pointer;
+}
+
+.debug__tab.is-active {
+  background: var(--color-ink);
+  border-color: var(--color-ink);
+  color: var(--color-surface);
+}
+
+.debug__tab:disabled {
+  opacity: 0.4;
+}
+
+.debug__toggle {
+  display: inline-flex;
+  gap: var(--space-1);
+  align-items: center;
+  margin-left: var(--space-2);
+}
+
+.debug__stats {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.debug__viewer {
+  position: relative;
+  min-height: 0;
+}
+
 /* ---------- Buttons ---------- */
 
 .button {

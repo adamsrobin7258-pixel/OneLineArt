@@ -24,13 +24,13 @@ aufgesetzt.
 src/
   app/              Screens, App-Shell                    (React)
   ui/               Wiederverwendbare Komponenten, Theme  (React)
-  platform/         Browser-Adapter (Bild-Decoder, Canvas; später IndexedDB, Video)
+  platform/         Browser-Adapter (Bild-Decoder, Analyse-Worker, Canvas; später IndexedDB, Video)
   core/             UI- und plattformfreie Kernlogik
     models/           Datenmodelle
     utils/            Seeded RNG, Hashing, Mathe
     imageImport/      Formaterkennung, Header/EXIF, Import-Ablauf, Import-Status (Teil 2)
     imageProcessing/  ImageOperation, fitWithin/orientedSize
-    imageAnalysis/    ImageAnalyzer, ImageAnalysis/Importance (Impl. Teil 3)
+    imageAnalysis/    Bildanalyse: Luminanz, Kontrast, Kanten, Detail, Textur, Importance (Teil 3)
     engine/           OneLinePath-API, Generator-/Optimizer-Schnittstellen, Pipeline
     rendering/        PathCursor, tracePath, SVG-Rendering
     animation/        AnimationTimeline (Zeit -> Position auf dem echten Pfad)
@@ -56,8 +56,8 @@ aus den anderen Schichten.** Das wird dreifach abgesichert:
 ```
 ProcessedImage.pixels
   → preprocess (ImageOperation[])
-  → ImageAnalyzer.analyze          → ImageAnalysis { importance }
-  → OneLinePathGenerator.generate  → OneLinePath
+  → ImageAnalyzer.analyze          → ImageAnalysis (alle Ebenen, siehe Teil 3)
+  → generateOneLinePath            → OneLinePath   (Übergabepunkt an die Engine)
   → PathOptimizer[]
   → validatePath
   → Rendering (SVG / Canvas)  und  Animation (Timeline)
@@ -90,7 +90,7 @@ Gleiches Bild + gleiche `OneLineSettings` (inkl. `seed`) + gleiche Generator-Ver
 
 ## Platzhalter (werden ersetzt)
 
-- `uniformAnalyzer` → echte Bildanalyse in Teil 3
+- `uniformAnalyzer` bleibt als Test-Stand-in; die echte Analyse ist `standardAnalyzer` (Teil 3)
 - `placeholderGenerator` (Random Walk, ignoriert den Bildinhalt) → One-Line-Algorithmus in Teil 4
 - Die Dev-Vorschau des Platzhalterpfads auf dem Startscreen wurde in Teil 2 durch den Bildimport ersetzt; `PathPreview`/`canvasRenderer` bleiben für Teil 4 erhalten.
 
@@ -134,3 +134,67 @@ File (unverändert, = OriginalImage.source)
 | EXIF | Vom Browser via `createImageBitmap(…, { imageOrientation: 'from-image' })` angewendet |
 | Farben | Arbeitskopie in sRGB; Originaldatei (z. B. Display-P3) bleibt unverändert erhalten |
 | Kamera | `capture`-Input, nur auf Touch-Geräten angeboten |
+
+## Bildanalyse (Teil 3)
+
+### Datenfluss
+
+```
+OriginalImage (Datei, unverändert)
+  │ Teil 2: ein Decode
+  ▼
+ProcessedImage.pixels (≤ 2048 px, RGBA, unverändert)
+  │ Kopie in einen Web Worker (platform/browser/analysisRunner.ts)
+  ▼
+analyzeProcessedImage (core/imageAnalysis/analyzeImage.ts, rein & deterministisch)
+  1. Luminanz: CIE L* aus linearem sRGB, gleichzeitig Flächenmittelung auf das
+     Analyseraster (≤ analysisMaxEdge = 1024 px, Seitenverhältnis exakt, kein Crop)
+  2. Leichte Gauß-Glättung (σ = 1 px) nur für abgeleitete Ebenen
+  3. contrast  = lokale Standardabweichung (Box-Fenster, Float64)
+     edge      = Scharr-Gradientenbetrag
+     detail    = Anteil „signifikanter“ Gradienten im Fenster (weiche Schwelle)
+     texture   = Strukturtensor: Energie · (1 − Kohärenz)
+  4. localImportance  = Σ wᵢ · Ebeneᵢ (Luminanz als Dunkelheit 1 − L)
+  5. globalRelevance  = Regionsdichte (stark geglättete lokale Importance)
+                        + Figur/Grund (Center-Surround der Luminanz)
+  6. importance       = (1 − globalBlend) · lokal + globalBlend · global
+  ▼
+ImageAnalysis { width, height, luminance, contrast, edge, detail, texture,
+                localImportance, globalRelevance, importance, meta }
+  │ Übertragung der Ebenen-Puffer (transfer, keine Kopie)
+  ▼
+ImageSession.analysis  ──►  generateOneLinePath(config, { image, analysis }, settings)  (Teil 4)
+```
+
+### Normalisierung
+Jede abgeleitete Ebene: `min(raw / max(p99(raw), floor), 1)`. Das Perzentil macht die
+Karte robust gegen einzelne Ausreißer, die Untergrenze (`normalizationFloors`) verhindert,
+dass Rauschen in flachen Bildern auf volle Skala verstärkt wird. Luminanz ist absolut
+(L*/100), wird also nicht pro Bild gestreckt. Die verwendeten Referenzen stehen in
+`meta.normalization`.
+
+### Parameter und Version
+`AnalysisParameters` (core/imageAnalysis/parameters.ts) enthält **alle** Stellschrauben:
+Analyseauflösung, Glättung, Fenstergrößen (relativ zur Kantenlänge), Schwellen,
+Normalisierung, lokale und globale Gewichte, Blend. `withAnalysisParameters` erzeugt
+Varianten (Grundlage für die Detailstufen in Teil 5). Jede Analyse speichert
+`meta.algorithmVersion` (`ANALYSIS_ALGORITHM_VERSION`) und die verwendeten Parameter.
+
+### Kopplung an das Bild
+- `ImageSession.analysisStatus`: pending → running → ready | failed (mit Retry).
+- Ergebnisse werden nur akzeptiert, wenn `imageId` **und** `meta.sourceImageId` zur Session passen
+  und `meta.sourceSize` der Arbeitskopie entspricht. Ein Bildwechsel ersetzt die Session
+  und beendet den laufenden Worker.
+
+### Developer-Ansicht
+`?debug=analysis` zeigt alle Ebenen einzeln (Graustufen oder Heatmap) mit Zoom, Statistik,
+Normalisierungsreferenz, Laufzeit und Runner. Nicht Teil der normalen Oberfläche.
+
+### Bekannte Grenzen
+| Thema | Stand |
+|---|---|
+| Laufzeit | ≈ 0,6–0,9 s für 1024×768 (Desktop-Chromium, im Worker); auf Smartphones voraussichtlich 2–4× länger |
+| Speicher | 8 Float32-Ebenen ≈ 25 MB bei 1024×768 |
+| Determinismus | Bit-identisch auf derselben JS-Engine; `Math.cbrt`/`Math.exp` können zwischen Engines im letzten Bit abweichen |
+| Semantik | Keine Objekterkennung (z. B. Gesichter); „globale Relevanz“ ist rein bildstatistisch |
+| Normalisierung | Relativ pro Bild (mit Untergrenzen) – Werte sind innerhalb eines Bildes vergleichbar, zwischen Bildern nur eingeschränkt |

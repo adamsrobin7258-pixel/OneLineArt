@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_ONE_LINE_SETTINGS,
   createPath,
+  createRandom,
+  generateOneLinePath,
+  standardAnalyzer,
   placeholderGenerator,
   pointCount,
   runOneLinePipeline,
@@ -70,5 +73,32 @@ describe('one-line pipeline', () => {
     expect(() => runOneLinePipeline({ analyzer: uniformAnalyzer, generator: broken }, blankImage(), DEFAULT_ONE_LINE_SETTINGS)).toThrow(
       /invalid path/,
     );
+  });
+});
+
+describe('analysis → engine hand-over', () => {
+  it('generateOneLinePath consumes a precomputed ImageAnalysis (standard analyzer)', () => {
+    const image = blankImage(120, 90);
+    const analysis = standardAnalyzer.analyze(image, createRandom(1));
+    const seen: string[] = [];
+    const generator: OneLinePathGenerator = {
+      id: 'probe',
+      version: '1',
+      generate(input) {
+        seen.push(`${input.analysis.importance.width}x${input.analysis.importance.height}`);
+        return createPath([{ x: 0, y: 0 }, { x: 1, y: 1 }], input.image, { generatorId: 'probe', generatorVersion: '1', seed: 0 });
+      },
+    };
+    generateOneLinePath({ generator }, { image, analysis }, DEFAULT_ONE_LINE_SETTINGS);
+    expect(seen).toEqual(['120x90']);
+  });
+
+  it('gives the same result whether analysis runs inside the pipeline or beforehand', () => {
+    const image = blankImage(80, 60);
+    const settings = { ...DEFAULT_ONE_LINE_SETTINGS, seed: 5 };
+    const viaPipeline = runOneLinePipeline({ analyzer: standardAnalyzer, generator: placeholderGenerator }, image, settings);
+    const analysis = standardAnalyzer.analyze(image, createRandom(0));
+    const direct = generateOneLinePath({ generator: placeholderGenerator }, { image, analysis }, settings);
+    expect(direct.coords).toEqual(viaPipeline.coords);
   });
 });

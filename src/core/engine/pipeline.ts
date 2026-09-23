@@ -1,4 +1,4 @@
-import type { ImageAnalyzer } from '../imageAnalysis';
+import type { ImageAnalysis, ImageAnalyzer } from '../imageAnalysis';
 import type { ImageOperation } from '../imageProcessing';
 import { applyOperations } from '../imageProcessing';
 import type { OneLinePath, OneLineSettings, RasterImage } from '../models';
@@ -6,15 +6,47 @@ import { createRandom } from '../utils';
 import { validatePath } from './path';
 import type { OneLinePathGenerator, PathOptimizer } from './types';
 
-export interface OneLinePipelineConfig {
-  readonly preprocess?: readonly ImageOperation[];
-  readonly analyzer: ImageAnalyzer;
+export interface PathGenerationConfig {
   readonly generator: OneLinePathGenerator;
   readonly optimizers?: readonly PathOptimizer[];
 }
 
+export interface OneLinePipelineConfig extends PathGenerationConfig {
+  readonly preprocess?: readonly ImageOperation[];
+  readonly analyzer: ImageAnalyzer;
+}
+
 export interface OneLinePipelineRunOptions {
   readonly onProgress?: (progress: number) => void;
+}
+
+/**
+ * Hand-over point from analysis to the One-Line engine (part 4):
+ * ImageAnalysis (+ the working image) + settings → one validated OneLinePath.
+ * Takes no UI state; the analysis can come from a worker or a cache.
+ */
+export function generateOneLinePath(
+  config: PathGenerationConfig,
+  source: { readonly image: RasterImage; readonly analysis: ImageAnalysis },
+  settings: OneLineSettings,
+  options: OneLinePipelineRunOptions = {},
+): OneLinePath {
+  const root = createRandom(settings.seed);
+  const input = { image: source.image, analysis: source.analysis, settings };
+
+  let path = config.generator.generate(input, {
+    rng: root.fork('generate'),
+    ...(options.onProgress ? { onProgress: options.onProgress } : {}),
+  });
+  for (const optimizer of config.optimizers ?? []) {
+    path = optimizer.optimize(path, input, root.fork(`optimize:${optimizer.id}`));
+  }
+
+  const validation = validatePath(path);
+  if (!validation.valid) {
+    throw new Error(`Pipeline produced an invalid path: ${validation.errors.join(' ')}`);
+  }
+  return path;
 }
 
 /**
@@ -30,22 +62,7 @@ export function runOneLinePipeline(
   settings: OneLineSettings,
   options: OneLinePipelineRunOptions = {},
 ): OneLinePath {
-  const root = createRandom(settings.seed);
   const processed = applyOperations(image, config.preprocess ?? []);
-  const analysis = config.analyzer.analyze(processed, root.fork('analysis'));
-  const input = { image: processed, analysis, settings };
-
-  let path = config.generator.generate(input, {
-    rng: root.fork('generate'),
-    ...(options.onProgress ? { onProgress: options.onProgress } : {}),
-  });
-  for (const optimizer of config.optimizers ?? []) {
-    path = optimizer.optimize(path, input, root.fork(`optimize:${optimizer.id}`));
-  }
-
-  const validation = validatePath(path);
-  if (!validation.valid) {
-    throw new Error(`Pipeline produced an invalid path: ${validation.errors.join(' ')}`);
-  }
-  return path;
+  const analysis = config.analyzer.analyze(processed, createRandom(settings.seed).fork('analysis'));
+  return generateOneLinePath(config, { image: processed, analysis }, settings, options);
 }

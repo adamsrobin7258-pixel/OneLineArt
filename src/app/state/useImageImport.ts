@@ -1,5 +1,14 @@
-import { useCallback, useEffect, useReducer, useRef } from 'react';
-import { EMPTY_IMPORT_STATE, importErrorCode, importImage, importReducer, type ImportState } from '../../core';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import {
+  EMPTY_IMPORT_STATE,
+  analysisErrorCode,
+  importErrorCode,
+  importImage,
+  importReducer,
+  requireAnalysisSource,
+  type ImportState,
+} from '../../core';
+import { runAnalysis, type AnalysisJob, type AnalysisOutcome } from '../../platform/browser/analysisRunner';
 import { bitmapDecoder } from '../../platform/browser/bitmapDecoder';
 import { createId } from '../../platform/browser/ids';
 
@@ -9,6 +18,10 @@ export interface ImageImportController {
   readonly selectFile: (file: File | null) => void;
   /** Back to EMPTY; frees all image data. */
   readonly removeImage: () => void;
+  /** Re-runs a failed analysis of the current image. */
+  readonly retryAnalysis: () => void;
+  /** Diagnostics of the last finished analysis (developer view only). */
+  readonly analysisRun: Omit<AnalysisOutcome, 'analysis'> | null;
 }
 
 /**
@@ -65,6 +78,53 @@ export function useImageImport(): ImageImportController {
     dispatch({ type: 'image-removed' });
   }, [releasePreview]);
 
+  // Analysis: started once per image, cancelled as soon as the image changes.
+  const [analysisRun, setAnalysisRun] = useState<Omit<AnalysisOutcome, 'analysis'> | null>(null);
+  const analysisJob = useRef<AnalysisJob | null>(null);
+  const imageId = state.status === 'ready' ? state.session.original.id : null;
+  const analysisPending = state.status === 'ready' && state.session.analysisStatus === 'pending';
+
+  useEffect(() => {
+    if (!analysisPending || !imageId) return;
+    let source;
+    try {
+      source = requireAnalysisSource(state);
+    } catch (error) {
+      console.error('Image analysis could not start', error);
+      dispatch({ type: 'analysis-started', imageId });
+      dispatch({ type: 'analysis-failed', imageId, error: analysisErrorCode(error) });
+      return;
+    }
+    dispatch({ type: 'analysis-started', imageId });
+    const job = runAnalysis(source);
+    analysisJob.current = job;
+    job.promise.then(
+      ({ analysis, ...run }) => {
+        setAnalysisRun(run);
+        dispatch({ type: 'analysis-succeeded', imageId, analysis });
+      },
+      (error: unknown) => {
+        console.error('Image analysis failed', error);
+        dispatch({ type: 'analysis-failed', imageId, error: analysisErrorCode(error) });
+      },
+    );
+    // Only the pending → started transition matters here; `state` is read once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analysisPending, imageId]);
+
+  useEffect(
+    () => () => {
+      analysisJob.current?.cancel();
+      analysisJob.current = null;
+      setAnalysisRun(null);
+    },
+    [imageId],
+  );
+
+  const retryAnalysis = useCallback(() => {
+    if (imageId) dispatch({ type: 'analysis-retry', imageId });
+  }, [imageId]);
+
   useEffect(
     () => () => {
       currentRequest.current++;
@@ -73,5 +133,5 @@ export function useImageImport(): ImageImportController {
     [releasePreview],
   );
 
-  return { state, selectFile, removeImage };
+  return { state, selectFile, removeImage, retryAnalysis, analysisRun };
 }
