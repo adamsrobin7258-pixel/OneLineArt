@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { DURATION_PRESETS_MS, type ImageSession, type PlaybackStatus } from '../../core';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { isHolding, playbackTotalMs, type ImageSession, type PlaybackStatus } from '../../core';
 import { createAnimationLoop, type AnimationLoop, type AnimationStats } from '../../platform/browser/animation/animationLoop';
 import { createArtworkAnimator } from '../../platform/browser/animation/artworkAnimator';
 import { isAnalysisDebugEnabled } from '../../platform/browser/debugFlags';
 import { Button } from '../../ui/components/Button';
-import { SegmentedControl } from '../../ui/components/SegmentedControl';
-import { DISPLAY_OPTIONS } from '../drawingLabels';
+import { Icon } from '../../ui/components/Icon';
+import { DisplayChoice, DurationChoice } from '../controls';
 import { PREVIEW_RENDER_EDGE } from '../preview/previewConfig';
 import type { RenderSettingsController } from '../state/useRenderSettings';
 
@@ -18,7 +18,6 @@ interface AnimationScreenProps {
   onContinue: () => void;
 }
 
-const DURATION_OPTIONS = DURATION_PRESETS_MS.map((ms) => ({ value: String(ms), label: `${ms / 1000} s` }));
 const formatTime = (ms: number) => {
   const s = Math.floor(ms / 1000);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
@@ -34,15 +33,16 @@ interface Debug {
 /**
  * Step 3: watch the drawing being made. Plays the very OneLinePath of the
  * artwork through the same renderer; nothing is recomputed while playing.
+ * After the line is complete the finished artwork stays for FINAL_HOLD_MS.
  */
 export function AnimationScreen({ session, render, durationMs, onDurationChange, onBack, onContinue }: AnimationScreenProps) {
   const { path } = session;
-  const { renderSettings, updateRenderSettings } = render;
+  const { renderSettings } = render;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const loopRef = useRef<AnimationLoop | null>(null);
   const [status, setStatus] = useState<PlaybackStatus>('ready');
-  const [elapsed, setElapsed] = useState(0);
+  const [position, setPosition] = useState({ elapsed: 0, total: durationMs });
   const [debug, setDebug] = useState<Debug | null>(null);
   const showDebug = useMemo(() => isAnalysisDebugEnabled(), []);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
@@ -70,58 +70,68 @@ export function AnimationScreen({ session, render, durationMs, onDurationChange,
       durationMs,
       (state, frame, stats) => {
         // Every frame: progress bar + test hooks via the DOM (cheap); React state at most ~10×/s.
-        if (barRef.current) barRef.current.style.transform = `scaleX(${state.progress})`;
+        const total = playbackTotalMs(state);
+        if (barRef.current) barRef.current.style.transform = `scaleX(${state.positionMs / total})`;
         canvas.dataset.progress = state.progress.toFixed(4);
         canvas.dataset.status = state.status;
+        canvas.dataset.phase = state.status === 'ready' ? 'ready' : isHolding(state) || state.status === 'finished' ? 'hold' : 'drawing';
+        canvas.dataset.positionMs = String(Math.round(state.positionMs));
         const now = performance.now();
         if (now - lastUi > 100 || state.status !== 'playing') {
           lastUi = now;
           setStatus(state.status);
-          setElapsed(state.progress * state.durationMs);
+          setPosition({ elapsed: state.positionMs, total });
           if (showDebug) setDebug({ progress: state.progress, visible: frame.visibleLength, total: animator.index.totalLength, stats });
         }
       },
-      previous?.progress ?? 0,
+      // Same drawing progress after a change of duration; same timeline position otherwise.
+      previous ? (previous.durationMs === durationMs ? previous.positionMs : previous.progress * durationMs) : 0,
     );
     loopRef.current = loop;
     if (previous?.status === 'playing') loop.play();
     return () => loop.dispose();
   }, [path, renderSettings, durationMs, session.processed.pixels, session.preview, showDebug]);
 
-  const display = DISPLAY_OPTIONS.find((o) => o.colorMode === renderSettings.colorMode)?.value ?? 'black';
   const playing = status === 'playing';
+  // Reads the live playback state (React state is throttled), so quick presses always toggle correctly.
+  const toggle = () => {
+    const loop = loopRef.current;
+    if (!loop) return;
+    if (loop.state().status === 'playing') loop.pause();
+    else loop.play();
+  };
+  const percent = position.total > 0 ? Math.round((position.elapsed / position.total) * 100) : 0;
 
   return (
     <section className="animation" data-testid="animation-screen" data-status={status}>
       <div className="animation__stage">
-        <canvas
-          ref={canvasRef}
-          className="animation__canvas"
-          data-testid="animation-canvas"
-          role="img"
-          aria-label="Entstehung der Zeichnung"
-          style={size ? { aspectRatio: `${size.width} / ${size.height}` } : undefined}
-        />
+        <div className="animation__frame" style={size ? ({ '--ratio': size.width / size.height } as CSSProperties) : undefined}>
+          <canvas ref={canvasRef} className="animation__canvas" data-testid="animation-canvas" role="img" aria-label="Entstehung der Zeichnung" />
+          {/* Pointer shortcut only; keyboard and screen readers use the player button below. */}
+          <button type="button" className={`animation__overlay${playing ? ' is-playing' : ''}`} tabIndex={-1} aria-hidden="true" onClick={toggle}>
+            <span className="animation__overlay-icon">
+              <Icon name={status === 'finished' ? 'replay' : 'play'} size={28} />
+            </span>
+          </button>
+        </div>
       </div>
+
       <div className="player" data-testid="player">
-        <button
-          type="button"
-          className="player__button"
-          aria-label={playing ? 'Pause' : 'Abspielen'}
-          onClick={() => (playing ? loopRef.current?.pause() : loopRef.current?.play())}
-        >
-          {playing ? '❚❚' : '▶'}
+        <button type="button" className="player__button player__button--main" aria-label={playing ? 'Pause' : 'Abspielen'} onClick={toggle}>
+          <Icon name={playing ? 'pause' : 'play'} size={20} />
         </button>
-        <div className="player__track" role="progressbar" aria-label="Fortschritt" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round((elapsed / durationMs) * 100)}>
+        <div className="player__track" role="progressbar" aria-label="Fortschritt" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
           <div ref={barRef} className="player__bar" />
+          <div className="player__hold" style={{ left: `${(durationMs / position.total) * 100}%` }} aria-hidden="true" />
         </div>
         <span className="player__time">
-          {formatTime(elapsed)} / {formatTime(durationMs)}
+          {formatTime(position.elapsed)} / {formatTime(position.total)}
         </span>
         <button type="button" className="player__button" aria-label="Von vorn" onClick={() => loopRef.current?.replay()}>
-          ↻
+          <Icon name="replay" size={18} />
         </button>
       </div>
+
       {showDebug && debug && (
         <dl className="debug__metrics animation__debug" data-testid="animation-metrics">
           <dt>Animation</dt>
@@ -134,20 +144,22 @@ export function AnimationScreen({ session, render, durationMs, onDurationChange,
           </dd>
         </dl>
       )}
-      <footer className="toolbar toolbar--settings">
-        <Button variant="quiet" onClick={onBack}>
-          Zurück
-        </Button>
-        <div className="settings__controls">
-          <SegmentedControl label="Dauer" options={DURATION_OPTIONS} value={String(durationMs)} onChange={(value) => onDurationChange(Number(value))} />
-          <SegmentedControl
-            label="Darstellung"
-            options={DISPLAY_OPTIONS}
-            value={display}
-            onChange={(value) => updateRenderSettings({ colorMode: DISPLAY_OPTIONS.find((o) => o.value === value)!.colorMode })}
-          />
+
+      <footer className="controlbar">
+        <div className="controlbar__options">
+          <DurationChoice durationMs={durationMs} onChange={onDurationChange} fill />
+          <DisplayChoice render={render} fill />
         </div>
-        <Button onClick={onContinue}>Weiter</Button>
+        <div className="controlbar__nav">
+          <Button variant="quiet" onClick={onBack}>
+            <Icon name="arrowLeft" size={18} />
+            Zurück
+          </Button>
+          <Button onClick={onContinue}>
+            Weiter
+            <Icon name="arrowRight" size={18} />
+          </Button>
+        </div>
       </footer>
     </section>
   );

@@ -33,7 +33,8 @@ export function ImportArea({ onChooseFile, onTakePhoto, onDropFile }: ImportArea
       <svg className="import-area__mark" viewBox="0 0 120 60" aria-hidden="true">
         <path d="M4 44c14-2 18-30 32-30s10 30 24 30 12-34 26-34 16 26 30 22" />
       </svg>
-      <p className="import-area__title">Ein Foto. Eine Linie.</p>
+      <h1 className="import-area__title">Ein Foto. Eine Linie.</h1>
+      <p className="import-area__text">Wähle ein Foto – daraus entsteht eine Zeichnung aus einer einzigen, durchgehenden Linie.</p>
       <div className="import-area__actions">
         <Button onClick={onChooseFile}>{onTakePhoto ? 'Foto auswählen' : 'Bild auswählen'}</Button>
         {onTakePhoto && (

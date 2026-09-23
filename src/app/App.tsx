@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { DEFAULT_ANIMATION_SETTINGS, sanitizeAnimationSettings, storageErrorCode, StorageError } from '../core';
 import { Button } from '../ui/components/Button';
+import { Icon } from '../ui/components/Icon';
 import { StepIndicator } from '../ui/components/StepIndicator';
 import { STORAGE_ERROR_MESSAGES } from './exportMessages';
-import { AVAILABLE_STEPS, FLOW_STEPS, type FlowStepId } from './flow';
+import { FLOW_STEPS, reachableSteps, type FlowStepId } from './flow';
 import { AnimationScreen } from './screens/AnimationScreen';
 import { ExportScreen } from './screens/ExportScreen';
 import { GalleryScreen } from './screens/GalleryScreen';
@@ -42,31 +43,42 @@ export function App() {
 
   const saved = session ? projects.isSaved(session, render.renderSettings, durationMs) : false;
 
+  const reachable = reachableSteps({ hasImage: usable, hasDrawing });
+
   return (
-    <main className="screen">
-      <header className="screen__header">
-        <h1 className="wordmark">One Line</h1>
-        {view === 'flow' && <StepIndicator steps={FLOW_STEPS} current={current} available={AVAILABLE_STEPS} />}
-        <div className="screen__actions">
+    <main className="screen" data-view={view}>
+      <header className="appbar">
+        <button type="button" className="brand" onClick={() => setView('flow')} aria-label="One Line – zur Zeichnung">
+          <svg className="brand__mark" viewBox="0 0 40 20" aria-hidden="true">
+            <path d="M2 15c5-1 6-10 11-10s3 10 8 10 4-11 9-11 5 8 8 7" />
+          </svg>
+          <span className="brand__name">One Line</span>
+        </button>
+        {view === 'flow' && <StepIndicator steps={FLOW_STEPS} current={current} reachable={reachable} onSelect={setStep} />}
+        <div className="appbar__actions">
           {view === 'flow' && projects.saveStatus === 'failed' && projects.saveError && (
-            <p className="screen__error" role="alert" data-testid="save-error" title={STORAGE_ERROR_MESSAGES[projects.saveError].detail}>
+            <p className="appbar__error" role="alert" data-testid="save-error" title={STORAGE_ERROR_MESSAGES[projects.saveError].detail}>
+              <Icon name="alert" size={16} />
               {STORAGE_ERROR_MESSAGES[projects.saveError].title}
             </p>
           )}
           {view === 'flow' && hasDrawing && session && (
             <Button
-              variant="quiet"
+              variant={saved ? 'ghost' : 'quiet'}
+              className={`save-button${saved ? ' is-saved' : ''}`}
               data-testid="save-project"
               data-save-status={saved ? 'saved' : projects.saveStatus}
               disabled={projects.saveStatus === 'saving' || saved}
               onClick={() => void projects.save(session, render.renderSettings, durationMs)}
             >
+              {saved && <Icon name="check" size={16} />}
               {projects.saveStatus === 'saving' ? 'Wird gespeichert …' : saved ? 'Gespeichert' : 'Speichern'}
             </Button>
           )}
           {view === 'flow' && (
-            <Button variant="quiet" onClick={() => setView('gallery')}>
-              Meine Werke
+            <Button variant="quiet" className="button--icon-mobile" aria-label="Meine Werke" onClick={() => setView('gallery')}>
+              <Icon name="gallery" size={18} />
+              <span className="button__text">Meine Werke</span>
             </Button>
           )}
         </div>

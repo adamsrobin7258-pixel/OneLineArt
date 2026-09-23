@@ -4,18 +4,26 @@ export type PlaybackStatus = 'ready' | 'playing' | 'paused' | 'finished';
 
 /**
  * Pure, time-based playback state (no timers): the platform passes the
- * current clock time; progress follows elapsed time × speed / duration,
+ * current clock time; the timeline position follows elapsed time × speed,
  * so the result is independent of frame rate and dropped frames.
+ *
+ * Timeline = drawing (`durationMs`) + final hold (`holdMs`, the finished
+ * artwork stays visible). `progress` is the DRAWING progress (1 during the hold).
  */
 export interface PlaybackState {
   readonly status: PlaybackStatus;
-  /** Linear time progress 0..1 (before easing). */
+  /** Linear drawing progress 0..1 (before easing); 1 while holding. */
   readonly progress: number;
+  /** Time the line is being drawn (at 1× speed). */
   readonly durationMs: number;
+  /** Time the finished artwork stays visible afterwards. */
+  readonly holdMs: number;
+  /** Position on the whole timeline, 0 … durationMs + holdMs. */
+  readonly positionMs: number;
   readonly speed: number;
-  /** Clock time and progress when playing (re)started. */
+  /** Clock time and timeline position when playing (re)started. */
   readonly anchorTimeMs: number;
-  readonly anchorProgress: number;
+  readonly anchorPositionMs: number;
 }
 
 function check(name: string, value: number): number {
@@ -23,14 +31,22 @@ function check(name: string, value: number): number {
   return value;
 }
 
-export function createPlayback(durationMs: number, speed = 1): PlaybackState {
+const totalMs = (s: PlaybackState) => s.durationMs + s.holdMs;
+const at = (s: PlaybackState, positionMs: number): PlaybackState => {
+  const position = Math.min(totalMs(s), Math.max(0, positionMs));
+  return { ...s, positionMs: position, progress: Math.min(1, position / s.durationMs) };
+};
+
+export function createPlayback(durationMs: number, speed = 1, holdMs = 0): PlaybackState {
   return {
     status: 'ready',
     progress: 0,
     durationMs: Math.min(ANIMATION_LIMITS.durationMs.max, Math.max(ANIMATION_LIMITS.durationMs.min, check('durationMs', durationMs))),
+    holdMs: Math.max(0, check('holdMs', holdMs)),
+    positionMs: 0,
     speed: Math.min(ANIMATION_LIMITS.speed.max, Math.max(ANIMATION_LIMITS.speed.min, check('speed', speed))),
     anchorTimeMs: 0,
-    anchorProgress: 0,
+    anchorPositionMs: 0,
   };
 }
 
@@ -38,15 +54,15 @@ export function createPlayback(durationMs: number, speed = 1): PlaybackState {
 export function tick(state: PlaybackState, nowMs: number): PlaybackState {
   if (state.status !== 'playing') return state;
   const elapsed = Math.max(0, check('nowMs', nowMs) - state.anchorTimeMs);
-  const progress = Math.min(1, state.anchorProgress + (elapsed * state.speed) / state.durationMs);
-  return progress >= 1 ? { ...state, status: 'finished', progress: 1 } : { ...state, progress };
+  const next = at(state, state.anchorPositionMs + elapsed * state.speed);
+  return next.positionMs >= totalMs(state) ? { ...next, status: 'finished' } : next;
 }
 
-/** Starts or resumes at the current progress; a finished animation starts over. */
+/** Starts or resumes at the current position; a finished animation starts over. */
 export function play(state: PlaybackState, nowMs: number): PlaybackState {
   if (state.status === 'playing') return state;
-  const from = state.status === 'finished' ? 0 : state.progress;
-  return { ...state, status: 'playing', progress: from, anchorTimeMs: check('nowMs', nowMs), anchorProgress: from };
+  const from = state.status === 'finished' ? at(state, 0) : state;
+  return { ...from, status: 'playing', anchorTimeMs: check('nowMs', nowMs), anchorPositionMs: from.positionMs };
 }
 
 /** Freezes the exact current position (advancing to `nowMs` first). */
@@ -58,22 +74,36 @@ export function pause(state: PlaybackState, nowMs: number): PlaybackState {
 
 /** Back to the beginning and play. */
 export function replay(state: PlaybackState, nowMs: number): PlaybackState {
-  return { ...state, status: 'playing', progress: 0, anchorTimeMs: check('nowMs', nowMs), anchorProgress: 0 };
+  return { ...at(state, 0), status: 'playing', anchorTimeMs: check('nowMs', nowMs), anchorPositionMs: 0 };
 }
 
-/** Jumps to a progress without playing (e.g. 1 = show the finished artwork). */
+/** Jumps to a drawing progress without playing (1 = the finished artwork, end of the timeline). */
 export function seek(state: PlaybackState, progress: number, nowMs: number): PlaybackState {
   const p = Math.min(1, Math.max(0, check('progress', progress)));
+  const next = at(state, p >= 1 ? totalMs(state) : p * state.durationMs);
   const status = p >= 1 ? 'finished' : state.status === 'playing' ? 'playing' : 'paused';
-  return { ...state, status, progress: p, anchorTimeMs: check('nowMs', nowMs), anchorProgress: p };
+  return { ...next, status, anchorTimeMs: check('nowMs', nowMs), anchorPositionMs: next.positionMs };
+}
+
+/** Jumps to a timeline position (ms, incl. the hold) keeping play/pause; the end counts as finished. */
+export function seekPosition(state: PlaybackState, positionMs: number, nowMs: number): PlaybackState {
+  const next = at(state, check('positionMs', positionMs));
+  const status = next.positionMs >= totalMs(state) ? 'finished' : state.status === 'playing' ? 'playing' : next.positionMs > 0 ? 'paused' : state.status;
+  return { ...next, status, anchorTimeMs: check('nowMs', nowMs), anchorPositionMs: next.positionMs };
 }
 
 /** Changes the speed without moving the line (re-anchors at the current position). */
 export function setSpeed(state: PlaybackState, speed: number, nowMs: number): PlaybackState {
   const current = tick(state, nowMs);
   const next = Math.min(ANIMATION_LIMITS.speed.max, Math.max(ANIMATION_LIMITS.speed.min, check('speed', speed)));
-  return { ...current, speed: next, anchorTimeMs: nowMs, anchorProgress: current.progress };
+  return { ...current, speed: next, anchorTimeMs: nowMs, anchorPositionMs: current.positionMs };
 }
 
-/** Elapsed drawing time (ms at 1× speed) for display. */
-export const elapsedMs = (state: PlaybackState): number => state.progress * state.durationMs;
+/** Elapsed timeline time (ms at 1× speed, incl. the hold) for display. */
+export const elapsedMs = (state: PlaybackState): number => state.positionMs;
+
+/** Whole timeline length: drawing + final hold. */
+export const playbackTotalMs = (state: PlaybackState): number => totalMs(state);
+
+/** True while the line is complete and the finished artwork is being held. */
+export const isHolding = (state: PlaybackState): boolean => state.status === 'playing' && state.progress >= 1;

@@ -8,14 +8,18 @@ type Encoder = typeof import('../src/platform/browser/export/webCodecsEncoder');
 
 test.beforeEach(async ({ page }) => trackWorkers(page));
 
-/** Checks the demuxed file: even size, 30 fps, one frame per plan entry, expected duration. */
-async function expectVideo(buffer: Buffer, size: [number, number], durationS: number) {
+/** Final hold of the finished artwork at the end of every video (FINAL_HOLD_MS). */
+const HOLD_S = 2;
+
+/** Checks the demuxed file: even size, 30 fps, one frame per plan entry, drawing time + final hold. */
+async function expectVideo(buffer: Buffer, size: [number, number], drawS: number) {
   const v = await probeVideo(buffer);
+  const totalS = drawS + HOLD_S;
   expect([v.width, v.height]).toEqual(size);
   expect(v.width % 2 + v.height % 2).toBe(0);
-  expect(v.frames).toBe(durationS * 30 + 1);
-  expect(v.lastTimestampS).toBeCloseTo(durationS, 3);
-  expect(v.durationS).toBeCloseTo(durationS + 1 / 30, 2);
+  expect(v.frames).toBe(totalS * 30 + 1);
+  expect(v.lastTimestampS).toBeCloseTo(totalS, 3);
+  expect(v.durationS).toBeCloseTo(totalS + 1 / 30, 2);
   return v;
 }
 
@@ -25,7 +29,7 @@ test('video export with progress: 1080p, 5 s, black, Balanced — no new analysi
   await goToExport(page);
   const paths = await workers(page, 'pathGeneration');
   await videoPanel(page).getByRole('radio', { name: '5 s', exact: true }).click();
-  await expect(page.getByTestId('video-export-size')).toHaveText('1388 × 1080 px · 30 fps · 5 s');
+  await expect(page.getByTestId('video-export-size')).toHaveText('1388 × 1080 px · 30 fps · 7 s');
   await expect(page.getByRole('button', { name: 'Video exportieren' })).toBeEnabled();
 
   await page.getByRole('button', { name: 'Video exportieren' }).click();
@@ -164,7 +168,7 @@ test('video frames are deterministic and the last frame equals the static artwor
     ] as const) {
       const a = await record(mode, bg);
       const b = await record(mode, bg);
-      out.push({ mode, bg, same: a.hashes.join() === b.hashes.join(), times: a.times, size: a.size, maxDiff: a.maxDiff, frames: a.hashes.length, distinct: a.distinct });
+      out.push({ mode, bg, same: a.hashes.join() === b.hashes.join(), times: a.times, size: a.size, maxDiff: a.maxDiff, frames: a.hashes.length, distinct: a.distinct, holdFrames: a.hashes.slice(150), drawEnd: a.hashes[149] });
     }
     const plan = core.planVideoFrames({ durationMs: 5000, fps: 30 });
     const unchanged = before.coords.every((v, i) => v === path.coords[i]) && before.data.every((v, i) => v === data[i]);
@@ -173,7 +177,10 @@ test('video frames are deterministic and the last frame equals the static artwor
   for (const o of r.out) {
     expect(o.same, `${o.mode}/${o.bg}`).toBe(true);
     expect(o.times).toEqual(r.planTimes);
-    expect(o.frames).toBe(151);
+    // 5 s drawing (151 frames incl. the complete one) + 2 s final hold (60 more identical frames).
+    expect(o.frames).toBe(211);
+    expect(new Set(o.holdFrames).size).toBe(1);
+    expect(o.holdFrames[0]).not.toBe(o.drawEnd);
     expect(o.distinct).toBeGreaterThan(140); // the drawing really grows frame by frame
     expect(o.size).toEqual({ width: 1440, height: 1080 });
     expect(o.maxDiff, `${o.mode}/${o.bg}`).toBe(0);

@@ -1,17 +1,16 @@
 import { useEffect, useState } from 'react';
-import { DETAIL_LEVELS, type ImageSession, type OneLinePath } from '../../core';
+import type { ImageSession, OneLinePath } from '../../core';
 import { Button } from '../../ui/components/Button';
 import { ImageViewer } from '../../ui/components/ImageViewer';
-import { SegmentedControl } from '../../ui/components/SegmentedControl';
+import { Icon } from '../../ui/components/Icon';
 import { StatusPanel } from '../../ui/components/StatusPanel';
-import { DETAIL_LEVEL_LABELS, DISPLAY_OPTIONS, PATH_ERROR_MESSAGES } from '../drawingLabels';
+import { DetailChoice, DisplayChoice } from '../controls';
+import { PATH_ERROR_MESSAGES } from '../drawingLabels';
 import { ANALYSIS_ERROR_MESSAGES } from '../importMessages';
 import { PREVIEW_RENDER_EDGE } from '../preview/previewConfig';
 import { useArtwork } from '../preview/useArtwork';
 import type { ImageImportController } from '../state/useImageImport';
 import type { RenderSettingsController } from '../state/useRenderSettings';
-
-const DETAIL_OPTIONS = DETAIL_LEVELS.map((value) => ({ value, ...DETAIL_LEVEL_LABELS[value] }));
 
 interface SettingsScreenProps {
   session: ImageSession<ImageBitmap>;
@@ -28,7 +27,7 @@ interface SettingsScreenProps {
  * drawing stays visible, dimmed, until the new one is ready.
  */
 export function SettingsScreen({ session, controller, render, onBack, onContinue }: SettingsScreenProps) {
-  const { renderSettings, updateRenderSettings } = render;
+  const { renderSettings } = render;
   const { oneLine, path, pathStatus, analysisStatus } = session;
   const { generatePath, setDrawing, retryAnalysis } = controller;
 
@@ -44,9 +43,9 @@ export function SettingsScreen({ session, controller, render, onBack, onContinue
   // The artwork is rendered from the path; black ↔ colour only re-draws it.
   const { artwork } = useArtwork({ path: shown, settings: renderSettings, longEdge: PREVIEW_RENDER_EDGE, image: session.processed.pixels, backgroundImage: session.preview });
   const bitmap = artwork?.image ?? null;
-  const display = DISPLAY_OPTIONS.find((o) => o.colorMode === renderSettings.colorMode)?.value ?? 'black';
-
-  const busy = pathStatus === 'running' || (pathStatus === 'idle' && analysisStatus === 'ready');
+  // Waiting for a drawing: computing it, or (reopened project, new level) analysing the image first.
+  const busy = pathStatus === 'running' || (pathStatus === 'idle' && analysisStatus !== 'failed');
+  const busyText = analysisStatus === 'ready' ? 'Zeichnung wird berechnet …' : 'Bild wird analysiert …';
   const level = oneLine.drawing.detailLevel;
 
   return (
@@ -72,30 +71,30 @@ export function SettingsScreen({ session, controller, render, onBack, onContinue
         ) : bitmap ? (
           <ImageViewer key={session.original.id} image={bitmap} label="One-Line-Zeichnung" />
         ) : (
-          <StatusPanel busy title={analysisStatus === 'ready' ? 'Zeichnung wird berechnet' : 'Bild wird analysiert'} />
+          <StatusPanel busy title={busyText} detail="Das dauert meist nur wenige Sekunden." />
         )}
         {busy && bitmap && (
           <p className="settings__busy" role="status">
-            Zeichnung wird berechnet …
+            <span className="spinner" aria-hidden="true" />
+            {busyText}
           </p>
         )}
       </div>
-      <footer className="toolbar toolbar--settings">
-        <Button variant="quiet" onClick={onBack}>
-          Zurück
-        </Button>
-        <div className="settings__controls">
-          <SegmentedControl label="Detailgrad" options={DETAIL_OPTIONS} value={level} onChange={(detailLevel) => setDrawing({ detailLevel })} />
-          <SegmentedControl
-            label="Darstellung"
-            options={DISPLAY_OPTIONS}
-            value={display}
-            onChange={(value) => updateRenderSettings({ colorMode: DISPLAY_OPTIONS.find((o) => o.value === value)!.colorMode })}
-          />
+      <footer className="controlbar">
+        <div className="controlbar__options">
+          <DetailChoice value={level} onChange={(detailLevel) => setDrawing({ detailLevel })} fill />
+          <DisplayChoice render={render} fill />
         </div>
-        <Button disabled={pathStatus !== 'ready'} onClick={onContinue}>
-          Weiter
-        </Button>
+        <div className="controlbar__nav">
+          <Button variant="quiet" onClick={onBack}>
+            <Icon name="arrowLeft" size={18} />
+            Zurück
+          </Button>
+          <Button disabled={pathStatus !== 'ready'} onClick={onContinue}>
+            Weiter
+            <Icon name="arrowRight" size={18} />
+          </Button>
+        </div>
       </footer>
     </section>
   );

@@ -19,6 +19,7 @@ interface ImageViewerProps {
 const DOUBLE_TAP_MS = 300;
 const TAP_SLOP_PX = 10;
 const DOUBLE_TAP_SCALE = 2.5;
+const PAPER_SHADOW = { color: 'rgba(0, 0, 0, 0.12)', blur: 24, offsetY: 6 } as const;
 
 /**
  * Large, undistorted image preview with pinch/wheel zoom and drag to pan.
@@ -50,7 +51,12 @@ export function ImageViewer({ image, label }: ImageViewerProps) {
     const fitFactor = Math.min(container.current.width / imageSize.width, container.current.height / imageSize.height);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
+    // Soft "paper" shadow (shadow values are in device pixels, unaffected by the transform).
+    ctx.shadowColor = PAPER_SHADOW.color;
+    ctx.shadowBlur = PAPER_SHADOW.blur * dpr;
+    ctx.shadowOffsetY = PAPER_SHADOW.offsetY * dpr;
     ctx.drawImage(image, x, y, imageSize.width * fitFactor * scale, imageSize.height * fitFactor * scale);
+    ctx.shadowColor = 'transparent';
   }, [image, imageSize]);
 
   const setView = useCallback(

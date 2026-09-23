@@ -512,3 +512,34 @@ Bild: eine Render-Fläche in Zielgröße (4096×3072 ≈ 50 MB RGBA), direkt kod
 Bitmap-Kopie), danach sofort freigegeben. Video: drei Flächen in Videogröße (Hintergrund, Linienebene,
 Encoder-Canvas; bei 4096×3072 ≈ 150 MB), Frames werden einzeln kodiert; im RAM wächst nur die
 komprimierte Datei (MB-Bereich). JS-Heap blieb in allen Messungen unter 20 MB.
+
+## UI/UX (Teil 9)
+
+### Ablauf und Navigation
+`Bild → Zeichnung → Vorschau → Export` (`app/flow.ts`); die Platzhalter „Generieren“/„Ergebnis“ sind
+entfernt. Die Schrittleiste zeigt Erreichbarkeit (`reachableSteps`): erledigte Schritte mit Häkchen und
+anklickbar, kommende zurückhaltend, nicht erreichbare inert. Mobil: „Schritt n von 4“ mit Segmentleiste.
+Speichern und „Meine Werke“ stehen in der Kopfzeile (Status: Speichern → Wird gespeichert … → Gespeichert).
+
+### Visuelles System (`ui/theme.css`)
+Tokens für Farbe (Kontrast ≥ 4,5:1 für Text), Typo-Skala (12/13/15/17/22/28 px), Abstände (4–64 px),
+Radien und Steuerhöhe 44 px (Touch). Buttons: primary / quiet / ghost / danger. Auswahl als
+Segmented Control mit Erklärzeile (`OptionGroup`); Bestätigungen über native `<dialog>`
+(`ui/components/Dialog.tsx`, Fokus bleibt im Dialog, Escape bricht ab). Icons als Inline-SVG.
+`prefers-reduced-motion` schaltet Animationen/Übergänge ab. Debug-Ansichten nur mit `?debug=analysis`.
+
+### Endstand (fertiges Bild bleibt stehen)
+`FINAL_HOLD_MS` = 2000 (`core/animation/animationSettings.ts`, einzige Definition). Die gewählte Dauer
+(5/10/15/30 s) bleibt die **Zeichenzeit**; die Timeline ist `timelineDurationMs = Zeichenzeit + Endstand`.
+- Vorschau: `createPlayback(dauer, speed, holdMs)` – `progress` = Zeichenfortschritt (1 während des
+  Endstands), `positionMs` = Position auf der Timeline, `finished` erst nach dem Endstand.
+- Video: `planVideoFrames` hängt die Endstand-Frames an (10 s → 361 Frames, 12 s Video). Unveränderte
+  Frames werden nicht neu gezeichnet (`runVideoExport`), der Animator zeichnet das fertige Bild nur einmal.
+- Das Endbild ist weiterhin pixelidentisch mit dem statischen Artwork (Browser-Test).
+
+### Bekannte Grenzen (→ Teil 10)
+- Zoom in der Vorschau vergrößert die 2048-px-Vorschau-Bitmap; bei starkem Zoom auf hochauflösenden
+  Displays wird sie weich. Schärfer ginge es mit einem Nach-Rendern in höherer Auflösung beim Zoomen
+  (nur Renderer, kein neuer Pfad).
+- Die Vorschau-Leinwand ist beim Start leer (Fortschritt 0) mit Abspiel-Knopf; ein Vorschaubild des
+  fertigen Werks davor wäre denkbar.

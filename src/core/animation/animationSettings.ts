@@ -2,6 +2,17 @@ import { DEFAULT_ANIMATION_SETTINGS, type AnimationEasing, type AnimationPacing,
 
 /** Durations offered to the user (ms). */
 export const DURATION_PRESETS_MS = [5_000, 10_000, 15_000, 30_000] as const;
+/**
+ * How long the finished artwork stays visible after the line is complete —
+ * in the preview and in exported videos (single definition). The drawing
+ * itself still takes exactly the chosen duration; this only extends the
+ * playback/video timeline: 10 s drawing + 2 s hold = 12 s video.
+ */
+export const FINAL_HOLD_MS = 2_000;
+
+/** Total playback / video length for a drawing duration (drawing + final hold). */
+export const timelineDurationMs = (drawDurationMs: number, holdMs: number = FINAL_HOLD_MS): number => drawDurationMs + holdMs;
+
 /** Playback speeds (prepared; independent of the drawing's duration). */
 export const SPEED_PRESETS = [0.5, 1, 2, 4] as const;
 

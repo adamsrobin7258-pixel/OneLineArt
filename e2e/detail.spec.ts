@@ -39,7 +39,7 @@ test('detail levels: Balanced by default, three clear options, no technical term
   await expectDrawing(page);
   await expect(page.getByRole('img', { name: 'One-Line-Zeichnung' })).toBeVisible();
   await expect(page.locator('body')).not.toContainText(/pointBudget|gamma|curvature|demand|Parameter/i);
-  await expect(page.getByRole('navigation', { name: 'Ablauf' }).locator('[aria-current="step"]')).toHaveText('Einstellungen');
+  await expect(page.getByRole('navigation', { name: 'Ablauf' }).locator('[aria-current="step"]')).toHaveText('Zeichnung');
 });
 
 test('changing the level recomputes only the line, never the analysis; switching back is instant', async ({ page }) => {

@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
-  DURATION_PRESETS_MS,
-  EXPORT_LIMITS,
   IDLE_EXPORT_STATE,
   UI_VIDEO_FPS,
   exportErrorCode,
   exportReducer,
   imageExportSize,
   isExportRunning,
+  timelineDurationMs,
   videoFrameSize,
   type ExportFile,
   type ExportKind,
@@ -22,7 +21,12 @@ import type { BrowserExportSource } from '../../platform/browser/export/imageExp
 import { canShareFile, downloadFile, shareFile } from '../../platform/browser/export/share';
 import { Button } from '../../ui/components/Button';
 import { SegmentedControl } from '../../ui/components/SegmentedControl';
-import { DISPLAY_OPTIONS } from '../drawingLabels';
+import { Icon } from '../../ui/components/Icon';
+import { ImageViewer } from '../../ui/components/ImageViewer';
+import { OptionGroup } from '../../ui/components/OptionGroup';
+import { DisplayChoice, DurationChoice, seconds } from '../controls';
+import { PREVIEW_RENDER_EDGE } from '../preview/previewConfig';
+import { useArtwork } from '../preview/useArtwork';
 import { EXPORT_ERROR_MESSAGES } from '../exportMessages';
 import type { RenderSettingsController } from '../state/useRenderSettings';
 
@@ -49,7 +53,6 @@ const VIDEO_RES_OPTIONS: { value: VideoResolution; label: string }[] = [
   { value: '2048', label: '2048 px' },
   { value: '4096', label: '4096 px' },
 ];
-const DURATION_OPTIONS = DURATION_PRESETS_MS.map((ms) => ({ value: String(ms), label: `${ms / 1000} s` }));
 const VIDEO_FPS = UI_VIDEO_FPS[0]!;
 
 const formatBytes = (bytes: number) => (bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
@@ -62,7 +65,7 @@ const loadVideoModule = () => Promise.all([import('../../platform/browser/export
  * rendered anew from the SAME path and settings as preview and animation.
  */
 export function ExportScreen({ session, render, durationMs, onDurationChange, projectName, onBack }: ExportScreenProps) {
-  const { renderSettings, updateRenderSettings } = render;
+  const { renderSettings } = render;
   const path = session.path;
   const [format, setFormat] = useState<ImageExportFormat>('png');
   const [imageRes, setImageRes] = useState<ImageResolution>('4096');
@@ -133,87 +136,127 @@ export function ExportScreen({ session, render, durationMs, onDurationChange, pr
   };
 
   const running = isExportRunning(state);
-  const display = DISPLAY_OPTIONS.find((o) => o.colorMode === renderSettings.colorMode)?.value ?? 'black';
   const videoBlocked = capability !== null && !capability.supported;
   const percent = Math.round(state.progress * 100);
+  const totalVideoMs = timelineDurationMs(durationMs);
+  // Static artwork (same renderer as everywhere) as the visual anchor of the screen.
+  const { artwork } = useArtwork({ path, settings: renderSettings, longEdge: PREVIEW_RENDER_EDGE, image: session.processed.pixels, backgroundImage: session.preview });
+
+  // Short announcement for screen readers (the visual status sits below the section that started the export).
+  const liveText =
+    state.status === 'ready' ? 'Export fertig' : state.status === 'failed' ? 'Export fehlgeschlagen' : state.status === 'cancelled' ? 'Export abgebrochen' : running ? 'Export läuft' : '';
+  const statusBlock = state.kind && state.status !== 'idle' && (
+    <div className={`export__status is-${state.status}`} data-testid="export-status">
+      {running && (
+        <div className="export__progress" role="status">
+          <p className="export__status-title">
+            {state.status === 'preparing'
+              ? 'Export wird vorbereitet …'
+              : state.kind === 'video'
+                ? `Video wird erstellt … ${percent} %`
+                : state.status === 'rendering'
+                  ? 'Bild wird erstellt …'
+                  : 'Datei wird fertiggestellt …'}
+          </p>
+          <div
+            className={`progress${state.kind === 'video' ? '' : ' progress--indeterminate'}`}
+            role="progressbar"
+            aria-label="Exportfortschritt"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={state.kind === 'video' ? percent : undefined}
+          >
+            <div className="progress__bar" style={state.kind === 'video' ? { transform: `scaleX(${state.progress})` } : undefined} />
+          </div>
+          <Button variant="quiet" onClick={cancel}>
+            Abbrechen
+          </Button>
+        </div>
+      )}
+      {state.status === 'ready' && state.file && <ExportReady file={state.file} />}
+      {state.status === 'cancelled' && (
+        <p className="notice">
+          <span>
+            <strong>{EXPORT_ERROR_MESSAGES.cancelled.title}.</strong> {EXPORT_ERROR_MESSAGES.cancelled.detail}
+          </span>
+        </p>
+      )}
+      {state.status === 'failed' && (
+        <div className="notice notice--error" role="alert">
+          <Icon name="alert" size={18} />
+          <span>
+            <strong>{EXPORT_ERROR_MESSAGES[state.error ?? 'encoding-failed'].title}.</strong> {EXPORT_ERROR_MESSAGES[state.error ?? 'encoding-failed'].detail}
+          </span>
+          {state.kind && (
+            <Button variant="quiet" onClick={() => void start(state.kind!)}>
+              Erneut versuchen
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <section className="export" data-testid="export-screen" data-export-status={state.status} data-export-kind={state.kind ?? ''}>
-      <div className="export__panels">
-        <fieldset className="export__panel" disabled={running}>
-          <legend>Bild</legend>
-          <SegmentedControl label="Format" options={FORMAT_OPTIONS} value={format} onChange={(v) => setFormat(v as ImageExportFormat)} />
-          <SegmentedControl label="Auflösung" options={IMAGE_RES_OPTIONS} value={imageRes} onChange={(v) => setImageRes(v as ImageResolution)} />
-          <p className="export__info" data-testid="image-export-size">
-            {imageSize ? `${imageSize.size.width} × ${imageSize.size.height} px` : '–'}
-            {imageSize?.limited && ` (begrenzt, Original: ${imageSize.requestedLongEdge} px lange Kante)`}
+      <div className="export__preview">{artwork && <ImageViewer key={session.original.id} image={artwork.image} label="One-Line-Zeichnung" />}</div>
+
+      <div className="export__panel">
+        <fieldset className="export__section" disabled={running}>
+          <legend className="export__title">Bild</legend>
+          <OptionGroup label="Format" caption={format === 'png' ? 'Verlustfrei, beste Qualität' : 'Kleinere Datei'}>
+            <SegmentedControl label="Format" options={FORMAT_OPTIONS} value={format} onChange={(v) => setFormat(v as ImageExportFormat)} fill />
+          </OptionGroup>
+          <OptionGroup label="Größe">
+            <SegmentedControl label="Auflösung" options={IMAGE_RES_OPTIONS} value={imageRes} onChange={(v) => setImageRes(v as ImageResolution)} fill />
+          </OptionGroup>
+          <p className="export__info">
+            <span data-testid="image-export-size">{imageSize ? `${imageSize.size.width} × ${imageSize.size.height} px` : '–'}</span>
+            {imageSize?.limited && <span> · auf die größtmögliche Größe begrenzt</span>}
           </p>
-          <Button onClick={() => void start('image')} disabled={!path || running}>
+          <Button className="export__action" onClick={() => void start('image')} disabled={!path || running}>
+            <Icon name="download" size={18} />
             Bild exportieren
           </Button>
         </fieldset>
+        {state.kind === 'image' && statusBlock}
 
-        <fieldset className="export__panel" disabled={running}>
-          <legend>Video</legend>
-          <SegmentedControl label="Dauer" options={DURATION_OPTIONS} value={String(durationMs)} onChange={(v) => onDurationChange(Number(v))} />
-          <SegmentedControl label="Auflösung" options={VIDEO_RES_OPTIONS} value={videoRes} onChange={(v) => setVideoRes(v as VideoResolution)} />
-          <SegmentedControl
-            label="Darstellung"
-            options={DISPLAY_OPTIONS}
-            value={display}
-            onChange={(value) => updateRenderSettings({ colorMode: DISPLAY_OPTIONS.find((o) => o.value === value)!.colorMode })}
-          />
-          <p className="export__info" data-testid="video-export-size">
-            {videoSize ? `${videoSize.size.width} × ${videoSize.size.height} px · ${VIDEO_FPS} fps · ${durationMs / 1000} s` : '–'}
+        <fieldset className="export__section" disabled={running}>
+          <legend className="export__title">Video</legend>
+          <DurationChoice durationMs={durationMs} onChange={onDurationChange} fill />
+          <OptionGroup label="Auflösung">
+            <SegmentedControl label="Auflösung" options={VIDEO_RES_OPTIONS} value={videoRes} onChange={(v) => setVideoRes(v as VideoResolution)} fill />
+          </OptionGroup>
+          <DisplayChoice render={render} fill />
+          <p className="export__info">
+            {capability?.supported && <span>{capability.extension.toUpperCase()} · </span>}
+            <span data-testid="video-export-size">{videoSize ? `${videoSize.size.width} × ${videoSize.size.height} px · ${VIDEO_FPS} fps · ${seconds(totalVideoMs)}` : '–'}</span>
           </p>
           {videoBlocked && (
-            <p className="export__notice" role="note" data-testid="video-unsupported">
-              {EXPORT_ERROR_MESSAGES[capability.reason].title}. {EXPORT_ERROR_MESSAGES[capability.reason].detail}
+            <p className="notice notice--warning" role="note" data-testid="video-unsupported">
+              <Icon name="alert" size={18} />
+              <span>
+                <strong>{EXPORT_ERROR_MESSAGES[capability.reason].title}.</strong> {EXPORT_ERROR_MESSAGES[capability.reason].detail}
+              </span>
             </p>
           )}
-          <Button onClick={() => void start('video')} disabled={!path || running || videoBlocked || capability === null}>
+          <Button className="export__action" onClick={() => void start('video')} disabled={!path || running || videoBlocked || capability === null}>
+            <Icon name="download" size={18} />
             Video exportieren
           </Button>
         </fieldset>
-      </div>
+        {state.kind === 'video' && statusBlock}
+        <p className="sr-only" aria-live="polite">
+          {liveText}
+        </p>
 
-      <div className="export__status" aria-live="polite" data-testid="export-status">
-        {running && (
-          <div className="export__progress" role="status">
-            <p>
-              {state.status === 'preparing'
-                ? 'Export wird vorbereitet …'
-                : state.kind === 'video'
-                  ? `Video wird erstellt … ${percent} %`
-                  : state.status === 'rendering'
-                    ? 'Bild wird erstellt …'
-                    : 'Datei wird fertiggestellt …'}
-            </p>
-            {state.kind === 'video' && (
-              <div className="player__track" role="progressbar" aria-label="Exportfortschritt" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
-                <div className="player__bar" style={{ transform: `scaleX(${state.progress})` }} />
-              </div>
-            )}
-            <Button variant="quiet" onClick={cancel}>
-              Abbrechen
-            </Button>
-          </div>
-        )}
-        {state.status === 'ready' && state.file && <ExportReady file={state.file} />}
-        {(state.status === 'failed' || state.status === 'cancelled') && (
-          <p className="export__notice" role="alert">
-            {EXPORT_ERROR_MESSAGES[state.status === 'cancelled' ? 'cancelled' : (state.error ?? 'encoding-failed')].title}.{' '}
-            {EXPORT_ERROR_MESSAGES[state.status === 'cancelled' ? 'cancelled' : (state.error ?? 'encoding-failed')].detail}
-          </p>
-        )}
+        <div className="controlbar__nav export__nav">
+          <Button variant="quiet" onClick={onBack} disabled={running}>
+            <Icon name="arrowLeft" size={18} />
+            Zurück
+          </Button>
+        </div>
       </div>
-
-      <footer className="toolbar toolbar--settings">
-        <Button variant="quiet" onClick={onBack} disabled={running}>
-          Zurück
-        </Button>
-        <p className="toolbar__meta">Maximal {EXPORT_LIMITS.imageEdge} px</p>
-      </footer>
     </section>
   );
 }
@@ -222,15 +265,26 @@ function ExportReady({ file }: { file: ExportFile<Blob> }) {
   const shareable = useMemo(() => canShareFile(file), [file]);
   return (
     <div className="export__ready" data-testid="export-ready" data-file-name={file.fileName} data-file-size={file.sizeBytes} data-mime-type={file.mimeType}>
-      <p>
-        Fertig: {file.fileName} ({formatBytes(file.sizeBytes)})
+      <p className="export__status-title">
+        <span className="export__done-icon">
+          <Icon name="check" size={16} />
+        </span>
+        <span>
+          Fertig: {file.fileName} <span className="export__size">({formatBytes(file.sizeBytes)})</span>
+        </span>
       </p>
-      <Button onClick={() => downloadFile(file)}>Herunterladen</Button>
-      {shareable && (
-        <Button variant="quiet" onClick={() => void shareFile(file).catch((error: unknown) => console.error('Sharing failed', error))}>
-          Teilen
+      <div className="export__ready-actions">
+        <Button onClick={() => downloadFile(file)}>
+          <Icon name="download" size={18} />
+          Herunterladen
         </Button>
-      )}
+        {shareable && (
+          <Button variant="quiet" onClick={() => void shareFile(file).catch((error: unknown) => console.error('Sharing failed', error))}>
+            <Icon name="share" size={18} />
+            Teilen
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

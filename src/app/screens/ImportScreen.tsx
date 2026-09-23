@@ -2,6 +2,7 @@ import { useMemo, type DragEvent } from 'react';
 import type { ImageSession } from '../../core';
 import { supportsCameraCapture } from '../../platform/browser/capabilities';
 import { Button } from '../../ui/components/Button';
+import { Icon } from '../../ui/components/Icon';
 import { ImageViewer } from '../../ui/components/ImageViewer';
 import { ImportArea } from '../../ui/components/ImportArea';
 import { StatusPanel } from '../../ui/components/StatusPanel';
@@ -40,8 +41,8 @@ export function ImportScreen({ controller, onContinue }: ImportScreenProps) {
         <ImportArea onChooseFile={picker.chooseFile} onTakePhoto={canTakePhoto ? picker.takePhoto : undefined} onDropFile={selectFile} />
       )}
 
-      {state.status === 'loading' && <StatusPanel busy title="Bild wird geladen" />}
-      {state.status === 'processing' && <StatusPanel busy title="Bild wird vorbereitet" />}
+      {state.status === 'loading' && <StatusPanel busy title="Bild wird geladen …" />}
+      {state.status === 'processing' && <StatusPanel busy title="Bild wird vorbereitet …" />}
 
       {state.status === 'error' && (
         <StatusPanel title={IMPORT_ERROR_MESSAGES[state.error].title} detail={IMPORT_ERROR_MESSAGES[state.error].detail}>
@@ -75,8 +76,8 @@ export function ImportScreen({ controller, onContinue }: ImportScreenProps) {
               {FORMAT_LABELS[state.session.original.metadata.format]}
               {(state.session.analysisStatus === 'pending' || state.session.analysisStatus === 'running') && (
                 <span className="toolbar__status" role="status">
-                  {' '}
-                  · Bild wird analysiert
+                  <span className="spinner" aria-hidden="true" />
+                  Bild wird analysiert …
                 </span>
               )}
             </p>
@@ -89,11 +90,11 @@ export function ImportScreen({ controller, onContinue }: ImportScreenProps) {
               </p>
             )}
             <div className="toolbar__actions">
+              <Button variant="ghost" onClick={removeImage}>
+                Bild entfernen
+              </Button>
               <Button variant="quiet" onClick={picker.chooseFile}>
                 Anderes Bild
-              </Button>
-              <Button variant="quiet" onClick={removeImage}>
-                Bild entfernen
               </Button>
               <Button
                 disabled={!canContinue(state.session)}
@@ -101,6 +102,7 @@ export function ImportScreen({ controller, onContinue }: ImportScreenProps) {
                 onClick={onContinue}
               >
                 Weiter
+                <Icon name="arrowRight" size={18} />
               </Button>
             </div>
           </footer>

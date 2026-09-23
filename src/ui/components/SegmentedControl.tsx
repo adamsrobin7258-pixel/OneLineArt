@@ -11,10 +11,12 @@ interface SegmentedControlProps<T extends string> {
   options: readonly SegmentOption<T>[];
   value: T;
   onChange: (value: T) => void;
+  /** Options share the full width (mobile, panels). */
+  fill?: boolean;
 }
 
 /** A small set of mutually exclusive choices (radio group semantics, arrow-key navigation). */
-export function SegmentedControl<T extends string>({ label, options, value, onChange }: SegmentedControlProps<T>) {
+export function SegmentedControl<T extends string>({ label, options, value, onChange, fill = false }: SegmentedControlProps<T>) {
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
   const index = options.findIndex((o) => o.value === value);
 
@@ -28,7 +30,7 @@ export function SegmentedControl<T extends string>({ label, options, value, onCh
   };
 
   return (
-    <div className="segmented" role="radiogroup" aria-label={label} onKeyDown={onKeyDown}>
+    <div className={`segmented${fill ? ' segmented--fill' : ''}`} role="radiogroup" aria-label={label} onKeyDown={onKeyDown}>
       {options.map((option, i) => (
         <button
           key={option.value}
@@ -39,7 +41,6 @@ export function SegmentedControl<T extends string>({ label, options, value, onCh
           role="radio"
           aria-checked={option.value === value}
           tabIndex={option.value === value ? 0 : -1}
-          title={option.hint}
           className={`segmented__option${option.value === value ? ' is-selected' : ''}`}
           onClick={() => onChange(option.value)}
         >

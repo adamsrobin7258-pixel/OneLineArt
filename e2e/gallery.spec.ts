@@ -107,7 +107,7 @@ test('rename and delete with confirmation; deleting the open work unlinks it', a
   await openGallery(page);
   await items(page).first().getByRole('button', { name: 'Umbenennen' }).click();
   await items(page).first().getByRole('textbox', { name: 'Name' }).fill('Am Meer');
-  await items(page).first().getByRole('button', { name: 'OK' }).click();
+  await items(page).first().getByRole('button', { name: 'Übernehmen' }).click();
   await expect(items(page).first()).toContainText('Am Meer');
   await page.reload();
   await openGallery(page);

@@ -68,7 +68,8 @@ test('play, pause, resume, replay and finish the drawing of the same path', asyn
   const paused = await progress(page);
   await page.waitForTimeout(500);
   expect(await progress(page)).toBe(paused);
-  await expect(page.getByRole('progressbar', { name: 'Fortschritt' })).toHaveAttribute('aria-valuenow', String(Math.round(paused * 100)));
+  // The bar covers the whole timeline: 5 s drawing + 2 s final hold.
+  await expect(page.getByRole('progressbar', { name: 'Fortschritt' })).toHaveAttribute('aria-valuenow', String(Math.round(((paused * 5000) / 7000) * 100)));
 
   // Resume continues from there
   await page.getByRole('button', { name: 'Abspielen' }).click();
@@ -81,7 +82,7 @@ test('play, pause, resume, replay and finish the drawing of the same path', asyn
   // Runs to exactly 100 % and stops
   await expect(canvas(page)).toHaveAttribute('data-status', 'finished', { timeout: 15_000 });
   expect(await progress(page)).toBe(1);
-  await expect(page.locator('.player__time')).toHaveText('0:05 / 0:05');
+  await expect(page.locator('.player__time')).toHaveText('0:07 / 0:07');
 
   // Nothing was analysed or generated again while animating
   expect(await workers(page, 'analysis')).toBe(analyses);

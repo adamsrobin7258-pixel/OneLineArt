@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   AnimationError,
+  FINAL_HOLD_MS,
+  isHolding,
+  playbackTotalMs,
+  seekPosition,
+  timelineDurationMs,
   DEFAULT_ANIMATION_SETTINGS,
   DURATION_PRESETS_MS,
   SPEED_PRESETS,
@@ -105,3 +110,49 @@ describe('playback (time-based, independent of frame rate)', () => {
     expect(() => createPlayback(Infinity)).toThrow(AnimationError);
   });
 });
+
+describe('final hold (finished artwork stays visible)', () => {
+  const start = createPlayback(10_000, 1, FINAL_HOLD_MS);
+
+  it('draws in exactly the chosen duration, then holds the complete artwork, then finishes', () => {
+    expect(playbackTotalMs(start)).toBe(12_000);
+    let s = play(start, 0);
+    s = tick(s, 5000);
+    expect(s).toMatchObject({ status: 'playing', progress: 0.5, positionMs: 5000 });
+    expect(isHolding(s)).toBe(false);
+    s = tick(s, 10_000);
+    expect(s).toMatchObject({ status: 'playing', progress: 1, positionMs: 10_000 });
+    expect(isHolding(s)).toBe(true);
+    s = tick(s, 11_500);
+    expect(s).toMatchObject({ status: 'playing', progress: 1, positionMs: 11_500 });
+    s = tick(s, 12_000);
+    expect(s).toMatchObject({ status: 'finished', progress: 1, positionMs: 12_000 });
+    expect(elapsedMs(s)).toBe(12_000);
+  });
+
+  it('pause and resume work during the hold; play after the end starts over', () => {
+    let s = pause(tick(play(start, 0), 11_000), 11_000);
+    expect(s).toMatchObject({ status: 'paused', progress: 1, positionMs: 11_000 });
+    expect(tick(s, 99_000).positionMs).toBe(11_000);
+    s = tick(play(s, 20_000), 21_000);
+    expect(s.status).toBe('finished');
+    expect(play(s, 30_000)).toMatchObject({ status: 'playing', progress: 0, positionMs: 0 });
+  });
+
+  it('seekPosition keeps play state and clamps to the timeline', () => {
+    const playing = play(start, 0);
+    expect(seekPosition(playing, 11_000, 0)).toMatchObject({ status: 'playing', progress: 1, positionMs: 11_000 });
+    expect(seekPosition(start, 3000, 0)).toMatchObject({ status: 'paused', progress: 0.3 });
+    expect(seekPosition(start, 99_000, 0)).toMatchObject({ status: 'finished', positionMs: 12_000 });
+    expect(seekPosition(start, 0, 0).status).toBe('ready');
+    expect(() => seekPosition(start, Number.NaN, 0)).toThrow(AnimationError);
+    expect(() => createPlayback(10_000, 1, Number.POSITIVE_INFINITY)).toThrow(AnimationError);
+  });
+
+  it('timeline length = drawing + hold', () => {
+    expect(timelineDurationMs(5000)).toBe(7000);
+    expect(timelineDurationMs(30_000)).toBe(32_000);
+    expect(timelineDurationMs(10_000, 0)).toBe(10_000);
+  });
+});
+

@@ -1,4 +1,4 @@
-import { createPlayback, pause, play, replay, seek, tick, type PlaybackState } from '../../../core';
+import { FINAL_HOLD_MS, createPlayback, pause, play, replay, seek, seekPosition, tick, type PlaybackState } from '../../../core';
 import type { ArtworkAnimator, FrameResult } from './artworkAnimator';
 
 /** Live metrics of the preview (browser-specific, not reproducible by nature). */
@@ -31,16 +31,19 @@ const FPS_WINDOW = 30;
 /**
  * requestAnimationFrame loop around the core playback: each frame reads the
  * clock, derives progress from elapsed time (not from frame numbers) and asks
- * the animator for that exact position.
+ * the animator for that exact position. After the drawing, the finished
+ * artwork is held for FINAL_HOLD_MS (same as in exported videos).
  */
 export function createAnimationLoop(
   animator: ArtworkAnimator,
   target: CanvasRenderingContext2D,
   durationMs: number,
   onFrame: (state: PlaybackState, frame: FrameResult, stats: AnimationStats) => void,
-  initialProgress = 0,
+  /** Where to start on the timeline (ms incl. the final hold), e.g. to keep the position after a settings change. */
+  initialPositionMs = 0,
 ): AnimationLoop {
-  let state = initialProgress > 0 ? seek(createPlayback(durationMs), initialProgress, performance.now()) : createPlayback(durationMs);
+  const initial = createPlayback(durationMs, 1, FINAL_HOLD_MS);
+  let state = initialPositionMs > 0 ? seekPosition(initial, initialPositionMs, performance.now()) : initial;
   let raf = 0;
   let last: FrameResult | null = null;
   let frameCount = 0;

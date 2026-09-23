@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EXPORT_LIMITS, ExportError, FRAME_PROGRESS_SHARE, planVideoFrames, runVideoExport, type VideoEncodingSession } from '../../../src/core';
+import { EXPORT_LIMITS, ExportError, FINAL_HOLD_MS, FRAME_PROGRESS_SHARE, planVideoFrames, runVideoExport, type VideoEncodingSession } from '../../../src/core';
 
 function fakeSession(opts: { failAt?: number; empty?: boolean } = {}) {
   const log: string[] = [];
@@ -27,32 +27,45 @@ function fakeSession(opts: { failAt?: number; empty?: boolean } = {}) {
 }
 
 describe('video frame plan', () => {
-  it('10 s / 30 fps: 301 frames at k/30 s, from 0 ms to exactly 10 000 ms', () => {
+  it('10 s / 30 fps + 2 s final hold: 361 frames at k/30 s, from 0 ms to 12 000 ms', () => {
     const plan = planVideoFrames({ durationMs: 10_000, fps: 30 });
-    expect(plan.frameCount).toBe(301);
+    expect(FINAL_HOLD_MS).toBe(2000);
+    expect(plan).toMatchObject({ drawDurationMs: 10_000, holdMs: 2000, durationMs: 12_000, frameCount: 361 });
     expect(plan.timesMs[0]).toBe(0);
     expect(plan.timesMs[1]).toBeCloseTo(33.333, 3);
     expect(plan.timesMs[2]).toBeCloseTo(66.667, 3);
     expect(plan.timesMs[3]).toBe(100);
     expect(plan.timesMs[299]).toBeCloseTo(9966.667, 3);
     expect(plan.timesMs[300]).toBe(10_000);
+    expect(plan.timesMs[360]).toBe(12_000);
     expect(plan.frameDurationMs).toBeCloseTo(1000 / 30, 9);
   });
 
-  it('progress matches the live animation (linear): 0 … 1, last frame complete', () => {
+  it('drawing progress matches the live animation; complete from the end of the drawing on', () => {
     const plan = planVideoFrames({ durationMs: 5000, fps: 30 });
     expect(plan.progress[0]).toBe(0);
     expect(plan.progress[75]).toBeCloseTo(0.5, 12);
-    expect(plan.progress.at(-1)).toBe(1);
-    for (let k = 1; k < plan.frameCount; k++) expect(plan.progress[k]!).toBeGreaterThan(plan.progress[k - 1]!);
+    for (let k = 1; k <= 150; k++) expect(plan.progress[k]!).toBeGreaterThan(plan.progress[k - 1]!);
+    expect(plan.progress[150]).toBe(1);
+    // Final hold: 2 s = 60 frames of the complete artwork.
+    expect(plan.progress.slice(150)).toEqual(new Array(61).fill(1));
   });
 
-  it('every duration preset at 30 and 60 fps', () => {
+  it('without hold the video ends with the drawing', () => {
+    const plan = planVideoFrames({ durationMs: 5000, fps: 30 }, 0);
+    expect(plan).toMatchObject({ durationMs: 5000, frameCount: 151 });
+    expect(plan.progress.at(-1)).toBe(1);
+    expect(() => planVideoFrames({}, -1)).toThrow(ExportError);
+    expect(() => planVideoFrames({}, Number.NaN)).toThrow(ExportError);
+  });
+
+  it('every duration preset at 30 and 60 fps (drawing time + hold)', () => {
     for (const durationMs of [5000, 10000, 15000, 30000]) {
       for (const fps of [30, 60] as const) {
         const plan = planVideoFrames({ durationMs, fps });
-        expect(plan.frameCount).toBe((durationMs / 1000) * fps + 1);
+        expect(plan.frameCount).toBe(((durationMs + FINAL_HOLD_MS) / 1000) * fps + 1);
         expect(plan.frameCount).toBeLessThanOrEqual(EXPORT_LIMITS.videoFrames);
+        expect(plan.timesMs.at(-1)).toBe(durationMs + FINAL_HOLD_MS);
       }
     }
   });
@@ -85,8 +98,10 @@ describe('runVideoExport', () => {
       onPhase: (p) => phases.push(p),
       onProgress: (p) => progress.push(p),
     });
-    expect(rendered).toEqual(plan.progress);
+    // Every changing frame is drawn once; the identical hold frames are not drawn again but still encoded.
+    expect(rendered).toEqual(plan.progress.slice(0, 151));
     expect(frames.map((f) => f.t)).toEqual(plan.timesMs);
+    expect(frames).toHaveLength(211);
     expect(frames.every((f) => f.d === plan.frameDurationMs)).toBe(true);
     expect(maxPending()).toBe(1); // backpressure: never more than one frame in flight
     expect(log).toEqual(['finish']);

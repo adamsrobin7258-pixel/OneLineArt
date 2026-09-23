@@ -64,6 +64,8 @@ export function createArtworkAnimator(source: AnimatorSource): ArtworkAnimator {
   const line: Surface = createSurface(size.width, size.height);
   let drawn: PathCursor | null = null;
   let drawnProgress = -1;
+  /** Target that currently shows the complete artwork drawn directly (opaque line). */
+  let finalTarget: CanvasRenderingContext2D | null = null;
 
   const clearLine = () => {
     line.ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -94,12 +96,24 @@ export function createArtworkAnimator(source: AnimatorSource): ArtworkAnimator {
   const render = (target: CanvasRenderingContext2D, progress: number, fresh: boolean): FrameResult => {
     const started = performance.now();
     const cursor = cursorAtProgress(index, progress);
+    if (progress >= 1 && !fresh && drawnProgress >= 1) {
+      // Final artwork already drawn (e.g. during the final hold): no line work again.
+      if (finalTarget === target) return { progress, cursor, visibleLength: visibleLength(index, cursor), renderMs: performance.now() - started };
+      if (plan.lineOpacity < 1) {
+        composite(target);
+        return { progress, cursor, visibleLength: visibleLength(index, cursor), renderMs: performance.now() - started };
+      }
+    }
+    finalTarget = null;
     if (progress >= 1) {
       // Final frame: the complete line in one go, composed exactly like the static artwork
       // (opaque line straight onto the background, otherwise via the line layer).
       clearLine();
       if (plan.lineOpacity >= 1) {
         drawFinalDirect(target);
+        drawn = cursor;
+        drawnProgress = progress;
+        finalTarget = target;
         return { progress, cursor, visibleLength: visibleLength(index, cursor), renderMs: performance.now() - started };
       }
       drawArtworkLine(plan, path, line.ctx);

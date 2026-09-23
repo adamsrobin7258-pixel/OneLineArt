@@ -1,4 +1,4 @@
-import { ANIMATION_LIMITS, DURATION_PRESETS_MS } from '../animation/animationSettings';
+import { ANIMATION_LIMITS, DURATION_PRESETS_MS, FINAL_HOLD_MS } from '../animation/animationSettings';
 import { RENDER_LIMITS } from '../rendering/renderSettings';
 import { ExportError } from './errors';
 
@@ -15,8 +15,8 @@ export const EXPORT_LIMITS = {
   videoEdge: 4096,
   /** Largest video frame area (4096 × 4096). */
   videoPixels: 4096 * 4096,
-  /** Longest video (frames incl. the final one): 30 s at 60 fps. */
-  videoFrames: (ANIMATION_LIMITS.durationMs.max / 1000) * 60 + 1,
+  /** Longest video (frames incl. the final one): longest drawing + final hold at 60 fps. */
+  videoFrames: ((ANIMATION_LIMITS.durationMs.max + FINAL_HOLD_MS) / 1000) * 60 + 1,
   jpegQuality: { min: 0.5, max: 1 },
 } as const;
 
@@ -51,6 +51,7 @@ export interface ImageExportSettings {
 export interface VideoExportSettings {
   readonly resolution: VideoResolution;
   readonly fps: VideoFps;
+  /** Drawing time of the line (a preset); the video adds FINAL_HOLD_MS with the finished artwork. */
   readonly durationMs: number;
 }
 

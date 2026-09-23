@@ -1,4 +1,4 @@
-import { frameTimesMs, progressAtTime } from '../animation/animationSettings';
+import { FINAL_HOLD_MS, progressAtTime } from '../animation/animationSettings';
 import type { Size } from '../models';
 import { ExportError, throwIfCancelled, type CancelSignal } from './errors';
 import { EXPORT_LIMITS, sanitizeVideoExportSettings, type VideoExportSettings } from './exportSettings';
@@ -7,13 +7,19 @@ import type { ExportFile, ExportPhase } from './exportState';
 /**
  * Every frame of a video, computed up front and independent of device speed:
  * frame k is shown at k/fps and draws the path up to progressAtTime(k/fps).
- * The last frame (t = duration) is the complete artwork.
+ * After the drawing (`drawDurationMs`) the finished artwork is held for
+ * `holdMs` (FINAL_HOLD_MS, same as the preview); those frames are complete.
  */
 export interface VideoFramePlan {
   readonly fps: number;
+  /** Time the line is being drawn (the chosen duration). */
+  readonly drawDurationMs: number;
+  /** Final hold of the complete artwork. */
+  readonly holdMs: number;
+  /** Video length: drawing + hold. */
   readonly durationMs: number;
   readonly frameCount: number;
-  /** Presentation time of each frame in ms (0, 1000/fps, …, duration). */
+  /** Presentation time of each frame in ms (0, 1000/fps, …, durationMs). */
   readonly timesMs: readonly number[];
   /** Drawing progress 0…1 of each frame (same function as the live animation). */
   readonly progress: readonly number[];
@@ -21,17 +27,22 @@ export interface VideoFramePlan {
   readonly frameDurationMs: number;
 }
 
-export function planVideoFrames(input: Partial<VideoExportSettings>): VideoFramePlan {
-  const { fps, durationMs } = sanitizeVideoExportSettings(input);
-  const animation = { durationMs, fps, pacing: 'constant-speed', easing: 'linear' } as const;
-  const timesMs = frameTimesMs(animation);
-  if (timesMs.length > EXPORT_LIMITS.videoFrames) throw new ExportError('size-unsupported', `${timesMs.length} frames exceed the limit`);
+export function planVideoFrames(input: Partial<VideoExportSettings>, holdMs: number = FINAL_HOLD_MS): VideoFramePlan {
+  const { fps, durationMs: drawDurationMs } = sanitizeVideoExportSettings(input);
+  if (!Number.isFinite(holdMs) || holdMs < 0) throw new ExportError('invalid-settings', 'Hold must be a finite, non-negative duration');
+  const animation = { durationMs: drawDurationMs, fps, pacing: 'constant-speed', easing: 'linear' } as const;
+  const durationMs = drawDurationMs + holdMs;
+  const frames = Math.max(1, Math.round((durationMs / 1000) * fps));
+  if (frames + 1 > EXPORT_LIMITS.videoFrames) throw new ExportError('size-unsupported', `${frames + 1} frames exceed the limit`);
+  const timesMs = Array.from({ length: frames + 1 }, (_, k) => Math.min(durationMs, (k * 1000) / fps));
   return {
     fps,
+    drawDurationMs,
+    holdMs,
     durationMs,
     frameCount: timesMs.length,
     timesMs,
-    progress: timesMs.map((t) => progressAtTime(t, animation)),
+    progress: timesMs.map((t) => progressAtTime(Math.min(t, drawDurationMs), animation)),
     frameDurationMs: 1000 / fps,
   };
 }
@@ -87,7 +98,8 @@ export async function runVideoExport<TData>(params: RunVideoExportParams<TData>)
     onPhase?.('rendering');
     for (let k = 0; k < plan.frameCount; k++) {
       throwIfCancelled(signal);
-      renderFrame(plan.progress[k]!, k);
+      // Unchanged frames (the final hold) are not drawn again: the surface already shows them.
+      if (k === 0 || plan.progress[k] !== plan.progress[k - 1]) renderFrame(plan.progress[k]!, k);
       await session.addFrame(plan.timesMs[k]!, plan.frameDurationMs);
       onProgress?.(((k + 1) / plan.frameCount) * FRAME_PROGRESS_SHARE);
     }

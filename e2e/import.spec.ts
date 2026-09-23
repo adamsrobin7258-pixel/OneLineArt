@@ -186,7 +186,7 @@ test('zoom and pan are preview-only', async ({ page }) => {
 test('later steps are visible but not yet available', async ({ page }) => {
   const steps = page.getByRole('navigation', { name: 'Ablauf' });
   await expect(steps.locator('[aria-current="step"]')).toHaveText('Bild');
-  await expect(steps.locator('[aria-disabled="true"]')).toHaveCount(2); // Bild, Einstellungen, Vorschau, Export are available (part 8)
+  await expect(steps.locator('[aria-disabled="true"]')).toHaveCount(3); // without an image only "Bild" is reachable (part 9: steps show reachability)
 });
 
 test.describe('phone screen', () => {
