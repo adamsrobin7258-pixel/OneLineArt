@@ -6,6 +6,7 @@ import {
   belongsToSession,
   requireAnalysisSource,
   importReducer,
+  resolveOneLineSettings,
   type ImportAction,
   type ImportState,
   type ImportedImage,
@@ -347,5 +348,45 @@ describe('One-Line path in the image session', () => {
       const s = session(importReducer(state0, { type: 'drawing-changed', imageId: 'a', drawing: { seed: 2 } }));
       expect(s.oneLine.key).not.toBe(keyOf(state0));
     });
+  });
+});
+
+describe('reopening a stored project', () => {
+  const stored = (id: string, width = 4, height = 3) => ({
+    oneLine: resolveOneLineSettings({ detailLevel: 'detail', seed: 9 }),
+    path: { coords: new Float32Array([0, 0, 3, 2]), bounds: { width, height }, meta: { generatorId: 'g', generatorVersion: '1', seed: 9, sourceImageId: id } },
+  });
+  const open = (restore: ReturnType<typeof stored>) =>
+    run([
+      { type: 'import-started', requestId: 1, fileName: 'a.jpg' },
+      { type: 'import-succeeded', requestId: 1, image: imported('a'), restore },
+    ]);
+
+  it('uses the stored drawing as is; analysis is deferred', () => {
+    const restore = stored('a');
+    const s = open(restore);
+    if (s.status !== 'ready') throw new Error('not ready');
+    expect(s.session).toMatchObject({ analysisStatus: 'deferred', pathStatus: 'ready', oneLine: restore.oneLine });
+    expect(s.session.path).toBe(restore.path);
+    expect(s.session.paths[restore.oneLine.key]).toBe(restore.path);
+  });
+
+  it('switching to another level starts the analysis; back to the stored one needs none', () => {
+    const restore = stored('a');
+    let s = open(restore);
+    s = run([{ type: 'drawing-changed', imageId: 'a', drawing: { detailLevel: 'minimal' } }], s);
+    if (s.status !== 'ready') throw new Error('not ready');
+    expect(s.session).toMatchObject({ analysisStatus: 'pending', pathStatus: 'idle', path: null });
+    s = run([{ type: 'drawing-changed', imageId: 'a', drawing: { detailLevel: 'detail' } }], s);
+    if (s.status !== 'ready') throw new Error('not ready');
+    expect(s.session.path).toBe(restore.path);
+  });
+
+  it('a drawing that does not fit the image is not restored', () => {
+    for (const restore of [stored('other'), stored('a', 5, 3)]) {
+      const s = open(restore);
+      if (s.status !== 'ready') throw new Error('not ready');
+      expect(s.session).toMatchObject({ analysisStatus: 'pending', pathStatus: 'idle', path: null, paths: {} });
+    }
   });
 });

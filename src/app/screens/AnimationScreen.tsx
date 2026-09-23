@@ -15,6 +15,7 @@ interface AnimationScreenProps {
   durationMs: number;
   onDurationChange: (durationMs: number) => void;
   onBack: () => void;
+  onContinue: () => void;
 }
 
 const DURATION_OPTIONS = DURATION_PRESETS_MS.map((ms) => ({ value: String(ms), label: `${ms / 1000} s` }));
@@ -34,7 +35,7 @@ interface Debug {
  * Step 3: watch the drawing being made. Plays the very OneLinePath of the
  * artwork through the same renderer; nothing is recomputed while playing.
  */
-export function AnimationScreen({ session, render, durationMs, onDurationChange, onBack }: AnimationScreenProps) {
+export function AnimationScreen({ session, render, durationMs, onDurationChange, onBack, onContinue }: AnimationScreenProps) {
   const { path } = session;
   const { renderSettings, updateRenderSettings } = render;
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -146,9 +147,7 @@ export function AnimationScreen({ session, render, durationMs, onDurationChange,
             onChange={(value) => updateRenderSettings({ colorMode: DISPLAY_OPTIONS.find((o) => o.value === value)!.colorMode })}
           />
         </div>
-        <Button disabled title="Folgt in einem späteren Schritt">
-          Weiter
-        </Button>
+        <Button onClick={onContinue}>Weiter</Button>
       </footer>
     </section>
   );

@@ -24,7 +24,7 @@ aufgesetzt.
 src/
   app/              Screens, App-Shell                    (React)
   ui/               Wiederverwendbare Komponenten, Theme  (React)
-  platform/         Browser-Adapter (Bild-Decoder, Analyse- und Pfad-Worker, Artwork-Renderer; später IndexedDB, Video)
+  platform/         Browser-Adapter (Bild-Decoder, Analyse- und Pfad-Worker, Artwork-Renderer, Animation, Export, IndexedDB)
   core/             UI- und plattformfreie Kernlogik
     models/           Datenmodelle
     utils/            Seeded RNG, Hashing, Mathe
@@ -36,8 +36,8 @@ src/
     drawing/          Detailstufen, Zeichenoptionen, effektive Einstellungen (Teil 5)
     rendering/        PathCursor, tracePath, SVG, Render-Einstellungen, Farb-Sampling, Renderer (Teil 6)
     animation/        AnimationTimeline (Zeit -> Position auf dem echten Pfad)
-    export/           Exporter-Schnittstellen                 (Impl. Teil 8)
-    storage/          ProjectRepository + In-Memory-Impl.     (IndexedDB Teil 8)
+    export/           Export-Einstellungen, -Größen, -Status, Dateinamen, Video-Frameplan, Encoder-Port (Teil 8)
+    storage/          Projektformat, Validierung/Migration, ProjectRepository über Storage-Port (Teil 8)
 tests/
   core/             Unit-Tests der Kernlogik (Node, Vitest)
   ui/               Unit-Tests reiner UI-Logik (Zoom/Pan)
@@ -434,3 +434,81 @@ Während der Animation laufen weder Analyse noch Engine; es entstehen keine neue
   Kantenglättung minimal dunkler sein als im Endbild (nur während der Animation sichtbar).
 - Geschwindigkeit und `ease-in-out` sind im Kern vorhanden, aber noch ohne UI.
 - Der Animations-Canvas hat Vorschau-Auflösung (2048 px); Export-Auflösungen folgen in Teil 8.
+
+## Export und Galerie (Teil 8)
+
+### Trennung Export ↔ Speicherung
+```
+ArtworkProject / Sitzung ──► Renderer (neu, Zielauflösung) ──► Encoder ──► Datei (Download / Teilen)
+ArtworkProject ──► ProjectRepository ──► StorageBackend (IndexedDB) ──► Galerie „Meine Werke“
+```
+Beide lesen dieselben Daten (OriginalImage, OneLinePath, EffectiveOneLineSettings, RenderSettings,
+AnimationSettings). Export speichert nichts; Speichern exportiert nichts. Weder Export noch Galerie
+analysieren oder berechnen Pfade.
+
+### Bildexport
+- `core/export`: `sanitizeImageExportSettings` (PNG Standard, JPEG optional), `imageExportSize`
+  (lange Kante: Original / 2048 / 4096; Seitenverhältnis über `renderSize`, „Original“ auf
+  `EXPORT_LIMITS` begrenzt und gemeldet), `exportFileName` (`OneLine_JJJJ-MM-TT_HHMM.ext` bzw.
+  Projektname), `exportReducer` (idle → preparing → rendering → encoding → ready | failed | cancelled).
+- `platform/browser/export/imageExporter.ts`: `renderArtworkSurface` (derselbe Renderer wie die
+  Vorschau, normalisierte Linienbreite) → `convertToBlob`. Der tatsächliche Dateityp wird geprüft
+  (keine PNG-Datei mit .jpg-Endung). JPEG/Video ohne Alpha: transparenter Hintergrund → weiß.
+- Abbruch zwischen den Phasen; der Canvas-Encoder selbst ist nicht unterbrechbar, sein Ergebnis wird
+  dann verworfen.
+
+### Videoexport
+- `planVideoFrames`: Zeiten k/fps (0 … Dauer, 301 Frames bei 10 s/30 fps), Fortschritt über dieselbe
+  `progressAtTime` wie die Live-Animation.
+- `runVideoExport` (Kern): Frame rendern → an Encoder → nächster Frame; nie mehr als ein Frame in
+  Arbeit (Backpressure), Abbruch zwischen Frames.
+- Frames: frischer `ArtworkAnimator`, `renderAt` in fester Reihenfolge (deterministisch), letzter Frame
+  = statisches Artwork (Browser-Test: 0 Abweichung vor dem Encoding).
+- Encoder-Port `VideoEncoderPort` (Kern) → `webCodecsEncoder` (Browser): WebCodecs + Muxer
+  **mediabunny** (MPL-2.0, nur im Export-Chunk). Codec-Wahl per Gerätabfrage:
+  H.264/MP4 → VP9/WebM → AV1/WebM → VP8/WebM. Kein MediaRecorder (Echtzeit, nicht deterministisch),
+  keine Bildschirmaufnahme. Ohne WebCodecs: verständliche Meldung, Knopf deaktiviert.
+- Auflösungen: 1080p (in 1920×1080 bzw. 1080×1920), 2048, 4096 lange Kante; gerade Kantenlängen.
+
+### Speicherung (IndexedDB `one-line-art`, Version 1)
+| Store | Schlüssel | Inhalt |
+|---|---|---|
+| `projects` | Projekt-ID | Formatversion, Name, Datum, Bildinfo, EffectiveOneLineSettings, RenderSettings, AnimationSettings, Pfad-Metadaten, Versionen (project/analysis/engine/renderer) |
+| `paths` | Projekt-ID | `Float32Array` der Koordinaten |
+| `images` | Content-Hash | Originaldatei als Blob (eine Kopie je Foto, gelöscht mit dem letzten Projekt) |
+| `thumbnails` | Projekt-ID | Thumbnail (WebP, sonst PNG; 512 px, aus dem Artwork gerendert) |
+
+Schreiben immer in **einer** Transaktion. Laden prüft alles (`parseProjectRecord`, `parsePathRecord`,
+`parseImageRecord`): neuere Formatversion → „inkompatibel“, fehlerhafte Daten → „beschädigt“
+(in der Galerie sichtbar und löschbar). Migrationen nur über `PROJECT_MIGRATIONS` (derzeit keine).
+Abweichende Algorithmusversionen werden gemeldet, der gespeicherte Pfad wird unverändert verwendet.
+Gerenderte Bilder/Videos werden nie gespeichert.
+
+### Projekt öffnen
+Original aus IndexedDB → derselbe Import-Decoder (gleiche Arbeitskopie; Hash und Größe werden geprüft)
+→ Sitzung mit gespeichertem Pfad (`analysisStatus: 'deferred'`). Die Analyse startet erst, wenn eine
+**neue** Zeichnung gebraucht wird (andere Detailstufe).
+
+### Laufzeiten (Desktop-Chromium headless, Produktionscode; Pfad Balanced 51 Tsd., Detail 113 Tsd. Punkte)
+| Bild (PNG) | Rendern | Encoding | Gesamt |
+|---|---|---|---|
+| Balanced 2048 (Schwarz / Farbe) | 18 / 42 ms | 175 ms | 0,2 s |
+| Balanced 4096 | 33 / 56 ms | 330–350 ms | 0,4 s |
+| Detail 2048 | 23 / 66 ms | 300–380 ms | 0,4 s |
+| Detail 4096 | 37 / 83 ms | 490–550 ms | 0,6 s |
+| Detail Original 6000×4500 | 75 / 121 ms | 730–810 ms | 0,9 s |
+
+| Video (10 s, 30 fps, 301 Frames, VP9/WebM) | Ø Frame | Frames gesamt | Encoding | Gesamt | Datei |
+|---|---|---|---|---|---|
+| Balanced 1080p | 0,5–0,6 ms | 0,14–0,18 s | 2,7 s | 2,9 s | 1,6–1,8 MB |
+| Balanced 2048 | 0,6 ms | 0,17 s | 4,7 s | 5,0 s | 2,7 MB |
+| Detail 1080p | 0,7–0,9 ms | 0,2–0,3 s | 2,6–2,8 s | 2,9–3,0 s | 2,0–2,2 MB |
+| Detail 2048 Farbe | 1,0 ms | 0,3 s | 4,8 s | 5,1 s | 3,2 MB |
+| Detail 4096 Farbe | 48 ms | 14,6 s | 4,9 s | 19,9 s | 8,3 MB |
+| Detail 1080p 30 s Farbe | 0,4 ms | 0,3 s | 7,7 s | 8,1 s | 4,5 MB |
+
+### Speicher
+Bild: eine Render-Fläche in Zielgröße (4096×3072 ≈ 50 MB RGBA), direkt kodiert (keine zusätzliche
+Bitmap-Kopie), danach sofort freigegeben. Video: drei Flächen in Videogröße (Hintergrund, Linienebene,
+Encoder-Canvas; bei 4096×3072 ≈ 150 MB), Frames werden einzeln kodiert; im RAM wächst nur die
+komprimierte Datei (MB-Bereich). JS-Heap blieb in allen Messungen unter 20 MB.

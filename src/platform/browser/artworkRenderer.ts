@@ -12,6 +12,7 @@ import {
   type RasterImage,
   type RenderContext2D,
   type RenderSettings,
+  type Size,
 } from '../../core';
 
 export type Surface = { canvas: OffscreenCanvas | HTMLCanvasElement; ctx: RenderContext2D };
@@ -56,12 +57,20 @@ export interface RenderArtworkRequest {
   readonly backgroundImage?: CanvasImageSource | null;
 }
 
+/** A finished rendering on a surface (caller owns it and must free it). */
+export interface RenderedSurface {
+  readonly surface: Surface;
+  readonly size: Size;
+  readonly metrics: RasterArtwork['metrics'];
+}
+
 /**
- * Renders the already computed OneLinePath into a NEW bitmap. Never runs the
+ * Renders the already computed OneLinePath onto a NEW surface. Never runs the
  * engine, never touches the original image. Opacity is applied once to the
  * whole line via a separate line layer (no double-darkened run boundaries).
+ * Shared by the preview, thumbnails and image export.
  */
-export async function renderArtwork(request: RenderArtworkRequest): Promise<RasterArtwork<ImageBitmap>> {
+export function renderArtworkSurface(request: RenderArtworkRequest): RenderedSurface {
   const started = performance.now();
   const { path, settings } = request;
   const size = renderSize(path.bounds, request.longEdge);
@@ -69,26 +78,31 @@ export async function renderArtwork(request: RenderArtworkRequest): Promise<Rast
   const plan = planArtwork({ path, settings, width: size.width, height: size.height, lineColors });
 
   const base = createSurface(size.width, size.height);
-  drawArtworkBackground(plan, base.ctx, request.backgroundImage ?? undefined);
-  if (plan.lineOpacity >= 1) {
-    drawArtworkLine(plan, path, base.ctx);
-  } else if (plan.lineOpacity > 0) {
-    const layer = createSurface(size.width, size.height);
-    drawArtworkLine(plan, path, layer.ctx);
-    base.ctx.setTransform(1, 0, 0, 1, 0, 0);
-    base.ctx.globalAlpha = plan.lineOpacity;
-    base.ctx.drawImage(layer.canvas as never, 0, 0, size.width, size.height);
-    base.ctx.globalAlpha = 1;
-    freeSurface(layer);
+  try {
+    drawArtworkBackground(plan, base.ctx, request.backgroundImage ?? undefined);
+    if (plan.lineOpacity >= 1) {
+      drawArtworkLine(plan, path, base.ctx);
+    } else if (plan.lineOpacity > 0) {
+      const layer = createSurface(size.width, size.height);
+      drawArtworkLine(plan, path, layer.ctx);
+      base.ctx.setTransform(1, 0, 0, 1, 0, 0);
+      base.ctx.globalAlpha = plan.lineOpacity;
+      base.ctx.drawImage(layer.canvas as never, 0, 0, size.width, size.height);
+      base.ctx.globalAlpha = 1;
+      freeSurface(layer);
+    }
+  } catch (error) {
+    freeSurface(base);
+    throw error;
   }
+  return { surface: base, size, metrics: { ...describeArtwork(plan, path, lineColors), renderRuntimeMs: performance.now() - started } };
+}
 
-  const image = base.canvas instanceof OffscreenCanvas ? base.canvas.transferToImageBitmap() : await createImageBitmap(base.canvas);
-  freeSurface(base);
-  return {
-    format: 'raster',
-    size,
-    image,
-    settings,
-    metrics: { ...describeArtwork(plan, path, lineColors), renderRuntimeMs: performance.now() - started },
-  };
+/** Renders the artwork into a NEW bitmap (preview). */
+export async function renderArtwork(request: RenderArtworkRequest): Promise<RasterArtwork<ImageBitmap>> {
+  const started = performance.now();
+  const { surface, size, metrics } = renderArtworkSurface(request);
+  const image = surface.canvas instanceof OffscreenCanvas ? surface.canvas.transferToImageBitmap() : await createImageBitmap(surface.canvas);
+  freeSurface(surface);
+  return { format: 'raster', size, image, settings: request.settings, metrics: { ...metrics, renderRuntimeMs: performance.now() - started } };
 }

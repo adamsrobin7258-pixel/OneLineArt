@@ -4,12 +4,25 @@ import type { EffectiveOneLineSettings } from '../drawing';
 import type { OriginalImage } from './originalImage';
 import type { RenderSettings } from '../rendering';
 
+/** Version of the stored project format ("projectVersion"). */
 export const ARTWORK_PROJECT_SCHEMA_VERSION = 1;
 
-/** Everything needed to reopen, re-render or re-animate a piece of work. */
+/** Algorithm versions a project was made with; old projects stay identifiable. */
+export interface ProjectVersions {
+  readonly project: number;
+  readonly analysis: string;
+  readonly engine: string;
+  readonly renderer: string;
+}
+
+/**
+ * Everything needed to reopen, re-render, re-animate and export a piece of
+ * work. The single source for preview, animation, export and gallery.
+ */
 export interface ArtworkProject {
   readonly schemaVersion: typeof ARTWORK_PROJECT_SCHEMA_VERSION;
   readonly id: string;
+  /** Optional user-given name ('' = unnamed; the gallery shows the date). */
   readonly name: string;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -19,6 +32,7 @@ export interface ArtworkProject {
   /** How the line is rendered (colour mode, background, width, opacity). */
   readonly render: RenderSettings;
   readonly animation: AnimationSettings;
-  /** Null until a path was generated. */
-  readonly path: OneLinePath | null;
+  /** The finished drawing (stored as is; never recomputed on load). */
+  readonly path: OneLinePath;
+  readonly versions: ProjectVersions;
 }

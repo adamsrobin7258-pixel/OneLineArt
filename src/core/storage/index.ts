@@ -1,2 +1,5 @@
 export * from './types';
-export * from './memoryRepository';
+export * from './memoryBackend';
+export * from './projectRecord';
+export * from './projectRepository';
+export * from './assembleProject';

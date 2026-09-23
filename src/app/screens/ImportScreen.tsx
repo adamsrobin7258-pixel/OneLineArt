@@ -1,4 +1,5 @@
 import { useMemo, type DragEvent } from 'react';
+import type { ImageSession } from '../../core';
 import { supportsCameraCapture } from '../../platform/browser/capabilities';
 import { Button } from '../../ui/components/Button';
 import { ImageViewer } from '../../ui/components/ImageViewer';
@@ -95,8 +96,8 @@ export function ImportScreen({ controller, onContinue }: ImportScreenProps) {
                 Bild entfernen
               </Button>
               <Button
-                disabled={state.session.analysisStatus !== 'ready'}
-                title={state.session.analysisStatus === 'ready' ? undefined : 'Das Bild wird noch analysiert'}
+                disabled={!canContinue(state.session)}
+                title={canContinue(state.session) ? undefined : 'Das Bild wird noch analysiert'}
                 onClick={onContinue}
               >
                 Weiter
@@ -108,3 +109,6 @@ export function ImportScreen({ controller, onContinue }: ImportScreenProps) {
     </section>
   );
 }
+
+/** Analysed, or reopened with its stored drawing (analysis deferred until needed). */
+const canContinue = (session: ImageSession<ImageBitmap>) => session.analysisStatus === 'ready' || Object.keys(session.paths).length > 0;

@@ -1,21 +1,24 @@
-import type { AnimationSettings, OneLinePath } from '../models';
+import type { OneLinePath, Size } from '../models';
 import type { RenderSettings } from '../rendering';
 
-/** A finished file ready to hand to the platform (download, share sheet, gallery). */
-export interface ExportResult {
-  readonly fileName: string;
-  readonly mimeType: string;
-  readonly bytes: Uint8Array;
+/**
+ * Rendering settings for a given output: formats without alpha (JPEG, video)
+ * get a white instead of a transparent background, so the result looks like
+ * the artwork on screen instead of turning black.
+ */
+export function settingsForOpaqueOutput(settings: RenderSettings): RenderSettings {
+  return settings.background === 'transparent' ? { ...settings, background: 'white' } : settings;
 }
 
-/** Still image export (SVG/PNG). Implemented in part 8. */
-export interface ArtworkExporter {
-  readonly format: string;
-  export(path: OneLinePath, settings: RenderSettings): Promise<ExportResult>;
-}
-
-/** Creation video export, driven by the animation timeline. Implemented in part 8. */
-export interface VideoExporter {
-  readonly format: string;
-  export(path: OneLinePath, settings: RenderSettings, animation: AnimationSettings): Promise<ExportResult>;
+/** Everything an export needs from a project; the path is used as is, never recomputed. */
+export interface ExportSource<TImage, TBackground> {
+  readonly path: OneLinePath;
+  readonly render: RenderSettings;
+  /** Working image (colour sampling). */
+  readonly image: TImage;
+  /** Photo for background 'original'. */
+  readonly backgroundImage: TBackground | null;
+  /** Upright size of the original photo ("Originalgröße"). */
+  readonly originalSize: Size;
+  readonly projectName?: string | null | undefined;
 }

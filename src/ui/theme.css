@@ -666,3 +666,174 @@ body {
   color: var(--color-muted);
   font-size: 12px;
 }
+
+/* ---------- Project actions (part 8; visual design in part 9) ---------- */
+
+.screen__actions {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.screen__error {
+  margin: 0;
+  font-size: 13px;
+  color: #b3261e;
+}
+
+/* ---------- Export ---------- */
+
+.export {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.export__panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-3);
+  align-content: start;
+  padding: var(--space-2);
+}
+
+.export__panel {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.export__panel legend {
+  padding: 0 var(--space-1);
+  font-weight: 500;
+}
+
+.export__info {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.export__notice {
+  margin: 0;
+  font-size: 13px;
+  color: #b3261e;
+}
+
+.export__status {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  min-height: 48px;
+}
+
+.export__progress,
+.export__ready {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.export__progress p,
+.export__ready p {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.export__progress .player__track {
+  flex: 1 1 160px;
+}
+
+/* ---------- Gallery ---------- */
+
+.gallery {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: var(--space-3);
+  min-height: 0;
+  overflow: auto;
+  padding: 0 var(--space-2) var(--space-3);
+}
+
+.gallery__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.gallery__header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.gallery__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  align-content: start;
+}
+
+.gallery__card {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.gallery__open {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  padding: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+.gallery__open img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+}
+
+.gallery__placeholder {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+.gallery__meta {
+  display: grid;
+  gap: var(--space-1);
+  font-size: 13px;
+}
+
+.gallery__title,
+.gallery__detail {
+  margin: 0;
+}
+
+.gallery__detail {
+  color: var(--color-muted);
+}
+
+.gallery__actions,
+.gallery__confirm,
+.gallery__meta form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}

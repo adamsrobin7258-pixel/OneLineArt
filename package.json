@@ -16,6 +16,7 @@
     "check:all": "npm run check && npm run test:e2e"
   },
   "dependencies": {
+    "mediabunny": "1.59.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },

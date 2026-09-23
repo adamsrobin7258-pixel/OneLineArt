@@ -33,7 +33,17 @@ export type PathStatus = 'idle' | 'running' | 'ready' | 'failed';
 
 export type PathErrorCode = EngineErrorCode | 'analysis-missing' | 'out-of-memory' | 'generation-failed';
 
-export type AnalysisStatus = 'pending' | 'running' | 'ready' | 'failed';
+/**
+ * 'deferred': a reopened project brought its drawing along, so the image is
+ * not analysed until a NEW drawing is requested (e.g. another detail level).
+ */
+export type AnalysisStatus = 'deferred' | 'pending' | 'running' | 'ready' | 'failed';
+
+/** Drawing of a reopened project: used as is (never recomputed on open). */
+export interface RestoredDrawing {
+  readonly oneLine: EffectiveOneLineSettings;
+  readonly path: OneLinePath;
+}
 
 export type ImportState<TPreview> =
   | { readonly status: 'empty' }
@@ -46,7 +56,7 @@ export type ImportStatus = ImportState<unknown>['status'];
 export type ImportAction<TPreview> =
   | { readonly type: 'import-started'; readonly requestId: number; readonly fileName: string }
   | { readonly type: 'processing-started'; readonly requestId: number }
-  | { readonly type: 'import-succeeded'; readonly requestId: number; readonly image: ImportedImage<TPreview> }
+  | { readonly type: 'import-succeeded'; readonly requestId: number; readonly image: ImportedImage<TPreview>; readonly restore?: RestoredDrawing }
   | { readonly type: 'import-failed'; readonly requestId: number; readonly error: ImageImportErrorCode }
   | { readonly type: 'image-removed' }
   | { readonly type: 'analysis-started'; readonly imageId: string }
@@ -59,6 +69,13 @@ export type ImportAction<TPreview> =
   | { readonly type: 'path-failed'; readonly imageId: string; readonly key: string; readonly error: PathErrorCode };
 
 export const EMPTY_IMPORT_STATE: ImportState<never> = { status: 'empty' };
+
+/** A restored drawing must belong to this image and its working copy. */
+function restoreFits(restore: RestoredDrawing, image: ImportedImage<unknown>): boolean {
+  const { meta, bounds } = restore.path;
+  const { width, height } = image.processed.pixels;
+  return (meta.sourceImageId === undefined || meta.sourceImageId === image.original.id) && bounds.width === width && bounds.height === height;
+}
 
 type PendingState = Extract<ImportState<never>, { status: 'loading' | 'processing' }>;
 
@@ -76,22 +93,24 @@ export function importReducer<TPreview>(state: ImportState<TPreview>, action: Im
       return { status: 'loading', requestId: action.requestId, fileName: action.fileName };
     case 'processing-started':
       return isCurrent(state, action.requestId) && state.status === 'loading' ? { ...state, status: 'processing' } : state;
-    case 'import-succeeded':
+    case 'import-succeeded': {
       if (!isCurrent(state, action.requestId)) return state;
+      const restore = action.restore && restoreFits(action.restore, action.image) ? action.restore : null;
       return {
         status: 'ready',
         session: {
           ...action.image,
-          analysisStatus: 'pending',
+          analysisStatus: restore ? 'deferred' : 'pending',
           analysis: null,
           analysisError: null,
-          oneLine: resolveOneLineSettings(DEFAULT_DRAWING_SETTINGS),
-          pathStatus: 'idle',
-          path: null,
+          oneLine: restore?.oneLine ?? resolveOneLineSettings(DEFAULT_DRAWING_SETTINGS),
+          pathStatus: restore ? 'ready' : 'idle',
+          path: restore?.path ?? null,
           pathError: null,
-          paths: {},
+          paths: restore ? { [restore.oneLine.key]: restore.path } : {},
         },
       };
+    }
     case 'import-failed':
       if (!isCurrent(state, action.requestId)) return state;
       return { status: 'error', error: action.error, fileName: state.fileName };
@@ -131,7 +150,9 @@ function pathReducer<TPreview>(
       const oneLine = resolveOneLineSettings({ ...session.oneLine.drawing, ...action.drawing });
       if (oneLine.key === currentKey) return state;
       const cached = session.paths[oneLine.key] ?? null;
-      return update({ oneLine, path: cached, pathStatus: cached ? 'ready' : 'idle', pathError: null });
+      // A new drawing needs the analysis: a deferred one starts now.
+      const analysisStatus = !cached && session.analysisStatus === 'deferred' ? 'pending' : session.analysisStatus;
+      return update({ oneLine, path: cached, pathStatus: cached ? 'ready' : 'idle', pathError: null, analysisStatus });
     }
     case 'path-started':
       if (action.key !== currentKey || session.pathStatus === 'running') return state;

@@ -11,6 +11,8 @@ import {
   type DrawingSettings,
   type EffectiveOneLineSettings,
   type ImportState,
+  StorageError,
+  type ArtworkProject,
 } from '../../core';
 import { runAnalysis, type AnalysisJob, type AnalysisOutcome } from '../../platform/browser/analysisRunner';
 import { PathGenerationError, runPathGeneration, type PathJob, type PathOutcome } from '../../platform/browser/pathRunner';
@@ -40,6 +42,12 @@ export interface ImageImportController {
   readonly pathRun: PathRun | null;
   /** Metrics of every computed configuration of this image, by key. */
   readonly pathRuns: Readonly<Record<string, PathRun>>;
+  /**
+   * Reopens a stored project: decodes its original again and uses the stored
+   * drawing as is (no analysis, no path generation). Replaces the current
+   * image only on success; rejects with a StorageError otherwise.
+   */
+  readonly openProject: (project: ArtworkProject) => Promise<void>;
 }
 
 export type PathRun = Omit<PathOutcome, 'path'> & { readonly effective: EffectiveOneLineSettings };
@@ -88,6 +96,35 @@ export function useImageImport(): ImageImportController {
           dispatch({ type: 'import-failed', requestId, error: importErrorCode(error) });
         },
       );
+    },
+    [releasePreview],
+  );
+
+  const openProject = useCallback(
+    async (project: ArtworkProject): Promise<void> => {
+      const requestId = ++currentRequest.current;
+      let image;
+      try {
+        image = await importImage(project.image.source, { decoder: bitmapDecoder, createId: () => project.image.id });
+      } catch (error) {
+        console.error('Stored original could not be decoded', error);
+        throw new StorageError('damaged', 'Stored original could not be decoded', { cause: error });
+      }
+      const discard = (error: StorageError) => {
+        bitmapDecoder.releasePreview(image.preview);
+        throw error;
+      };
+      if (currentRequest.current !== requestId) return discard(new StorageError('read-failed', 'Superseded'));
+      if (image.original.contentHash !== project.image.contentHash) return discard(new StorageError('damaged', 'Stored original differs'));
+      const { width, height } = image.processed.pixels;
+      if (project.path.bounds.width !== width || project.path.bounds.height !== height) {
+        return discard(new StorageError('incompatible-version', 'Working copy size differs from the stored drawing'));
+      }
+      releasePreview();
+      currentPreview.current = image.preview;
+      const restored = { ...image, original: { ...image.original, fileName: project.image.fileName } };
+      dispatch({ type: 'import-started', requestId, fileName: project.image.fileName });
+      dispatch({ type: 'import-succeeded', requestId, image: restored, restore: { oneLine: project.oneLine, path: project.path } });
     },
     [releasePreview],
   );
@@ -219,5 +256,5 @@ export function useImageImport(): ImageImportController {
 
   const pathRun = session ? (pathRuns[session.oneLine.key] ?? null) : null;
 
-  return { state, selectFile, removeImage, retryAnalysis, analysisRun, setDrawing, generatePath, generateAllLevels, pathRun, pathRuns };
+  return { state, selectFile, removeImage, retryAnalysis, analysisRun, setDrawing, generatePath, generateAllLevels, pathRun, pathRuns, openProject };
 }
