@@ -7,7 +7,7 @@ import { StatusPanel } from '../../ui/components/StatusPanel';
 import { DetailChoice, DisplayChoice } from '../controls';
 import { PATH_ERROR_MESSAGES } from '../drawingLabels';
 import { ANALYSIS_ERROR_MESSAGES } from '../importMessages';
-import { PREVIEW_RENDER_EDGE } from '../preview/previewConfig';
+import { useZoomResolution } from '../preview/useZoomResolution';
 import { useArtwork } from '../preview/useArtwork';
 import type { ImageImportController } from '../state/useImageImport';
 import type { RenderSettingsController } from '../state/useRenderSettings';
@@ -41,7 +41,8 @@ export function SettingsScreen({ session, controller, render, onBack, onContinue
   if (path && path !== lastPath) setLastPath(path);
   const shown = path ?? lastPath;
   // The artwork is rendered from the path; black ↔ colour only re-draws it.
-  const { artwork } = useArtwork({ path: shown, settings: renderSettings, longEdge: PREVIEW_RENDER_EDGE, image: session.processed.pixels, backgroundImage: session.preview });
+  const zoom = useZoomResolution(shown);
+  const { artwork } = useArtwork({ path: shown, settings: renderSettings, longEdge: zoom.longEdge, image: session.processed.pixels, backgroundImage: session.preview });
   const bitmap = artwork?.image ?? null;
   // Waiting for a drawing: computing it, or (reopened project, new level) analysing the image first.
   const busy = pathStatus === 'running' || (pathStatus === 'idle' && analysisStatus !== 'failed');
@@ -69,7 +70,7 @@ export function SettingsScreen({ session, controller, render, onBack, onContinue
             <Button onClick={() => void generatePath()}>Erneut versuchen</Button>
           </StatusPanel>
         ) : bitmap ? (
-          <ImageViewer key={session.original.id} image={bitmap} label="One-Line-Zeichnung" />
+          <ImageViewer key={session.original.id} image={bitmap} label="One-Line-Zeichnung" onScaleChange={zoom.onScaleChange} />
         ) : (
           <StatusPanel busy title={busyText} detail="Das dauert meist nur wenige Sekunden." />
         )}

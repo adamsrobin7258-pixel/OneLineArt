@@ -12,6 +12,7 @@ npm run dev        # Dev-Server
 npm run check      # Typecheck + Lint + Unit-Tests
 npm run test:e2e   # Browser-Tests (Playwright/Chromium; lokal einmalig: npx playwright install chromium)
 npm run build      # Produktionsbuild
+npm run bench      # Performance-Messung (optional BENCH_OUT=datei.md)
 ```
 
-Architektur und Entscheidungen: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+Architektur und Entscheidungen: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Release-Stand: [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)

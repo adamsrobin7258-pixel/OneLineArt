@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "check": "npm run typecheck && npm run lint && npm run test",
     "test:e2e": "playwright test",
-    "check:all": "npm run check && npm run test:e2e"
+    "check:all": "npm run check && npm run test:e2e",
+    "bench": "playwright test -c playwright.bench.config.ts"
   },
   "dependencies": {
     "mediabunny": "1.59.0",

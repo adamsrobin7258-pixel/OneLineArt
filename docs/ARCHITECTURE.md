@@ -509,8 +509,8 @@ Original aus IndexedDB → derselbe Import-Decoder (gleiche Arbeitskopie; Hash u
 
 ### Speicher
 Bild: eine Render-Fläche in Zielgröße (4096×3072 ≈ 50 MB RGBA), direkt kodiert (keine zusätzliche
-Bitmap-Kopie), danach sofort freigegeben. Video: drei Flächen in Videogröße (Hintergrund, Linienebene,
-Encoder-Canvas; bei 4096×3072 ≈ 150 MB), Frames werden einzeln kodiert; im RAM wächst nur die
+Bitmap-Kopie), danach sofort freigegeben. Video: seit Teil 10 nur noch die Encoder-Fläche
+(4096×3072 ≈ 50 MB; vorher drei Flächen ≈ 150 MB), Frames werden einzeln kodiert; im RAM wächst nur die
 komprimierte Datei (MB-Bereich). JS-Heap blieb in allen Messungen unter 20 MB.
 
 ## UI/UX (Teil 9)
@@ -537,9 +537,92 @@ Segmented Control mit Erklärzeile (`OptionGroup`); Bestätigungen über native 
   Frames werden nicht neu gezeichnet (`runVideoExport`), der Animator zeichnet das fertige Bild nur einmal.
 - Das Endbild ist weiterhin pixelidentisch mit dem statischen Artwork (Browser-Test).
 
-### Bekannte Grenzen (→ Teil 10)
-- Zoom in der Vorschau vergrößert die 2048-px-Vorschau-Bitmap; bei starkem Zoom auf hochauflösenden
-  Displays wird sie weich. Schärfer ginge es mit einem Nach-Rendern in höherer Auflösung beim Zoomen
-  (nur Renderer, kein neuer Pfad).
+### Bekannte Grenzen
+- (behoben in Teil 10) Zoom: ab 1,5× wird die Vorschau einmalig in 4096 px neu gerendert.
 - Die Vorschau-Leinwand ist beim Start leer (Fortschritt 0) mit Abspiel-Knopf; ein Vorschaubild des
   fertigen Werks davor wäre denkbar.
+
+## QA, Performance und Release (Teil 10)
+
+### Technische Änderungen
+- **Animator ohne Zwischenflächen** (`artworkAnimator.ts`): bei deckender Linie (Normalfall) werden Frames
+  direkt auf die Zielfläche gezeichnet – Hintergrund einmal, dann nur das neue Linienstück. Keine
+  Hintergrund-/Linienebene, kein Compositing pro Frame. Nur eine halbtransparente Linie nutzt noch die
+  Ebenen. Das Endbild entsteht mit denselben Operationen wie das statische Artwork (pixelidentisch).
+- **Bildexport im Web Worker** (`export/imageExport.worker.ts`, `imageExportRunner.ts`): derselbe Renderer
+  auf einer `OffscreenCanvas`, Kodierung im Worker, zurück kommt nur die Datei. Die Linienfarben werden
+  vorher auf dem Main-Thread gesampelt (gecacht), die Arbeitskopie des Fotos wird nicht kopiert. Abbrechen
+  beendet den Worker. Fallback Main-Thread: ohne `OffscreenCanvas`/`convertToBlob`, wenn der Worker nicht
+  startet oder keinen 2D-Kontext hat, und für den Foto-Hintergrund `original` (sonst große Bitmap-Kopie).
+- **Schärfere Zoom-Vorschau** (`useZoomResolution`): ab Zoom 1,5 wird derselbe Pfad in 4096 px gerendert
+  (nur Renderer; Analyse und Pfad unberührt).
+- **Vorschau pausiert im Hintergrund** (`visibilitychange`), statt unbemerkt abzulaufen.
+- **SVG-Ausgabe** escaped Attributwerte (`renderSvg`).
+- **Tests**: 10 realistische Motive (`e2e/realistic.spec.ts`), QA-Abläufe (`e2e/qa.spec.ts`: Gesamtablauf ohne
+  Console-Fehler, Speicherstatus, Pfad-Invarianz, gemeinsames Original, EXIF, Encoder-Fehler, Abbruch durch
+  Navigation, Worker/Fallback/Abbruch, Zoom, Hintergrund, 60 fps, iOS-Canvas-Grenze), 1024×768.
+- **Benchmark** reproduzierbar: `npm run bench` (optional `BENCH_OUT=datei.md`), feste Motive/Seeds, Median.
+
+### Browser-Kompatibilität
+Automatisch getestet wurde nur **Chromium** (Playwright, headless, Linux). Firefox, Safari und echte
+Mobilgeräte standen in der Entwicklungsumgebung nicht zur Verfügung.
+
+| Funktion | Chromium (getestet) | Firefox (nicht getestet) | Safari/iOS (nicht getestet) | Verhalten ohne Unterstützung |
+|---|---|---|---|---|
+| Canvas 2D / OffscreenCanvas | ja | ≥ 105 | 2D-OffscreenCanvas ≥ 16.4 | Export auf dem Main-Thread (HTMLCanvas) |
+| Web Worker (Module) | ja | ja | ja | Analyse/Pfad laufen auf dem Main-Thread |
+| IndexedDB (Blobs) | ja | ja (nicht im privaten Modus älterer Versionen) | ja | Meldung „Speichern ist hier nicht möglich“ |
+| WebCodecs `VideoEncoder` | ja (hier ohne H.264) | ≥ 130 | ≥ 16.4 (H.264) | Video-Knopf gesperrt, verständliche Meldung |
+| Web Share (Dateien) | nein (Desktop headless) | nein | ja | nur „Herunterladen“ |
+| Container Queries (Vorschau) | ja | ≥ 110 | ≥ 16 | – |
+| `<dialog>` | ja | ≥ 98 | ≥ 15.4 | – |
+
+### Video-Codecs
+Reihenfolge per Geräteabfrage (`getFirstEncodableVideoCodec`): H.264/MP4 → VP9/WebM → AV1/WebM → VP8/WebM.
+In der Testumgebung (Open-Source-Chromium) ist kein H.264-Encoder vorhanden: **MP4 wurde nicht auf einem
+Gerät erzeugt**; getestet sind WebM/VP9 (Container per Demuxer geprüft, 30 und 60 fps, 5/10/15/30 s + 2 s
+Endstand). Ein Encoder-Absturz mitten im Export wird als Fehler mit „Erneut versuchen“ angezeigt.
+
+### Plattformgrenzen
+- `EXPORT_LIMITS` unverändert (8192 px, 40 MP Bild; 4096 px Video). iOS Safari erlaubt Canvas-Flächen nur bis
+  ≈ 16,7 MP: „Originalgröße“ großer Fotos scheitert dort voraussichtlich – das ist simuliert getestet und
+  führt zur Meldung „Nicht genug Speicher für diese Größe“; 4096 px funktioniert. Eine plattformspezifische
+  Grenze wurde mangels Gerätetest nicht eingeführt.
+- 4096-px-Video mit H.264 übersteigt Level 5.2; Geräte melden das per `isConfigSupported` → Knopf gesperrt
+  mit Hinweis auf kleinere Auflösung.
+- Kein Service Worker / Manifest: die App ist keine installierbare PWA. Nach dem Laden läuft alles lokal
+  (keine Netzwerkaufrufe); nachgeladene Chunks (Export, Worker) brauchen beim ersten Gebrauch das Netz.
+
+### Performance (`npm run bench`, Chromium headless, Software-Rendering, Detail-Pfad 113 Tsd. Punkte)
+| Messung | Ergebnis | Teil 5–9 |
+|---|---|---|
+| Analyse 1024 / 2048 | 850 / 860 ms | – |
+| One-Line Minimal / Balanced / Detail | 1,2 / 2,8 / 3,5 s | 1,5–1,6 s (Balanced), 2,6–3,0 s (Detail) |
+| Rendering Detail 1024 / 2048 / 4096 | 185–233 / 236–304 / 373–394 ms | 180–255 / 225–330 / 350–485 ms |
+| Bildexport PNG 2048 / 4096 / Original 6000×4500 (Worker) | 0,5 / 0,7 / 1,0 s | 0,4 / 0,6 / 0,9 s (Main-Thread) |
+| Video 1080p / 2048 / 4096, 10 s + 2 s | 3,5 / 5,8 / 21,0 s | 2,9 / 5,1 / 19,9 s (10 s ohne Endstand) |
+| Video 4096: Rendern pro Frame | 0,24 ms | 48 ms |
+
+Der Bildexport im Worker ist in Summe minimal langsamer (Nachrichten, eigener Kontext), blockiert aber die
+Oberfläche nicht mehr (Test: > 20 fps während zweier Exporte). Beim 4096-Video bestimmt jetzt allein der
+Encoder die Dauer (hier Software-VP9). Speicher: nach drei 4096-Video- + Original-Bildexporten bleibt der
+JS-Heap konstant (11,2 MB) – kein Leck.
+
+### Spätere native Umsetzung (Capacitor) – zu ersetzende Teile
+| Schnittstelle | Heute (Browser) | Nativ |
+|---|---|---|
+| `ImageDecoder` (core/imageImport) | `bitmapDecoder` (createImageBitmap, Canvas) | Plattform-Decoder inkl. HEIC |
+| `StorageBackend` (core/storage) | `indexedDbBackend` | SQLite/Dateisystem (Repository-Logik bleibt) |
+| `VideoEncoderPort` (core/export) | `webCodecsEncoder` (WebCodecs + mediabunny) | AVAssetWriter (iOS) / MediaCodec+MediaMuxer (Android) |
+| Datei teilen/sichern | `share.ts` (Download, Web Share) | System-Share-Sheet / Fotomediathek |
+| Rendering | Canvas 2D (`artworkRenderer`, Kern liefert `ArtworkPlan` + Zeichenbefehle über `RenderContext2D`) | bleibt im WebView oder nativer 2D-Kontext mit gleicher Schnittstelle |
+| Worker | Web Worker | bleibt im WebView |
+
+Der Kern (`src/core`) hat keine DOM-/Browser-Abhängigkeit (tsconfig.core ohne DOM-Lib, ESLint-Regel,
+Architekturtest pro Datei).
+
+### Future Improvements (nicht umgesetzt)
+- Dunkle, kontrastarme Fotos ergeben schwache Formen (Algorithmus-Eigenschaft, keine Regression).
+- Service Worker für echten Offline-Betrieb/Installation.
+- Plattformabhängige Exportgrenzen nach Tests auf echten iOS-Geräten.
+- Vorschaubild statt leerer Leinwand vor dem Abspielen.

@@ -41,6 +41,7 @@ for (const [name, width, height] of [
   ['desktop 1440', 1440, 900],
   ['desktop 1280', 1280, 800],
   ['tablet 768', 768, 1024],
+  ['tablet 1024', 1024, 768],
   ['phone 390', 390, 844],
   ['phone 393', 393, 873],
   ['phone 430', 430, 932],

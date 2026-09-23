@@ -25,7 +25,7 @@ import { Icon } from '../../ui/components/Icon';
 import { ImageViewer } from '../../ui/components/ImageViewer';
 import { OptionGroup } from '../../ui/components/OptionGroup';
 import { DisplayChoice, DurationChoice, seconds } from '../controls';
-import { PREVIEW_RENDER_EDGE } from '../preview/previewConfig';
+import { useZoomResolution } from '../preview/useZoomResolution';
 import { useArtwork } from '../preview/useArtwork';
 import { EXPORT_ERROR_MESSAGES } from '../exportMessages';
 import type { RenderSettingsController } from '../state/useRenderSettings';
@@ -140,7 +140,8 @@ export function ExportScreen({ session, render, durationMs, onDurationChange, pr
   const percent = Math.round(state.progress * 100);
   const totalVideoMs = timelineDurationMs(durationMs);
   // Static artwork (same renderer as everywhere) as the visual anchor of the screen.
-  const { artwork } = useArtwork({ path, settings: renderSettings, longEdge: PREVIEW_RENDER_EDGE, image: session.processed.pixels, backgroundImage: session.preview });
+  const zoom = useZoomResolution(path);
+  const { artwork } = useArtwork({ path, settings: renderSettings, longEdge: zoom.longEdge, image: session.processed.pixels, backgroundImage: session.preview });
 
   // Short announcement for screen readers (the visual status sits below the section that started the export).
   const liveText =
@@ -199,7 +200,7 @@ export function ExportScreen({ session, render, durationMs, onDurationChange, pr
 
   return (
     <section className="export" data-testid="export-screen" data-export-status={state.status} data-export-kind={state.kind ?? ''}>
-      <div className="export__preview">{artwork && <ImageViewer key={session.original.id} image={artwork.image} label="One-Line-Zeichnung" />}</div>
+      <div className="export__preview">{artwork && <ImageViewer key={session.original.id} image={artwork.image} label="One-Line-Zeichnung" onScaleChange={zoom.onScaleChange} />}</div>
 
       <div className="export__panel">
         <fieldset className="export__section" disabled={running}>

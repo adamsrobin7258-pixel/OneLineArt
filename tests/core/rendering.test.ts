@@ -24,4 +24,12 @@ describe('rendering', () => {
   it('renders a partial path up to a cursor', () => {
     expect(toSvgPathData(path, { index: 2, tip: { x: 15, y: 2.5 } })).toBe('M0 0L10 5L15 2.5');
   });
+
+  it('escapes style values: nothing can break out of the SVG markup', () => {
+    const svg = renderSvg(path, { strokeColor: '"/><script>alert(1)</script>', strokeWidth: 1, backgroundColor: "red' onload='x" });
+    expect(svg.data).not.toContain('<script');
+    expect(svg.data).not.toContain("'");
+    expect(svg.data.match(/<path /g)).toHaveLength(1);
+    expect(svg.data).toContain('stroke="&#34;/&#62;&#60;script&#62;');
+  });
 });

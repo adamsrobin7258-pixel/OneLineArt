@@ -92,6 +92,15 @@ export function AnimationScreen({ session, render, durationMs, onDurationChange,
     return () => loop.dispose();
   }, [path, renderSettings, durationMs, session.processed.pixels, session.preview, showDebug]);
 
+  // App/tab in the background: pause instead of letting the timeline run out unseen (resume stays manual).
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.hidden && loopRef.current?.state().status === 'playing') loopRef.current.pause();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
+
   const playing = status === 'playing';
   // Reads the live playback state (React state is throttled), so quick presses always toggle correctly.
   const toggle = () => {

@@ -55,6 +55,8 @@ export interface RenderArtworkRequest {
   readonly image?: RasterImage | null;
   /** Photo for background 'original'. */
   readonly backgroundImage?: CanvasImageSource | null;
+  /** Already sampled colours of this path (e.g. computed on the main thread for a worker). */
+  readonly lineColors?: LineColors | null;
 }
 
 /** A finished rendering on a surface (caller owns it and must free it). */
@@ -74,7 +76,7 @@ export function renderArtworkSurface(request: RenderArtworkRequest): RenderedSur
   const started = performance.now();
   const { path, settings } = request;
   const size = renderSize(path.bounds, request.longEdge);
-  const lineColors = settings.colorMode === 'sampled-color' ? lineColorsFor(path, request.image!, settings) : null;
+  const lineColors = settings.colorMode === 'sampled-color' ? (request.lineColors ?? lineColorsFor(path, request.image!, settings)) : null;
   const plan = planArtwork({ path, settings, width: size.width, height: size.height, lineColors });
 
   const base = createSurface(size.width, size.height);

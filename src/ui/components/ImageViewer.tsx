@@ -14,6 +14,8 @@ interface ImageViewerProps {
   /** Display copy of the image. Zoom/pan never affects processing data. */
   image: ImageBitmap;
   label: string;
+  /** Called with the zoom factor (1 = fitted) whenever it changes. */
+  onScaleChange?: ((scale: number) => void) | undefined;
 }
 
 const DOUBLE_TAP_MS = 300;
@@ -25,7 +27,7 @@ const PAPER_SHADOW = { color: 'rgba(0, 0, 0, 0.12)', blur: 24, offsetY: 6 } as c
  * Large, undistorted image preview with pinch/wheel zoom and drag to pan.
  * Redraws from the preview bitmap at device resolution, so zoomed views stay sharp.
  */
-export function ImageViewer({ image, label }: ImageViewerProps) {
+export function ImageViewer({ image, label, onScaleChange }: ImageViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // Captured once: a released bitmap reports 0×0.
@@ -37,6 +39,10 @@ export function ImageViewer({ image, label }: ImageViewerProps) {
   const lastTap = useRef<{ time: number; point: Point } | null>(null);
   const tapStart = useRef<Point | null>(null);
   const [zoomed, setZoomed] = useState(false);
+  const scaleListener = useRef(onScaleChange);
+  useEffect(() => {
+    scaleListener.current = onScaleChange;
+  }, [onScaleChange]);
 
   const draw = useCallback(() => {
     frame.current = 0;
@@ -63,6 +69,7 @@ export function ImageViewer({ image, label }: ImageViewerProps) {
     (next: ViewTransform) => {
       view.current = next;
       setZoomed(next.scale > 1.001);
+      scaleListener.current?.(next.scale);
       if (!frame.current) frame.current = requestAnimationFrame(draw);
     },
     [draw],
