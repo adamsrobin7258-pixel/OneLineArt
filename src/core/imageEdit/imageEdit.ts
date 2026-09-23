@@ -157,3 +157,34 @@ export function imageEditKey(edit: ImageEdit): string {
   const c = edit.crop;
   return `${edit.rotation}:${[c.x, c.y, c.width, c.height].map((v) => v.toFixed(6)).join(',')}`;
 }
+
+/** Normalized point in the unrotated original → normalized point in the rotated image (before cropping). */
+function rotatePoint(p: { x: number; y: number }, rotation: ImageRotation): { x: number; y: number } {
+  switch (rotation) {
+    case 0:
+      return { x: p.x, y: p.y };
+    case 90:
+      return { x: 1 - p.y, y: p.x };
+    case 180:
+      return { x: 1 - p.x, y: 1 - p.y };
+    case 270:
+      return { x: p.y, y: 1 - p.x };
+  }
+}
+
+/**
+ * A point of the ORIGINAL image (normalized 0..1, upright as decoded) in the
+ * EDITED image (normalized 0..1): rotate, then relative to the crop. Values
+ * outside 0..1 lie outside the crop. Pure geometry — no screen sizes involved.
+ */
+export function originalToEdited(point: { x: number; y: number }, edit: ImageEdit): { x: number; y: number } {
+  const r = rotatePoint(point, edit.rotation);
+  return { x: (r.x - edit.crop.x) / edit.crop.width, y: (r.y - edit.crop.y) / edit.crop.height };
+}
+
+/** Inverse of originalToEdited. */
+export function editedToOriginal(point: { x: number; y: number }, edit: ImageEdit): { x: number; y: number } {
+  const r = { x: edit.crop.x + point.x * edit.crop.width, y: edit.crop.y + point.y * edit.crop.height };
+  const back: Record<ImageRotation, ImageRotation> = { 0: 0, 90: 270, 180: 180, 270: 90 };
+  return rotatePoint(r, back[edit.rotation]);
+}

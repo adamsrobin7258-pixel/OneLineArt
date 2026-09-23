@@ -11,6 +11,8 @@ import {
   type ExportFile,
   type ExportPhase,
   type Size,
+  type AnimationDirection,
+  type NormalizedPoint,
   type VideoExportSettings,
 } from '../../../core';
 import { createArtworkAnimator } from '../animation/artworkAnimator';
@@ -20,7 +22,11 @@ import { webCodecsEncoder, type BrowserVideoEncoder } from './webCodecsEncoder';
 
 export interface VideoExportRequest {
   readonly source: BrowserExportSource;
+  /** `durationMs` = the drawing time (duration / speed), as in the preview. */
   readonly settings: Partial<VideoExportSettings>;
+  /** Drawing order — the same as the preview's (the path is never changed). */
+  readonly direction?: AnimationDirection;
+  readonly startPoint?: NormalizedPoint | null;
   readonly signal?: CancelSignal;
   readonly onPhase?: (phase: ExportPhase) => void;
   readonly onProgress?: (progress: number) => void;
@@ -68,6 +74,8 @@ export async function exportCreationVideo(request: VideoExportRequest): Promise<
       longEdge: Math.max(size.width, size.height),
       image: source.image,
       backgroundImage: source.backgroundImage,
+      direction: request.direction ?? 'forward',
+      startPoint: request.startPoint ?? null,
     });
   } catch (error) {
     throw asExportError(error, 'out-of-memory');

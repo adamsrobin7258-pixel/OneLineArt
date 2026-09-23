@@ -4,10 +4,15 @@ import {
   drawArtworkBackground,
   drawArtworkLine,
   drawArtworkLineRange,
+  penArcAt,
   planArtwork,
+  routeFor,
+  routeIntervals,
   renderSize,
-  visibleLength,
+  type AnimationDirection,
+  type AnimationRoute,
   type ArtworkPlan,
+  type NormalizedPoint,
   type OneLinePath,
   type PathCursor,
   type PathProgressIndex,
@@ -25,10 +30,14 @@ export interface AnimatorSource {
   readonly longEdge: number;
   readonly image: RasterImage;
   readonly backgroundImage?: CanvasImageSource | null;
+  /** Order of drawing (the path itself never changes). Default: forward from the path's start. */
+  readonly direction?: AnimationDirection;
+  readonly startPoint?: NormalizedPoint | null;
 }
 
 export interface FrameResult {
   readonly progress: number;
+  /** Position of the pen (for forward playback from the start: the drawn part). */
   readonly cursor: PathCursor;
   readonly visibleLength: number;
   readonly renderMs: number;
@@ -45,11 +54,17 @@ export interface FrameResult {
  * Semi-transparent line: the line grows on a persistent layer that is
  * composited over a background surface with the opacity applied once.
  * At progress 1 the whole line is drawn in one go, exactly like the static render.
+ *
+ * Direction and start point only change the ORDER: the route lists which
+ * stretches of the path are drawn by a progress; each stretch is drawn with
+ * the same drawArtworkLineRange, so the geometry is always the one path.
  */
 export interface ArtworkAnimator {
   readonly size: Size;
   readonly plan: ArtworkPlan;
   readonly index: PathProgressIndex;
+  /** Drawing order (direction + start point) over the unchanged path. */
+  readonly route: AnimationRoute;
   /** Offscreen surfaces held by this animator (0 for an opaque line). */
   readonly surfaceCount: number;
   /** Draws the frame for `progress` onto `target` (incrementally when moving forward). */
@@ -65,6 +80,7 @@ export function createArtworkAnimator(source: AnimatorSource): ArtworkAnimator {
   const lineColors = usesLineColors(settings) ? lineColorsFor(path, source.image, settings) : null;
   const plan = planArtwork({ path, settings, width: size.width, height: size.height, lineColors });
   const index = createPathProgress(path);
+  const route = routeFor(index, source.direction ?? 'forward', source.startPoint ?? null);
   const backgroundImage = source.backgroundImage ?? undefined;
   const direct = plan.lineOpacity >= 1;
 
@@ -73,39 +89,41 @@ export function createArtworkAnimator(source: AnimatorSource): ArtworkAnimator {
   if (background) drawArtworkBackground(plan, background.ctx, backgroundImage);
   const line: Surface | null = direct ? null : createSurface(size.width, size.height);
 
-  /** What the target (direct) or the line layer (layered) currently shows. */
-  let drawn: PathCursor | null = null;
+  /** Progress the target (direct) or the line layer (layered) currently shows. */
   let drawnProgress = -1;
   let drawnTarget: CanvasRenderingContext2D | null = null;
 
-  const result = (progress: number, cursor: PathCursor, started: number): FrameResult => ({
+  const cursorAtArc = (arc: number) => cursorAtProgress(index, index.totalLength > 0 ? arc / index.totalLength : 1);
+  /** Draws the stretches that become visible between two progress values. */
+  const drawBetween = (ctx: CanvasRenderingContext2D, p0: number, p1: number) => {
+    for (const { a, b } of routeIntervals(route, p0, p1)) drawArtworkLineRange(plan, path, ctx, a > 0 ? cursorAtArc(a) : null, cursorAtArc(b));
+  };
+
+  const result = (progress: number, started: number): FrameResult => ({
     progress,
-    cursor,
-    visibleLength: visibleLength(index, cursor),
+    cursor: cursorAtArc(penArcAt(route, progress)),
+    visibleLength: Math.min(1, Math.max(0, progress)) * index.totalLength,
     renderMs: performance.now() - started,
   });
 
   const renderDirect = (target: CanvasRenderingContext2D, progress: number, fresh: boolean): FrameResult => {
     const started = performance.now();
-    const cursor = cursorAtProgress(index, progress);
     const continues = !fresh && target === drawnTarget && progress >= drawnProgress;
     // Final artwork already on this target (e.g. during the final hold): nothing to draw.
-    if (continues && drawnProgress >= 1) return result(progress, cursor, started);
+    if (continues && drawnProgress >= 1) return result(progress, started);
     if (progress >= 1) {
       // Final frame: the same operations as the static artwork (background, then the whole line).
       drawArtworkBackground(plan, target, backgroundImage);
       drawArtworkLine(plan, path, target);
+    } else if (continues) {
+      drawBetween(target, drawnProgress, progress);
     } else {
-      if (!continues) {
-        drawArtworkBackground(plan, target, backgroundImage);
-        drawn = null;
-      }
-      drawArtworkLineRange(plan, path, target, drawn, cursor);
+      drawArtworkBackground(plan, target, backgroundImage);
+      drawBetween(target, 0, progress);
     }
-    drawn = cursor;
     drawnProgress = progress;
     drawnTarget = target;
-    return result(progress, cursor, started);
+    return result(progress, started);
   };
 
   const composite = (target: CanvasRenderingContext2D) => {
@@ -120,22 +138,20 @@ export function createArtworkAnimator(source: AnimatorSource): ArtworkAnimator {
 
   const renderLayered = (target: CanvasRenderingContext2D, progress: number, fresh: boolean): FrameResult => {
     const started = performance.now();
-    const cursor = cursorAtProgress(index, progress);
     const layer = line!.ctx;
     if (!(progress >= 1 && !fresh && drawnProgress >= 1)) {
-      if (fresh || progress < drawnProgress || progress >= 1) {
+      const restart = fresh || progress < drawnProgress || progress >= 1;
+      if (restart) {
         layer.setTransform(1, 0, 0, 1, 0, 0);
         layer.clearRect(0, 0, size.width, size.height);
-        drawn = null;
       }
-      // At 1 the whole line in one go, like the static render; otherwise only the new piece.
+      // At 1 the whole line in one go, like the static render; otherwise only the new stretches.
       if (progress >= 1) drawArtworkLine(plan, path, layer);
-      else drawArtworkLineRange(plan, path, layer, drawn, cursor);
-      drawn = cursor;
+      else drawBetween(layer as unknown as CanvasRenderingContext2D, restart ? 0 : drawnProgress, progress);
       drawnProgress = progress;
     }
     composite(target);
-    return result(progress, cursor, started);
+    return result(progress, started);
   };
 
   const render = direct ? renderDirect : renderLayered;
@@ -143,6 +159,7 @@ export function createArtworkAnimator(source: AnimatorSource): ArtworkAnimator {
     size,
     plan,
     index,
+    route,
     surfaceCount: direct ? 0 : 2,
     renderAt: (target, progress) => render(target, progress, false),
     renderFresh: (target, progress) => render(target, progress, true),

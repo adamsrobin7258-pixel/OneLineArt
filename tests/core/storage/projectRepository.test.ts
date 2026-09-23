@@ -48,7 +48,8 @@ describe('project repository', () => {
     const { project: loaded, thumbnail, outdated } = await repo.load('a');
     expect(loaded.oneLine).toEqual(p.oneLine);
     expect(loaded.render).toEqual(p.render);
-    expect(loaded.animation).toEqual(p.animation);
+    // Stored without the phase 12.3 choices: they come back as defaults (speed 1, forward, path start).
+    expect(loaded.animation).toEqual({ ...p.animation, speed: 1, direction: 'forward', startPoint: null });
     expect(loaded.versions).toEqual(CURRENT_VERSIONS);
     expect(loaded.image).toMatchObject({ id: 'img-a', fileName: 'foto.jpg', contentHash: 'hash-a', metadata: p.image.metadata });
     expect(await blobBytes(loaded.image.source)).toEqual(bytes(64));
@@ -192,6 +193,17 @@ describe('damaged and incompatible data', () => {
     expect(loaded.colorMode).toBe('sampled-color');
   });
 
+  it('animation choices are stored; older projects get defaults', async () => {
+    const repo = createProjectRepository(createMemoryStorageBackend());
+    const animation = { durationMs: 7_500, fps: 30, pacing: 'constant-speed' as const, easing: 'linear' as const, speed: 2, direction: 'reverse' as const, startPoint: { x: 0.25, y: 0.6 } };
+    await repo.save({ ...project('m'), animation }, null);
+    expect((await repo.load('m')).project.animation).toEqual(animation);
+
+    const { backend, repo: repo2, record } = await stored();
+    backend.stores.get('projects')!.set('a', { ...record, animation: { durationMs: 15_000, fps: 30, pacing: 'constant-speed' } });
+    expect((await repo2.load('a')).project.animation).toMatchObject({ durationMs: 15_000, speed: 1, direction: 'forward', startPoint: null });
+  });
+
   it('a newer project format is reported as incompatible, never guessed', async () => {
     const { backend, repo, record } = await stored();
     backend.stores.get('projects')!.set('a', { ...record, formatVersion: 99 });
@@ -207,6 +219,8 @@ describe('damaged and incompatible data', () => {
       ['bad settings', { ...record, render: { ...(record.render as object), lineWidth: Number.NaN } }],
       ['out-of-range settings', { ...record, render: { ...(record.render as object), lineWidth: 1000 } }],
       ['unknown level', { ...record, oneLine: { ...(record.oneLine as object), drawing: { detailLevel: 'ultra' } } }],
+      ['bad start point', { ...record, animation: { ...(record.animation as object), startPoint: { x: 'Auge' } } }],
+      ['start point outside', { ...record, animation: { ...(record.animation as object), startPoint: { x: 2, y: 0.5 } } }],
       ['bad edit', { ...record, edit: { rotation: 45, crop: { x: 0, y: 0, width: 1, height: 1 } } }],
       ['bad crop', { ...record, edit: { rotation: 0, crop: { x: 'links' } } }],
       ['unknown style', { ...record, oneLine: { ...(record.oneLine as object), drawing: { detailLevel: 'detail', style: 'cubist' } } }],

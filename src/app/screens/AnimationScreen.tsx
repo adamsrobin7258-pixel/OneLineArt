@@ -1,19 +1,30 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { isHolding, playbackTotalMs, type ImageSession, type PlaybackStatus } from '../../core';
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
+import {
+  createPathProgress,
+  drawingDurationMs,
+  isHolding,
+  nearestPathPoint,
+  playbackTotalMs,
+  toPathPoint,
+  type ImageSession,
+  type PlaybackStatus,
+} from '../../core';
 import { createAnimationLoop, type AnimationLoop, type AnimationStats } from '../../platform/browser/animation/animationLoop';
 import { createArtworkAnimator } from '../../platform/browser/animation/artworkAnimator';
 import { isAnalysisDebugEnabled } from '../../platform/browser/debugFlags';
 import { Button } from '../../ui/components/Button';
 import { Icon } from '../../ui/components/Icon';
 import { DisplayChoice, DurationChoice } from '../controls';
+import { PlaybackPanel } from '../PlaybackPanel';
+import type { AnimationChoice } from '../state/useProjects';
 import { PREVIEW_RENDER_EDGE } from '../preview/previewConfig';
 import type { RenderSettingsController } from '../state/useRenderSettings';
 
 interface AnimationScreenProps {
   session: ImageSession<ImageBitmap>;
   render: RenderSettingsController;
-  durationMs: number;
-  onDurationChange: (durationMs: number) => void;
+  animation: Required<AnimationChoice>;
+  onAnimationChange: (patch: Partial<AnimationChoice>) => void;
   onBack: () => void;
   onContinue: () => void;
 }
@@ -35,8 +46,17 @@ interface Debug {
  * artwork through the same renderer; nothing is recomputed while playing.
  * After the line is complete the finished artwork stays for FINAL_HOLD_MS.
  */
-export function AnimationScreen({ session, render, durationMs, onDurationChange, onBack, onContinue }: AnimationScreenProps) {
+export function AnimationScreen({ session, render, animation, onAnimationChange, onBack, onContinue }: AnimationScreenProps) {
   const { path } = session;
+  // The line is drawn in duration ÷ speed; the final hold comes on top.
+  const durationMs = drawingDurationMs(animation);
+  const { direction, startPoint } = animation;
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const panelId = useId();
+  // Where the drawing really starts: the path point nearest to the chosen image point.
+  const start = useMemo(() => (path && startPoint ? nearestPathPoint(createPathProgress(path), toPathPoint(path, startPoint)) : null), [path, startPoint]);
+  const photoRef = useRef<HTMLCanvasElement>(null);
   const { renderSettings } = render;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
@@ -59,6 +79,8 @@ export function AnimationScreen({ session, render, durationMs, onDurationChange,
       longEdge: PREVIEW_RENDER_EDGE,
       image: session.processed.pixels,
       backgroundImage: session.preview,
+      direction,
+      startPoint,
     });
     canvas.width = animator.size.width;
     canvas.height = animator.size.height;
@@ -90,7 +112,7 @@ export function AnimationScreen({ session, render, durationMs, onDurationChange,
     loopRef.current = loop;
     if (previous?.status === 'playing') loop.play();
     return () => loop.dispose();
-  }, [path, renderSettings, durationMs, session.processed.pixels, session.preview, showDebug]);
+  }, [path, renderSettings, durationMs, direction, startPoint, session.processed.pixels, session.preview, showDebug]);
 
   // App/tab in the background: pause instead of letting the timeline run out unseen (resume stays manual).
   useEffect(() => {
@@ -100,6 +122,25 @@ export function AnimationScreen({ session, render, durationMs, onDurationChange,
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, []);
+
+  // While choosing the start point the (edited) photo is shown, so e.g. an eye can be tapped.
+  useEffect(() => {
+    const canvas = photoRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!picking || !canvas || !ctx || !size) return;
+    canvas.width = size.width;
+    canvas.height = size.height;
+    ctx.drawImage(session.preview, 0, 0, size.width, size.height);
+  }, [picking, size, session.preview]);
+
+  /** Tap on the image → normalized point of the edited image (independent of the screen size). */
+  const pick = (event: PointerEvent<HTMLElement>) => {
+    const box = event.currentTarget.getBoundingClientRect();
+    const point = { x: (event.clientX - box.left) / box.width, y: (event.clientY - box.top) / box.height };
+    setPicking(false);
+    loopRef.current?.seek(0);
+    onAnimationChange({ startPoint: { x: Math.min(1, Math.max(0, point.x)), y: Math.min(1, Math.max(0, point.y)) } });
+  };
 
   const playing = status === 'playing';
   // Reads the live playback state (React state is throttled), so quick presses always toggle correctly.
@@ -115,7 +156,32 @@ export function AnimationScreen({ session, render, durationMs, onDurationChange,
     <section className="animation" data-testid="animation-screen" data-status={status}>
       <div className="animation__stage">
         <div className="animation__frame" style={size ? ({ '--ratio': size.width / size.height } as CSSProperties) : undefined}>
-          <canvas ref={canvasRef} className="animation__canvas" data-testid="animation-canvas" role="img" aria-label="Entstehung der Zeichnung" />
+          <div className="animation__paper">
+            <canvas
+              ref={canvasRef}
+              className="animation__canvas"
+              data-testid="animation-canvas"
+              data-direction={direction}
+              data-start={start && path ? `${(start.point.x / path.bounds.width).toFixed(4)},${(start.point.y / path.bounds.height).toFixed(4)}` : 'auto'}
+              role="img"
+              aria-label="Entstehung der Zeichnung"
+            />
+            {/* UI only: never part of the rendered frames, images or videos. */}
+            {start && path && !picking && (
+              <span
+                className="animation__start"
+                data-testid="start-marker"
+                style={{ left: `${(start.point.x / path.bounds.width) * 100}%`, top: `${(start.point.y / path.bounds.height) * 100}%` }}
+                aria-hidden="true"
+              />
+            )}
+            {picking && (
+              <button type="button" className="animation__pick" data-testid="start-picker" aria-label="Startpunkt auf dem Bild wählen" onPointerUp={pick}>
+                <canvas ref={photoRef} className="animation__photo" aria-hidden="true" />
+                <span className="animation__pick-hint">Tippe auf die Stelle, an der die Linie beginnen soll</span>
+              </button>
+            )}
+          </div>
           {/* Pointer shortcut only; keyboard and screen readers use the player button below. */}
           <button type="button" className={`animation__overlay${playing ? ' is-playing' : ''}`} tabIndex={-1} aria-hidden="true" onClick={toggle}>
             <span className="animation__overlay-icon">
@@ -154,16 +220,32 @@ export function AnimationScreen({ session, render, durationMs, onDurationChange,
         </dl>
       )}
 
-      <footer className="controlbar">
+      {panelOpen && (
+        <PlaybackPanel
+          id={panelId}
+          animation={animation}
+          onChange={onAnimationChange}
+          picking={picking}
+          onPick={() => setPicking((p) => !p)}
+          startDistance={start?.distance ?? null}
+        />
+      )}
+      <footer className="controlbar controlbar--wide">
         <div className="controlbar__options">
-          <DurationChoice durationMs={durationMs} onChange={onDurationChange} fill />
+          <DurationChoice durationMs={animation.durationMs} speed={animation.speed} onChange={(ms) => onAnimationChange({ durationMs: ms })} fill />
           <DisplayChoice render={render} fill />
         </div>
         <div className="controlbar__nav">
-          <Button variant="quiet" onClick={onBack}>
-            <Icon name="arrowLeft" size={18} />
-            Zurück
-          </Button>
+          <div className="controlbar__start">
+            <Button variant="quiet" onClick={onBack}>
+              <Icon name="arrowLeft" size={18} />
+              <span className="controlbar__collapsible">Zurück</span>
+            </Button>
+            <Button variant="ghost" aria-expanded={panelOpen} aria-controls={panelOpen ? panelId : undefined} onClick={() => setPanelOpen((o) => !o)}>
+              <Icon name="sliders" size={18} />
+              Wiedergabe
+            </Button>
+          </div>
           <Button onClick={onContinue}>
             Weiter
             <Icon name="arrowRight" size={18} />

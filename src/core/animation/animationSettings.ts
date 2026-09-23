@@ -1,4 +1,4 @@
-import { DEFAULT_ANIMATION_SETTINGS, type AnimationEasing, type AnimationPacing, type AnimationSettings } from '../models';
+import { DEFAULT_ANIMATION_SETTINGS, type AnimationDirection, type AnimationEasing, type AnimationPacing, type AnimationSettings, type NormalizedPoint } from '../models';
 
 /** Durations offered to the user (ms). */
 export const DURATION_PRESETS_MS = [5_000, 10_000, 15_000, 30_000] as const;
@@ -13,8 +13,25 @@ export const FINAL_HOLD_MS = 2_000;
 /** Total playback / video length for a drawing duration (drawing + final hold). */
 export const timelineDurationMs = (drawDurationMs: number, holdMs: number = FINAL_HOLD_MS): number => drawDurationMs + holdMs;
 
-/** Playback speeds (prepared; independent of the drawing's duration). */
+/**
+ * Own drawing durations (ms): 2 s … 60 s in 0.5 s steps. With the slowest
+ * speed the drawing lasts at most 120 s (+ hold) — ≈ 3700 video frames at 30 fps.
+ */
+export const DURATION_RANGE_MS = { min: 2_000, max: 60_000, step: 500 } as const;
+
+/** Speed factors offered to the user: the drawing takes durationMs / speed. */
 export const SPEED_PRESETS = [0.5, 1, 2, 4] as const;
+
+export const ANIMATION_DIRECTIONS: readonly AnimationDirection[] = ['forward', 'reverse'];
+
+/** True for one of the preset durations (anything else is an own/custom value). */
+export const isPresetDuration = (durationMs: number): boolean => (DURATION_PRESETS_MS as readonly number[]).includes(durationMs);
+
+/**
+ * The time the line is actually drawn: durationMs / speed. Time-based and
+ * deterministic (no frame rate involved); the final hold comes on top.
+ */
+export const drawingDurationMs = (settings: Pick<AnimationSettings, 'durationMs' | 'speed'>): number => settings.durationMs / (settings.speed ?? 1);
 
 export const ANIMATION_EASINGS: readonly AnimationEasing[] = ['linear', 'ease-in-out'];
 /** Easings that may be selected. 'ease-in-out' is prepared but would distort the perceived drawing speed. */
@@ -69,9 +86,28 @@ export function sanitizeAnimationSettings(input: Partial<AnimationSettings> = {}
       fps: clampTo('fps', s.fps, ANIMATION_LIMITS.fps, true),
       pacing: pick('pacing', s.pacing, PACINGS, DEFAULT_ANIMATION_SETTINGS.pacing),
       easing: pick<AnimationEasing>('easing', s.easing ?? 'linear', AVAILABLE_EASINGS, 'linear'),
+      speed: clampTo('speed', s.speed ?? 1, ANIMATION_LIMITS.speed),
+      direction: pick<AnimationDirection>('direction', s.direction ?? 'forward', ANIMATION_DIRECTIONS, 'forward'),
+      startPoint: startPointOf(s.startPoint ?? null, issues),
     },
     issues,
   };
+}
+
+function startPointOf(value: unknown, issues: AnimationSettingsIssue[]): NormalizedPoint | null {
+  if (value === null) return null;
+  const p = value as { x?: unknown; y?: unknown };
+  const ok = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+  if (!ok(p?.x) || !ok(p?.y)) throw new AnimationError('invalid-settings', `startPoint must have finite x and y (got ${JSON.stringify(value)})`);
+  const point = { x: Math.min(1, Math.max(0, p.x)), y: Math.min(1, Math.max(0, p.y)) };
+  if (point.x !== p.x || point.y !== p.y) issues.push({ name: 'startPoint', value, message: 'startPoint clamped to the image' });
+  return point;
+}
+
+/** A user-chosen duration: within DURATION_RANGE_MS, on its 0.5 s grid. */
+export function clampDurationMs(durationMs: number): number {
+  const { min, max, step } = DURATION_RANGE_MS;
+  return Math.min(max, Math.max(min, Math.round(finite('durationMs', durationMs) / step) * step));
 }
 
 /** Easing curve t ∈ [0,1] → [0,1]. */

@@ -4,6 +4,8 @@ import {
   MAX_ZOOM,
   MIN_CROP_FRACTION,
   cropPixelRect,
+  editedToOriginal,
+  originalToEdited,
   editedSize,
   imageEditKey,
   isIdentityEdit,
@@ -110,5 +112,45 @@ describe('image edit state', () => {
   it('the key identifies an edit (same edit ⇒ same key)', () => {
     expect(imageEditKey(edit(90, 0.1, 0.2, 0.3, 0.4))).toBe(imageEditKey(edit(90, 0.1, 0.2, 0.3, 0.4)));
     expect(imageEditKey(edit(90, 0.1, 0.2, 0.3, 0.4))).not.toBe(imageEditKey(edit(270, 0.1, 0.2, 0.3, 0.4)));
+  });
+});
+
+describe('points between the original and the edited image', () => {
+  const cases: [string, ImageEdit][] = [
+    ['no edit', IDENTITY_EDIT],
+    ['crop', edit(0, 0.2, 0.1, 0.5, 0.6)],
+    ['zoom', withZoom(IDENTITY_EDIT, 3, photo)],
+    ['pan', withPan(withZoom(IDENTITY_EDIT, 2, photo), { x: 0.3, y: 0.7 })],
+    ['90°', edit(90, 0, 0, 1, 1)],
+    ['180°', edit(180, 0.1, 0.1, 0.8, 0.8)],
+    ['270° + crop', edit(270, 0.25, 0.3, 0.5, 0.4)],
+  ];
+  for (const [name, e] of cases) {
+    it(`${name}: round trip original → edited → original`, () => {
+      for (const p of [
+        { x: 0.1, y: 0.2 },
+        { x: 0.5, y: 0.5 },
+        { x: 0.93, y: 0.61 },
+      ]) {
+        const back = editedToOriginal(originalToEdited(p, e), e);
+        expect(back.x).toBeCloseTo(p.x, 12);
+        expect(back.y).toBeCloseTo(p.y, 12);
+      }
+    });
+  }
+
+  it('quarter turns move points like the image (clockwise)', () => {
+    const topLeft = { x: 0.1, y: 0.2 };
+    expect(originalToEdited(topLeft, edit(90, 0, 0, 1, 1))).toEqual({ x: 0.8, y: 0.1 });
+    expect(originalToEdited(topLeft, edit(180, 0, 0, 1, 1))).toEqual({ x: 0.9, y: 0.8 });
+    expect(originalToEdited(topLeft, edit(270, 0, 0, 1, 1))).toEqual({ x: 0.2, y: 0.9 });
+  });
+
+  it('crop: the crop corner becomes 0,0; points outside the crop lie outside 0..1', () => {
+    const e = edit(0, 0.2, 0.1, 0.5, 0.6);
+    expect(originalToEdited({ x: 0.2, y: 0.1 }, e)).toEqual({ x: 0, y: 0 });
+    const outside = originalToEdited({ x: 0.9, y: 0.05 }, e);
+    expect(outside.x).toBeGreaterThan(1);
+    expect(outside.y).toBeLessThan(0);
   });
 });

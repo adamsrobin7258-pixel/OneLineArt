@@ -7,9 +7,27 @@ export type AnimationPacing =
 /** How time maps to progress. Only 'linear' is available (even drawing speed); others are prepared. */
 export type AnimationEasing = 'linear' | 'ease-in-out';
 
+/** Playback direction along the unchanged path. */
+export type AnimationDirection = 'forward' | 'reverse';
+
+/** A point on the (edited) image, normalized 0..1 — independent of any screen size. */
+export interface NormalizedPoint {
+  readonly x: number;
+  readonly y: number;
+}
+
 export interface AnimationSettings {
   /** Duration of the complete drawing at 1× speed. */
   readonly durationMs: number;
+  /** Speed factor: the line is drawn in durationMs / speed (default 1). */
+  readonly speed?: number;
+  /** Default 'forward' (the path's own order). */
+  readonly direction?: AnimationDirection;
+  /**
+   * Where the drawing starts, chosen on the edited image (null/absent = the
+   * path's own start). Snapped to the nearest point of the path at playback.
+   */
+  readonly startPoint?: NormalizedPoint | null;
   /** Frame rate for rendered videos (the live preview is time-based and ignores it). */
   readonly fps: number;
   readonly pacing: AnimationPacing;
@@ -22,4 +40,7 @@ export const DEFAULT_ANIMATION_SETTINGS: AnimationSettings = {
   fps: 30,
   pacing: 'constant-speed',
   easing: 'linear',
+  speed: 1,
+  direction: 'forward',
+  startPoint: null,
 };

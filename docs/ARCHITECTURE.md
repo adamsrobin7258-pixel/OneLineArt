@@ -818,3 +818,54 @@ Original (Datei, unverändert, gespeichert) ──Import──▶ Anzeige-Kopie 
   Linienzeichnung reicht das; ein erneutes Dekodieren des Originals wäre speicherintensiv.
 - Nur Vierteldrehungen; freie Rotation ist über den Typ `ImageRotation` vorbereitet, nicht umgesetzt.
 - Messwerte (Desktop-Chromium, 8000×6000 px): Import 0,55 s, Drehen 0,47 s, Zuschnitt 0,01–0,4 s.
+
+## Erweiterte Animation (Phase 12.3)
+
+### Grundsatz
+Dauer, Geschwindigkeit, Richtung und Startpunkt sind **reiner Wiedergabezustand**. Sie erreichen weder
+`resolveOneLineSettings` noch Analyse oder Worker; der `OneLinePath` bleibt unverändert (Browser-Tests über
+Worker-Zähler). Vorschau und Videoexport nutzen denselben `ArtworkAnimator`.
+
+### Dauer und Geschwindigkeit (`core/animation/animationSettings.ts`)
+- Presets 5/10/15/30 s bleiben; „Eigene“: 2–60 s in 0,5-s-Schritten (`DURATION_RANGE_MS`, `clampDurationMs`).
+- Geschwindigkeit ist ein Faktor (0,5×/1×/2×/4×): Zeichenzeit = Dauer ÷ Geschwindigkeit
+  (`drawingDurationMs`). Weiterhin rein zeitbasiert (Fortschritt = verstrichene Zeit / Zeichenzeit, nach
+  Bogenlänge), unabhängig von Bildrate und Gerät. Der End-Hold (2 s) kommt immer danach, unverändert.
+- Video: `VideoExportSettings.durationMs` = Zeichenzeit, zulässig 0,5–120 s (`VIDEO_DRAWING_RANGE_MS`,
+  höchstens ≈ 3700 Frames bei 30 fps).
+
+### Richtung und Startpunkt (`core/animation/animationRoute.ts`)
+Der Pfad ist offen, stammt aber aus einer geschlossenen Raumfüllkurve: Ende und Anfang liegen nah
+beieinander (gemessen an echten Fotos: 0,2–2,8 % der Bilddiagonale, stets kürzer als das längste Segment
+des Pfades selbst). Deshalb wird er für die Wiedergabe als Zyklus behandelt, **ohne** die Verbindung
+Ende→Anfang je zu zeichnen:
+
+| | ohne Startpunkt | Startpunkt S |
+|---|---|---|
+| Vorwärts | 0 → L | S → L, dann 0 → S |
+| Rückwärts | L → 0 | S → 0, dann L → S |
+
+- Eine Route besteht aus gerichteten Bogenlängen-Stücken; `routeIntervals(route, p0, p1)` liefert die
+  zwischen zwei Fortschritten neu sichtbaren Abschnitte. Jeder Abschnitt wird mit der vorhandenen
+  `drawArtworkLineRange` (PathCursor) gezeichnet — keine zweite Animationsimplementierung, jedes Segment
+  genau einmal (Unit-Test), Zeichnen weiterhin inkrementell.
+- Bei Fortschritt 1 zeichnet der Animator wie bisher das statische Bild in einem Durchgang → der letzte Frame
+  ist in allen Richtungen/Startpunkten/Farbmodi pixelidentisch (Browser-Test, maxDiff 0).
+- Startpunkt: Tippen auf das (bearbeitete) Foto → normalisierter Punkt (0..1) des bearbeiteten Bildes →
+  Pfadkoordinaten (`toPathPoint`, Pfadgrenzen = Arbeitsbild) → nächster Punkt auf dem Pfad
+  (`nearestPathPoint`, Projektion auf alle Segmente). Unabhängig von der Bildschirmgröße.
+- Bildbearbeitung: `originalToEdited` / `editedToOriginal` bilden Punkte zwischen Original und
+  bearbeitetem Bild ab (Rotation, dann Ausschnitt; gegen echte Pixel von `applyImageEdit` getestet). Ein
+  gewählter Startpunkt gehört zu genau einem Bild-/Bearbeitungszustand (`sessionKeyOf`); nach einer neuen
+  Bearbeitung wird er nicht mehr verwendet (Standardstart), statt blind übernommen zu werden.
+- Der Marker ist ein DOM-Element über der Zeichenfläche und nie Teil von Frames, Bildern oder Videos.
+
+### Speicherung
+`AnimationSettings` hat die optionalen Felder `speed`, `direction`, `startPoint`. Ältere Projekte: 1×,
+vorwärts, Pfadanfang. Kein neues Speicherformat, keine Migration.
+
+### Bekannte Grenzen
+- Geschwindigkeit und Dauer wirken beide auf die Zeichenzeit (Dauer ÷ Geschwindigkeit); die Beschriftung
+  nennt die tatsächliche Zeit.
+- Liegt der Startpunkt sehr nah am Pfadende, springt der Stift früh zum Pfadanfang (kurzer Sprung, s. oben).
+- Die Startpunktwahl erfolgt per Zeiger/Touch; eine reine Tastaturbedienung zum Setzen gibt es nicht.

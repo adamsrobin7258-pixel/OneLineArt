@@ -559,7 +559,8 @@ button.steps__link:hover {
 
 /* Phones: while fine control is open it replaces the three choices, so the drawing stays visible. */
 @media (max-width: 639px) {
-  .settings:has(> .adjust) .controlbar__options {
+  .settings:has(> .adjust) .controlbar__options,
+  .animation:has(> .adjust) .controlbar__options {
     display: none;
   }
   .controlbar__start .button--ghost {
@@ -1259,7 +1260,8 @@ button.steps__link:hover {
 
 .animation {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto auto auto;
+  grid-template-rows: minmax(0, 1fr);
+  grid-auto-rows: auto;
   min-height: 0;
 }
 
@@ -1279,12 +1281,68 @@ button.steps__link:hover {
   container-type: size;
 }
 
-.animation__canvas {
-  display: block;
+/* The artwork box: canvas + UI overlays (start marker, start picker) share its coordinates. */
+.animation__paper {
+  position: relative;
   width: min(100cqw, 100cqh * var(--ratio, 1));
   aspect-ratio: var(--ratio, 1);
+}
+
+.animation__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
   background: var(--color-surface);
   box-shadow: var(--shadow-paper);
+}
+
+/* Start point marker (UI only, never rendered into frames or exports). */
+.animation__start {
+  position: absolute;
+  z-index: 1;
+  width: 22px;
+  height: 22px;
+  border: 2.5px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--color-ink), 0 2px 8px rgb(0 0 0 / 0.35);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.animation__pick {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: crosshair;
+}
+
+.animation__photo {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.animation__pick-hint {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-2);
+  transform: translateX(-50%);
+  max-width: calc(100% - 2 * var(--space-3));
+  padding: 8px 14px;
+  border-radius: var(--radius-pill);
+  background: rgb(21 21 20 / 0.82);
+  color: #fff;
+  font-size: var(--text-sm);
+  pointer-events: none;
+}
+
+.playback__start {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 
 .animation__overlay {

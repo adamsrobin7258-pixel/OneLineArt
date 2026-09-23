@@ -49,7 +49,10 @@ describe('export settings', () => {
     expect(code(() => sanitizeImageExportSettings({ jpegQuality: Number.NaN }))).toBe('invalid-settings');
     expect(code(() => sanitizeVideoExportSettings({ fps: 25 as never }))).toBe('invalid-settings');
     expect(code(() => sanitizeVideoExportSettings({ fps: Number.NaN as never }))).toBe('invalid-settings');
-    expect(code(() => sanitizeVideoExportSettings({ durationMs: 7000 }))).toBe('invalid-settings');
+    // Own durations are allowed since phase 12.3 — only outside the drawing range they are rejected.
+    expect(sanitizeVideoExportSettings({ durationMs: 7500 }).durationMs).toBe(7500);
+    expect(code(() => sanitizeVideoExportSettings({ durationMs: 100 }))).toBe('invalid-settings');
+    expect(code(() => sanitizeVideoExportSettings({ durationMs: 200_000 }))).toBe('invalid-settings');
     expect(code(() => sanitizeVideoExportSettings({ durationMs: Number.POSITIVE_INFINITY }))).toBe('invalid-settings');
   });
 

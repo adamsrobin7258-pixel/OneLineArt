@@ -1,4 +1,4 @@
-import { ANIMATION_LIMITS, DURATION_PRESETS_MS, FINAL_HOLD_MS } from '../animation/animationSettings';
+import { ANIMATION_LIMITS, DURATION_RANGE_MS, FINAL_HOLD_MS, SPEED_PRESETS } from '../animation/animationSettings';
 import { RENDER_LIMITS } from '../rendering/renderSettings';
 import { ExportError } from './errors';
 
@@ -51,7 +51,10 @@ export interface ImageExportSettings {
 export interface VideoExportSettings {
   readonly resolution: VideoResolution;
   readonly fps: VideoFps;
-  /** Drawing time of the line (a preset); the video adds FINAL_HOLD_MS with the finished artwork. */
+  /**
+   * Drawing time of the line (duration / speed, see drawingDurationMs); the
+   * video adds FINAL_HOLD_MS with the finished artwork.
+   */
   readonly durationMs: number;
 }
 
@@ -68,6 +71,13 @@ function finiteIn(name: string, value: unknown, range: { readonly min: number; r
   return Math.min(range.max, Math.max(range.min, value));
 }
 
+function inRange(name: string, value: unknown, range: { readonly min: number; readonly max: number }): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < range.min || value > range.max) {
+    throw new ExportError('invalid-settings', `${name} ${String(value)} outside ${range.min}…${range.max}`);
+  }
+  return value;
+}
+
 /** Validates image export settings; unknown values are errors (never silently replaced). */
 export function sanitizeImageExportSettings(input: Partial<ImageExportSettings> = {}): ImageExportSettings {
   const s = { ...DEFAULT_IMAGE_EXPORT_SETTINGS, ...input };
@@ -78,12 +88,21 @@ export function sanitizeImageExportSettings(input: Partial<ImageExportSettings> 
   };
 }
 
-/** Validates video export settings; the duration must be one of the animation presets. */
+/**
+ * Drawing times a video may have: the shortest duration at the highest speed
+ * up to the longest duration at the lowest speed (0.5 s … 120 s).
+ */
+export const VIDEO_DRAWING_RANGE_MS = {
+  min: DURATION_RANGE_MS.min / Math.max(...SPEED_PRESETS),
+  max: DURATION_RANGE_MS.max / Math.min(...SPEED_PRESETS),
+} as const;
+
+/** Validates video export settings; the drawing time must lie in VIDEO_DRAWING_RANGE_MS (never silently changed). */
 export function sanitizeVideoExportSettings(input: Partial<VideoExportSettings> = {}): VideoExportSettings {
   const s = { ...DEFAULT_VIDEO_EXPORT_SETTINGS, ...input };
   return {
     resolution: oneOf('resolution', s.resolution, VIDEO_RESOLUTIONS),
     fps: oneOf('fps', s.fps, VIDEO_FPS),
-    durationMs: oneOf('durationMs', s.durationMs, DURATION_PRESETS_MS),
+    durationMs: inRange('durationMs', s.durationMs, VIDEO_DRAWING_RANGE_MS),
   };
 }

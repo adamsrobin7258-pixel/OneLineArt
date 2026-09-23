@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { DEFAULT_ANIMATION_SETTINGS, sanitizeAnimationSettings, storageErrorCode, StorageError } from '../core';
+import { DEFAULT_ANIMATION_SETTINGS, sanitizeAnimationSettings, sessionKeyOf, storageErrorCode, StorageError } from '../core';
 import { onSystemBack } from '../platform/capacitor/backButton';
 import { backStack } from '../ui/backStack';
 import { Button } from '../ui/components/Button';
@@ -14,7 +14,7 @@ import { GalleryScreen } from './screens/GalleryScreen';
 import { ImportScreen } from './screens/ImportScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { useImageImport } from './state/useImageImport';
-import { useProjects } from './state/useProjects';
+import { useProjects, type AnimationChoice } from './state/useProjects';
 import { useRenderSettings } from './state/useRenderSettings';
 
 /** App shell: one image session shared by all steps; the gallery works on the same projects. */
@@ -24,27 +24,40 @@ export function App() {
   const projects = useProjects();
   const [step, setStep] = useState<FlowStepId>('image');
   const [view, setView] = useState<'flow' | 'gallery'>('flow');
-  const [durationMs, setDurationMs] = useState(DEFAULT_ANIMATION_SETTINGS.durationMs);
+  const [choice, setChoice] = useState<Required<AnimationChoice>>(choiceOf(DEFAULT_ANIMATION_SETTINGS));
+  /**
+   * The start point belongs to the image AND edit it was chosen on (sessionKeyOf):
+   * after an edit or with another image it is simply not used — never mapped blindly.
+   */
+  const [startPointOwner, setStartPointOwner] = useState<string | null>(null);
   const { state } = controller;
   const session = state.status === 'ready' ? state.session : null;
+  const sessionKey = session ? sessionKeyOf(session) : null;
+  const animation: Required<AnimationChoice> = { ...choice, startPoint: startPointOwner === sessionKey ? choice.startPoint : null };
   // Without an analysed image (or a reopened drawing) only the first step is reachable; later steps need a finished drawing.
   const usable = !!session && (session.analysisStatus === 'ready' || Object.keys(session.paths).length > 0);
   const hasDrawing = usable && session.pathStatus === 'ready';
   const current: FlowStepId = !usable ? 'image' : (step === 'preview' || step === 'export') && !hasDrawing ? 'settings' : step;
-  const changeDuration = (ms: number) => setDurationMs(sanitizeAnimationSettings({ durationMs: ms }).value.durationMs);
+  // Animation choices are playback state only: they never touch the drawing settings or the path.
+  const changeAnimation = (patch: Partial<AnimationChoice>) => {
+    if ('startPoint' in patch) setStartPointOwner(sessionKey);
+    setChoice((current) => choiceOf(sanitizeAnimationSettings({ ...current, ...patch }).value));
+  };
 
   const openProject = async (id: string) => {
     const loaded = await projects.load(id);
     await controller.openProject(loaded.project);
     render.updateRenderSettings(loaded.project.render);
-    changeDuration(loaded.project.animation.durationMs);
+    // Older projects have only a duration: speed 1, forward, the path's own start.
+    setChoice(choiceOf(sanitizeAnimationSettings(loaded.project.animation).value));
+    setStartPointOwner(loaded.project.image.id);
     projects.link(loaded);
     if (loaded.outdated.length > 0) console.info('Project made with other algorithm versions:', loaded.outdated, loaded.project.versions);
     setStep('settings');
     setView('flow');
   };
 
-  const saved = session ? projects.isSaved(session, render.renderSettings, durationMs) : false;
+  const saved = session ? projects.isSaved(session, render.renderSettings, animation) : false;
 
   const reachable = reachableSteps({ hasImage: usable, hasDrawing });
 
@@ -89,7 +102,7 @@ export function App() {
               data-testid="save-project"
               data-save-status={saved ? 'saved' : projects.saveStatus}
               disabled={projects.saveStatus === 'saving' || saved}
-              onClick={() => void projects.save(session, render.renderSettings, durationMs)}
+              onClick={() => void projects.save(session, render.renderSettings, animation)}
             >
               {saved && <Icon name="check" size={16} />}
               {projects.saveStatus === 'saving' ? 'Wird gespeichert …' : saved ? 'Gespeichert' : 'Speichern'}
@@ -121,8 +134,8 @@ export function App() {
         <ExportScreen
           session={session}
           render={render}
-          durationMs={durationMs}
-          onDurationChange={changeDuration}
+          animation={animation}
+          onAnimationChange={changeAnimation}
           projectName={projects.linked?.imageId === session.original.id ? projects.linked.name : null}
           onBack={() => setStep('preview')}
         />
@@ -130,8 +143,8 @@ export function App() {
         <AnimationScreen
           session={session}
           render={render}
-          durationMs={durationMs}
-          onDurationChange={changeDuration}
+          animation={animation}
+          onAnimationChange={changeAnimation}
           onBack={() => setStep('settings')}
           onContinue={() => setStep('export')}
         />
@@ -143,3 +156,10 @@ export function App() {
     </main>
   );
 }
+
+const choiceOf = (a: AnimationChoice): Required<AnimationChoice> => ({
+  durationMs: a.durationMs,
+  speed: a.speed ?? 1,
+  direction: a.direction ?? 'forward',
+  startPoint: a.startPoint ?? null,
+});

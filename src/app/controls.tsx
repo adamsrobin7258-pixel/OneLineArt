@@ -1,6 +1,20 @@
-import { DETAIL_LEVELS, DRAWING_STYLES, DURATION_PRESETS_MS, FINAL_HOLD_MS, isDarkBackground, timelineDurationMs, type DrawingStyle, type OneLineDetailLevel } from '../core';
+import { useState } from 'react';
+import {
+  DETAIL_LEVELS,
+  DRAWING_STYLES,
+  DURATION_PRESETS_MS,
+  DURATION_RANGE_MS,
+  FINAL_HOLD_MS,
+  clampDurationMs,
+  isDarkBackground,
+  isPresetDuration,
+  timelineDurationMs,
+  type DrawingStyle,
+  type OneLineDetailLevel,
+} from '../core';
 import { OptionGroup } from '../ui/components/OptionGroup';
 import { SegmentedControl } from '../ui/components/SegmentedControl';
+import { Slider } from '../ui/components/Slider';
 import { CUSTOM_DETAIL_LABEL, DETAIL_LEVEL_LABELS, DISPLAY_OPTIONS, DRAWING_STYLE_LABELS, LIGHT_LINE_HINT, OWN_LINE_COLOR_HINT, displayOf } from './drawingLabels';
 import type { RenderSettingsController } from './state/useRenderSettings';
 
@@ -8,7 +22,7 @@ const DETAIL_OPTIONS = DETAIL_LEVELS.map((value) => ({ value, label: DETAIL_LEVE
 const CUSTOM = 'custom' as const;
 const DETAIL_OPTIONS_WITH_CUSTOM = [...DETAIL_OPTIONS, { value: CUSTOM, label: CUSTOM_DETAIL_LABEL.label }];
 const STYLE_OPTIONS = DRAWING_STYLES.map((value) => ({ value, label: DRAWING_STYLE_LABELS[value].label }));
-const DURATION_OPTIONS = DURATION_PRESETS_MS.map((ms) => ({ value: String(ms), label: `${ms / 1000} s` }));
+const DURATION_OPTIONS = [...DURATION_PRESETS_MS.map((ms) => ({ value: String(ms), label: `${ms / 1000} s` })), { value: 'custom', label: 'Eigene' }];
 
 export const seconds = (ms: number) => `${Math.round(ms / 100) / 10} s`.replace('.', ',');
 
@@ -75,11 +89,39 @@ export function DisplayChoice({ render, fill }: { render: RenderSettingsControll
   );
 }
 
-/** Drawing time; the caption states the real length incl. the final hold. */
-export function DurationChoice({ durationMs, onChange, fill }: { durationMs: number; onChange: (ms: number) => void; fill?: boolean }) {
+/**
+ * Drawing time: the presets or an own value (2–60 s). The caption states the
+ * real length: drawing (duration ÷ speed) + the final hold of the finished artwork.
+ */
+export function DurationChoice({ durationMs, speed = 1, onChange, fill }: { durationMs: number; speed?: number; onChange: (ms: number) => void; fill?: boolean }) {
+  const preset = isPresetDuration(durationMs);
+  const [customOpen, setCustomOpen] = useState(!preset);
+  const custom = customOpen || !preset;
+  const drawMs = durationMs / speed;
+  const speedText = speed === 1 ? '' : ` (${seconds(durationMs)} bei ${String(speed).replace('.', ',')}×)`;
   return (
-    <OptionGroup label="Dauer" caption={`${seconds(durationMs)} Zeichnen + ${seconds(FINAL_HOLD_MS)} fertiges Bild = ${seconds(timelineDurationMs(durationMs))}`}>
-      <SegmentedControl label="Dauer" options={DURATION_OPTIONS} value={String(durationMs)} onChange={(v) => onChange(Number(v))} fill={fill ?? false} />
+    <OptionGroup label="Dauer" caption={`${seconds(drawMs)}${speedText} Zeichnen + ${seconds(FINAL_HOLD_MS)} fertiges Bild = ${seconds(timelineDurationMs(drawMs))}`}>
+      <SegmentedControl
+        label="Dauer"
+        options={DURATION_OPTIONS}
+        value={custom ? 'custom' : String(durationMs)}
+        onChange={(v) => {
+          setCustomOpen(v === 'custom');
+          if (v !== 'custom') onChange(Number(v));
+        }}
+        fill={fill ?? false}
+      />
+      {custom && (
+        <Slider
+          label="Eigene Dauer"
+          value={durationMs}
+          min={DURATION_RANGE_MS.min}
+          max={DURATION_RANGE_MS.max}
+          step={DURATION_RANGE_MS.step}
+          format={seconds}
+          onCommit={(ms) => onChange(clampDurationMs(ms))}
+        />
+      )}
     </OptionGroup>
   );
 }

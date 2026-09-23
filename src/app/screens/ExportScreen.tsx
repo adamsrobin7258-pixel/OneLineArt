@@ -7,6 +7,7 @@ import {
   imageExportSize,
   isExportRunning,
   timelineDurationMs,
+  drawingDurationMs,
   videoFrameSize,
   type ExportFile,
   type ExportKind,
@@ -27,6 +28,7 @@ import { Icon } from '../../ui/components/Icon';
 import { ImageViewer } from '../../ui/components/ImageViewer';
 import { OptionGroup } from '../../ui/components/OptionGroup';
 import { DisplayChoice, DurationChoice, seconds } from '../controls';
+import type { AnimationChoice } from '../state/useProjects';
 import { useZoomResolution } from '../preview/useZoomResolution';
 import { useArtwork } from '../preview/useArtwork';
 import { EXPORT_ERROR_MESSAGES } from '../exportMessages';
@@ -35,8 +37,8 @@ import type { RenderSettingsController } from '../state/useRenderSettings';
 interface ExportScreenProps {
   session: ImageSession<ImageBitmap>;
   render: RenderSettingsController;
-  durationMs: number;
-  onDurationChange: (durationMs: number) => void;
+  animation: Required<AnimationChoice>;
+  onAnimationChange: (patch: Partial<AnimationChoice>) => void;
   projectName: string | null;
   onBack: () => void;
 }
@@ -66,7 +68,9 @@ const loadVideoModule = () => Promise.all([import('../../platform/browser/export
  * Step 4: export the finished artwork as image or creation video. Both are
  * rendered anew from the SAME path and settings as preview and animation.
  */
-export function ExportScreen({ session, render, durationMs, onDurationChange, projectName, onBack }: ExportScreenProps) {
+export function ExportScreen({ session, render, animation, onAnimationChange, projectName, onBack }: ExportScreenProps) {
+  // The video shows the same drawing process as the preview: drawing time, direction, start point.
+  const durationMs = drawingDurationMs(animation);
   const { renderSettings } = render;
   const path = session.path;
   const [format, setFormat] = useState<ImageExportFormat>('png');
@@ -122,7 +126,15 @@ export function ExportScreen({ session, render, durationMs, onDurationChange, pr
         file = await exportArtworkImage({ source: src, settings: { format, resolution: imageRes }, signal: abort.signal, onPhase });
       } else {
         const [{ exportCreationVideo }] = await loadVideoModule();
-        file = await exportCreationVideo({ source: src, settings: { resolution: videoRes, fps: VIDEO_FPS, durationMs }, signal: abort.signal, onPhase, onProgress });
+        file = await exportCreationVideo({
+          source: src,
+          settings: { resolution: videoRes, fps: VIDEO_FPS, durationMs },
+          direction: animation.direction,
+          startPoint: animation.startPoint,
+          signal: abort.signal,
+          onPhase,
+          onProgress,
+        });
       }
       dispatch({ type: 'succeeded', jobId: id, file: { fileName: file.fileName, mimeType: file.mimeType, sizeBytes: file.sizeBytes, data: file.data } });
     } catch (error) {
@@ -229,7 +241,7 @@ export function ExportScreen({ session, render, durationMs, onDurationChange, pr
 
         <fieldset className="export__section" disabled={running}>
           <legend className="export__title">Video</legend>
-          <DurationChoice durationMs={durationMs} onChange={onDurationChange} fill />
+          <DurationChoice durationMs={animation.durationMs} speed={animation.speed} onChange={(ms) => onAnimationChange({ durationMs: ms })} fill />
           <OptionGroup label="Auflösung">
             <SegmentedControl label="Auflösung" options={VIDEO_RES_OPTIONS} value={videoRes} onChange={(v) => setVideoRes(v as VideoResolution)} fill />
           </OptionGroup>

@@ -9,6 +9,7 @@ import {
   type ProjectSummary,
   type RenderSettings,
   type StorageErrorCode,
+  type AnimationSettings,
 } from '../../core';
 import { createId } from '../../platform/browser/ids';
 import { createIndexedDbBackend } from '../../platform/browser/storage/indexedDbBackend';
@@ -33,18 +34,24 @@ interface SavedState {
   readonly projectId: string;
   readonly path: unknown;
   readonly render: string;
-  readonly durationMs: number;
+  /** Animation choices as saved (duration, speed, direction, start point). */
+  readonly animation: string;
 }
 
 const renderKey = (render: RenderSettings) => JSON.stringify(render);
+
+/** What the user chooses for the drawing process (saved with the project). */
+export type AnimationChoice = Pick<AnimationSettings, 'durationMs' | 'speed' | 'direction' | 'startPoint'>;
+const animationKey = (a: AnimationChoice) =>
+  JSON.stringify([a.durationMs, a.speed ?? 1, a.direction ?? 'forward', a.startPoint ? [a.startPoint.x, a.startPoint.y] : null]);
 
 export interface ProjectsController {
   readonly linked: LinkedProject | null;
   readonly saveStatus: SaveStatus;
   readonly saveError: StorageErrorCode | null;
   /** True if the current drawing + settings are stored unchanged. */
-  readonly isSaved: (session: ImageSession<ImageBitmap>, render: RenderSettings, durationMs: number) => boolean;
-  readonly save: (session: ImageSession<ImageBitmap>, render: RenderSettings, durationMs: number) => Promise<void>;
+  readonly isSaved: (session: ImageSession<ImageBitmap>, render: RenderSettings, animation: AnimationChoice) => boolean;
+  readonly save: (session: ImageSession<ImageBitmap>, render: RenderSettings, animation: AnimationChoice) => Promise<void>;
   readonly list: () => Promise<readonly ProjectSummary[]>;
   readonly load: (id: string) => Promise<LoadedProject>;
   readonly remove: (id: string) => Promise<void>;
@@ -67,15 +74,15 @@ export function useProjects(): ProjectsController {
   const linkedFor = useCallback((session: ImageSession<ImageBitmap>) => (linked?.imageId === session.original.id ? linked : null), [linked]);
 
   const isSaved = useCallback(
-    (session: ImageSession<ImageBitmap>, render: RenderSettings, durationMs: number) => {
+    (session: ImageSession<ImageBitmap>, render: RenderSettings, animation: AnimationChoice) => {
       const current = linkedFor(session);
-      return !!current && saved?.projectId === current.id && saved.path === session.path && saved.render === renderKey(render) && saved.durationMs === durationMs;
+      return !!current && saved?.projectId === current.id && saved.path === session.path && saved.render === renderKey(render) && saved.animation === animationKey(animation);
     },
     [linkedFor, saved],
   );
 
   const save = useCallback(
-    async (session: ImageSession<ImageBitmap>, render: RenderSettings, durationMs: number) => {
+    async (session: ImageSession<ImageBitmap>, render: RenderSettings, animation: AnimationChoice) => {
       const path = session.path;
       if (!path) return;
       const current = linkedFor(session);
@@ -92,12 +99,12 @@ export function useProjects(): ProjectsController {
           oneLine: session.oneLine,
           path,
           render,
-          animation: { durationMs, fps: 30, pacing: 'constant-speed', easing: 'linear' },
+          animation: { ...animation, fps: 30, pacing: 'constant-speed', easing: 'linear' },
         });
         const thumbnail = await createThumbnail({ path, render, image: session.processed.pixels, backgroundImage: session.preview });
         await repository.save(project, thumbnail);
         setLinked({ imageId: session.original.id, id: project.id, name: project.name, createdAt: project.createdAt });
-        setSaved({ projectId: project.id, path, render: renderKey(render), durationMs });
+        setSaved({ projectId: project.id, path, render: renderKey(render), animation: animationKey(animation) });
         setSaveStatus('saved');
       } catch (error) {
         console.error('Saving the project failed', error);
@@ -129,7 +136,7 @@ export function useProjects(): ProjectsController {
   const link = useCallback((loaded: LoadedProject) => {
     const { project } = loaded;
     setLinked({ imageId: project.image.id, id: project.id, name: project.name, createdAt: project.createdAt });
-    setSaved({ projectId: project.id, path: project.path, render: renderKey(project.render), durationMs: project.animation.durationMs });
+    setSaved({ projectId: project.id, path: project.path, render: renderKey(project.render), animation: animationKey(project.animation) });
     setSaveStatus('idle');
   }, []);
 
