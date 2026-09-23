@@ -27,14 +27,18 @@ export const PATH_ERROR_MESSAGES: Record<PathErrorCode, UserMessage> = {
   'generation-failed': { title: 'Die Zeichnung konnte nicht berechnet werden', detail: 'Bitte erneut versuchen.' },
 };
 
-/** The two user-facing display choices and the render mode behind each. No technical terms. */
-export const DISPLAY_OPTIONS: readonly { readonly value: 'black' | 'color'; readonly label: string; readonly hint: string; readonly colorMode: RenderColorMode }[] = [
-  { value: 'black', label: 'Schwarz', hint: 'Klassische Linie in Schwarz', colorMode: 'monochrome' },
-  { value: 'color', label: 'Farbe', hint: 'Die Linie übernimmt die Farben des Fotos', colorMode: 'sampled-color' },
+/** The user-facing colour choices and the render mode behind each. No technical terms. */
+export const DISPLAY_OPTIONS: readonly { readonly value: 'single' | 'gradient' | 'photo'; readonly label: string; readonly hint: string; readonly colorMode: RenderColorMode }[] = [
+  { value: 'single', label: 'Einfarbig', hint: 'Eine Linienfarbe, klassisch Schwarz', colorMode: 'monochrome' },
+  { value: 'gradient', label: 'Verlauf', hint: 'Farbverlauf entlang der Linie', colorMode: 'gradient' },
+  { value: 'photo', label: 'Foto', hint: 'Die Linie übernimmt die Farben des Fotos', colorMode: 'sampled-color' },
 ];
 
 /** Caption of the monochrome choice when the line turns light on a dark background. */
 export const LIGHT_LINE_HINT = 'Einfarbige Linie – auf dunklem Grund hell';
+
+/** Caption of the monochrome choice with a colour the user picked. */
+export const OWN_LINE_COLOR_HINT = 'Eigene Linienfarbe (unter „Anpassen“ → Farbe)';
 
 /** Current display choice for the render settings' colour mode. */
 export const displayOf = (colorMode: RenderColorMode) => DISPLAY_OPTIONS.find((o) => o.colorMode === colorMode) ?? DISPLAY_OPTIONS[0]!;

@@ -1,5 +1,7 @@
 import {
   describeArtwork,
+  gradientLineColors,
+  usesLineColors,
   drawArtworkBackground,
   drawArtworkLine,
   isDarkBackground,
@@ -33,16 +35,21 @@ export function freeSurface(surface: Surface): void {
 const colorCache = new WeakMap<OneLinePath, Map<string, LineColors>>();
 
 /**
- * Sampled line colours for a path, cached per path and sampling settings:
- * switching black ↔ colour or changing the background re-draws only.
+ * Per-vertex line colours for a path (photo colours or a gradient), cached per
+ * path and colour settings: switching modes, palettes or the background
+ * re-draws only — the path itself is never recomputed.
  */
 export function lineColorsFor(path: OneLinePath, image: RasterImage, settings: RenderSettings): LineColors {
   const dark = isDarkBackground(settings);
-  const key = `${JSON.stringify(settings.sampling)}|${dark}`;
+  const gradient = settings.colorMode === 'gradient';
+  const key = gradient ? `gradient|${settings.gradient.colors.join(',')}|${settings.sampling.strength}` : `${JSON.stringify(settings.sampling)}|${dark}`;
   let perPath = colorCache.get(path);
   if (!perPath) colorCache.set(path, (perPath = new Map()));
   let colors = perPath.get(key);
-  if (!colors) perPath.set(key, (colors = sampleLineColors(path, image, settings.sampling, dark)));
+  if (!colors) {
+    colors = gradient ? gradientLineColors(path, settings.gradient.colors, settings.sampling.strength) : sampleLineColors(path, image, settings.sampling, dark);
+    perPath.set(key, colors);
+  }
   return colors;
 }
 
@@ -76,7 +83,7 @@ export function renderArtworkSurface(request: RenderArtworkRequest): RenderedSur
   const started = performance.now();
   const { path, settings } = request;
   const size = renderSize(path.bounds, request.longEdge);
-  const lineColors = settings.colorMode === 'sampled-color' ? (request.lineColors ?? lineColorsFor(path, request.image!, settings)) : null;
+  const lineColors = usesLineColors(settings) ? (request.lineColors ?? lineColorsFor(path, request.image!, settings)) : null;
   const plan = planArtwork({ path, settings, width: size.width, height: size.height, lineColors });
 
   const base = createSurface(size.width, size.height);

@@ -88,6 +88,7 @@ export function useProjects(): ProjectsController {
           createdAt: current?.createdAt ?? null,
           now: new Date(),
           image: session.original,
+          edit: session.edit,
           oneLine: session.oneLine,
           path,
           render,

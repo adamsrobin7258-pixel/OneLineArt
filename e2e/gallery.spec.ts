@@ -29,13 +29,13 @@ test('empty gallery offers to create the first work', async ({ page }) => {
 test('save → restart → open: same drawing and settings without analysis or path generation', async ({ page }) => {
   test.setTimeout(180_000);
   await createArtwork(page, { width: 900, height: 600 }, { detail: 'Detail' });
-  await page.getByRole('radio', { name: 'Farbe' }).click();
+  await page.getByRole('radio', { name: 'Foto' }).click();
   await expect(settingsScreen(page)).toHaveAttribute('data-rendered-mode', 'sampled-color');
   await save(page);
   // Any change makes it unsaved again; saving updates the same project.
-  await page.getByRole('radio', { name: 'Schwarz' }).click();
+  await page.getByRole('radio', { name: 'Einfarbig' }).click();
   await expect(saveButton(page)).toHaveText('Speichern');
-  await page.getByRole('radio', { name: 'Farbe' }).click();
+  await page.getByRole('radio', { name: 'Foto' }).click();
   await expect(saveButton(page)).toHaveText('Gespeichert');
   const pointCount = await page.evaluate(() => document.querySelector('[data-testid="settings-screen"]')?.getAttribute('data-render-size'));
 

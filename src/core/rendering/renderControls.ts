@@ -1,4 +1,5 @@
-import type { RenderSettings } from './renderSettings';
+import { colorAtLightness, lumaOf } from './lineColoring';
+import { isDarkBackground, type RenderSettings } from './renderSettings';
 
 /**
  * The creative render controls offered in the UI and their ranges. They only
@@ -6,7 +7,8 @@ import type { RenderSettings } from './renderSettings';
  * - lineWidth:           RenderSettings.lineWidth (px at the reference edge)
  * - drawingStrength:     RenderSettings.lineOpacity (how strongly the line marks the paper)
  * - backgroundLightness: plain background from black (0) to white (1)
- * - colorIntensity:      RenderSettings.sampling.strength (colour mode only)
+ * - colorIntensity:      RenderSettings.sampling.strength — chroma of every line colour
+ *                        (photo colours, gradient, chosen single colour)
  */
 export const RENDER_CONTROLS = {
   lineWidth: { min: 0.25, max: 4, step: 0.05 },
@@ -15,33 +17,47 @@ export const RENDER_CONTROLS = {
   colorIntensity: { min: 0, max: 1.5, step: 0.05 },
 } as const;
 
-/** Below this background lightness a monochrome line is drawn light (stays visible). */
+/** Below this background lightness a monochrome line is drawn light (stays visible; = isDarkBackground). */
 export const LIGHT_LINE_BELOW = 0.4;
 
 const LINE_ON_LIGHT = '#000000';
 const LINE_ON_DARK = '#ffffff';
 
-const hexByte = (v: number) => Math.round(Math.min(1, Math.max(0, v)) * 255).toString(16).padStart(2, '0');
-
-/** Lightness of a plain background (white 1, black 0, custom grey by its level); photo/transparent count as light. */
+/** Lightness of a plain background (white 1, black 0, custom colour by its luma); photo/transparent count as light. */
 export function backgroundLightnessOf(settings: RenderSettings): number {
   if (settings.background === 'black') return 0;
   if (settings.background !== 'custom') return 1;
-  const hex = settings.backgroundColor.slice(1);
-  const full = hex.length === 3 ? [...hex].map((c) => c + c).join('') : hex;
-  const [r, g, b] = [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16) / 255);
-  return Math.round((0.2126 * r! + 0.7152 * g! + 0.0722 * b!) * 100) / 100;
+  return lumaOf(settings.backgroundColor);
 }
 
+const isAutoLineColor = (color: string) => color === LINE_ON_LIGHT || color === LINE_ON_DARK;
+
 /**
- * Render-settings patch for a plain background of `lightness` (0..1). Full
- * lightness is exactly the default white background. The monochrome line
- * switches to white on dark backgrounds so it stays visible; the colour mode
- * adapts its lightness range on its own (isDarkBackground).
+ * Render-settings patch for the background at `lightness` (0..1), applied to
+ * the chosen background colour (`current.backgroundBase`; white by default).
+ * White at full lightness is exactly the default white background. A black or
+ * white monochrome line switches between black and white so it stays visible;
+ * a colour the user picked is kept. The colour mode adapts its lightness range
+ * on its own (isDarkBackground).
  */
-export function backgroundLightnessPatch(lightness: number): Pick<RenderSettings, 'background' | 'backgroundColor' | 'lineColor'> {
-  const l = Math.min(1, Math.max(0, lightness));
-  if (l >= 1) return { background: 'white', backgroundColor: '#ffffff', lineColor: LINE_ON_LIGHT };
-  const grey = hexByte(l);
-  return { background: 'custom', backgroundColor: `#${grey}${grey}${grey}`, lineColor: l < LIGHT_LINE_BELOW ? LINE_ON_DARK : LINE_ON_LIGHT };
+export function backgroundLightnessPatch(
+  lightness: number,
+  current?: Pick<RenderSettings, 'backgroundBase' | 'lineColor'>,
+): Pick<RenderSettings, 'background' | 'backgroundColor' | 'backgroundBase' | 'lineColor'> {
+  const base = current?.backgroundBase ?? '#ffffff';
+  const color = colorAtLightness(base, lightness);
+  // Same dark/light decision as the renderer's colour mode (isDarkBackground).
+  const dark = isDarkBackground({ background: 'custom', backgroundColor: color } as RenderSettings);
+  const lineColor = current && !isAutoLineColor(current.lineColor) ? current.lineColor : dark ? LINE_ON_DARK : LINE_ON_LIGHT;
+  if (color === '#ffffff') return { background: 'white', backgroundColor: '#ffffff', backgroundBase: base, lineColor };
+  return { background: 'custom', backgroundColor: color, backgroundBase: base, lineColor };
+}
+
+/** Patch for a newly chosen background colour (its own lightness; the slider then works on it). */
+export function backgroundColorPatch(
+  color: string,
+  current: Pick<RenderSettings, 'lineColor'>,
+): Pick<RenderSettings, 'background' | 'backgroundColor' | 'backgroundBase' | 'lineColor'> {
+  const base = color.toLowerCase();
+  return backgroundLightnessPatch(lumaOf(base), { backgroundBase: base, lineColor: current.lineColor });
 }

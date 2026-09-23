@@ -46,7 +46,7 @@ test('android smoke: import → drawing → preview → export → save → rest
   await page.getByRole('radio', { name: 'Minimal' }).tap();
   await expect(settings).toHaveAttribute('data-detail-level', 'minimal');
   await expect(settings).toHaveAttribute('data-path-status', 'ready', { timeout: 90_000 });
-  await page.getByRole('radio', { name: 'Farbe' }).tap();
+  await page.getByRole('radio', { name: 'Foto' }).tap();
   await expect(settings).toHaveAttribute('data-rendered-mode', 'sampled-color');
 
   // 8. preview, 9. animation

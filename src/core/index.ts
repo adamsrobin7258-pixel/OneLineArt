@@ -6,6 +6,7 @@ export * from './models';
 export * from './utils';
 export * from './imageImport';
 export * from './imageProcessing';
+export * from './imageEdit';
 export * from './imageAnalysis';
 export * from './engine';
 export * from './drawing';

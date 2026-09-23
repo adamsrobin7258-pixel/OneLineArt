@@ -13,6 +13,9 @@ const PATHS = {
   close: 'M6 6l12 12M18 6L6 18',
   arrowLeft: 'M19 12H5M11 6l-6 6 6 6',
   arrowRight: 'M5 12h14M13 6l6 6-6 6',
+  rotateLeft: 'M5.5 12a6.5 6.5 0 1 0 1.9-4.6M5.5 4.5v3.5H9',
+  rotateRight: 'M18.5 12a6.5 6.5 0 1 1-1.9-4.6M18.5 4.5v3.5H15',
+  crop: 'M7 3v14h14M3 7h14v14',
   sliders: 'M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4',
 } as const;
 

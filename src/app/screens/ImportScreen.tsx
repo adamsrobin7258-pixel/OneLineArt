@@ -1,5 +1,5 @@
-import { useMemo, type DragEvent } from 'react';
-import type { ImageSession } from '../../core';
+import { useMemo, useState, type DragEvent } from 'react';
+import { isIdentityEdit, sessionKeyOf, type ImageSession } from '../../core';
 import { supportsCameraCapture } from '../../platform/browser/capabilities';
 import { Button } from '../../ui/components/Button';
 import { Icon } from '../../ui/components/Icon';
@@ -8,6 +8,7 @@ import { ImportArea } from '../../ui/components/ImportArea';
 import { StatusPanel } from '../../ui/components/StatusPanel';
 import { isAnalysisDebugEnabled } from '../../platform/browser/debugFlags';
 import { AnalysisDebugView } from '../debug/AnalysisDebugView';
+import { ImageEditor } from '../ImageEditor';
 import { ANALYSIS_ERROR_MESSAGES, FORMAT_LABELS, IMPORT_ERROR_MESSAGES } from '../importMessages';
 import { useFilePicker } from '../state/useFilePicker';
 import type { ImageImportController } from '../state/useImageImport';
@@ -18,9 +19,10 @@ interface ImportScreenProps {
   onContinue: () => void;
 }
 
-/** Step 1: choose a photo, inspect it, replace or remove it. */
+/** Step 1: choose a photo, inspect it, edit (rotate/crop) it, replace or remove it. */
 export function ImportScreen({ controller, onContinue }: ImportScreenProps) {
-  const { state, selectFile, removeImage, retryAnalysis } = controller;
+  const { state, selectFile, removeImage, retryAnalysis, applyEdit } = controller;
+  const [editing, setEditing] = useState(false);
   const picker = useFilePicker(selectFile);
   const canTakePhoto = useMemo(() => supportsCameraCapture(), []);
   const debugAnalysis = useMemo(() => isAnalysisDebugEnabled(), []);
@@ -53,13 +55,23 @@ export function ImportScreen({ controller, onContinue }: ImportScreenProps) {
         </StatusPanel>
       )}
 
-      {state.status === 'ready' && (
+      {state.status === 'ready' && editing && (
+        <ImageEditor
+          key={sessionKeyOf(state.session)}
+          image={state.session.sourcePreview}
+          edit={state.session.edit}
+          onApply={applyEdit}
+          onClose={() => setEditing(false)}
+        />
+      )}
+
+      {state.status === 'ready' && !editing && (
         <>
           <div className="import__stage" {...dropToReplace}>
             {debugAnalysis ? (
               <AnalysisDebugView key={state.session.original.id} session={state.session} controller={controller} />
             ) : (
-              <ImageViewer key={state.session.original.id} image={state.session.preview} label={state.session.original.fileName} />
+              <ImageViewer key={sessionKeyOf(state.session)} image={state.session.preview} label={state.session.original.fileName} />
             )}
           </div>
           <footer
@@ -70,10 +82,12 @@ export function ImportScreen({ controller, onContinue }: ImportScreenProps) {
             data-orientation={state.session.original.metadata.orientation}
             data-image-id={state.session.original.id}
             data-analysis-status={state.session.analysisStatus}
+            data-edited={isIdentityEdit(state.session.edit) ? 'false' : 'true'}
           >
             <p className="toolbar__meta">
               {state.session.original.metadata.width} × {state.session.original.metadata.height} ·{' '}
               {FORMAT_LABELS[state.session.original.metadata.format]}
+              {!isIdentityEdit(state.session.edit) && ' · bearbeitet'}
               {(state.session.analysisStatus === 'pending' || state.session.analysisStatus === 'running') && (
                 <span className="toolbar__status" role="status">
                   <span className="spinner" aria-hidden="true" />
@@ -95,6 +109,10 @@ export function ImportScreen({ controller, onContinue }: ImportScreenProps) {
               </Button>
               <Button variant="quiet" onClick={picker.chooseFile}>
                 Anderes Bild
+              </Button>
+              <Button variant="quiet" onClick={() => setEditing(true)}>
+                <Icon name="crop" size={18} />
+                Bearbeiten
               </Button>
               <Button
                 disabled={!canContinue(state.session)}

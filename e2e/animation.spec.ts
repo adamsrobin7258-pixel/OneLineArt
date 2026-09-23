@@ -113,7 +113,7 @@ test('black and colour animate without a new path; colour shows coloured line pi
 
   // Switching to colour while playing keeps the position and keeps playing
   const before = await progress(page);
-  await page.getByRole('radio', { name: 'Farbe' }).click();
+  await page.getByRole('radio', { name: 'Foto' }).click();
   await expect(canvas(page)).toHaveAttribute('data-status', 'playing');
   expect(await progress(page)).toBeGreaterThanOrEqual(before);
   await expect.poll(colourful).toBeGreaterThan(0.3);
@@ -194,7 +194,7 @@ test('final frame equals the static artwork for all modes and backgrounds', asyn
     const before = { coords: path.coords.slice(), data: data.slice() };
 
     const out: { mode: string; background: string; maxDiff: number; meanDiff: number }[] = [];
-    for (const colorMode of ['monochrome', 'sampled-color'] as const) {
+    for (const colorMode of ['monochrome', 'sampled-color', 'gradient'] as const) {
       for (const background of ['white', 'original'] as const) {
         const settings = core.sanitizeRenderSettings({ colorMode, background, lineWidth: 2 }).value;
         const request = { path, settings, longEdge: 800, image, backgroundImage: bitmap };

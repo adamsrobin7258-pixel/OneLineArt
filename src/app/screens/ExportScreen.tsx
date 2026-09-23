@@ -16,6 +16,7 @@ import {
   type ImageSession,
   type VideoCapability,
   type VideoResolution,
+  editedSize,
 } from '../../core';
 import type { BrowserExportSource } from '../../platform/browser/export/imageExporter';
 import { exportFileActions } from '../../platform/fileActions';
@@ -75,7 +76,8 @@ export function ExportScreen({ session, render, durationMs, onDurationChange, pr
   const job = useRef<{ id: number; abort: AbortController } | null>(null);
   const [probed, setProbed] = useState<{ readonly key: string; readonly capability: VideoCapability } | null>(null);
 
-  const originalSize = useMemo(() => ({ width: session.original.metadata.width, height: session.original.metadata.height }), [session.original]);
+  // "Original" = the edited image at the original's resolution (crop in original pixels).
+  const originalSize = useMemo(() => editedSize(session.original.metadata, session.edit), [session.original, session.edit]);
   const imageSize = useMemo(() => (path ? imageExportSize(path.bounds, originalSize, imageRes) : null), [path, originalSize, imageRes]);
   const videoSize = useMemo(() => (path ? videoFrameSize(path.bounds, videoRes) : null), [path, videoRes]);
 

@@ -1,4 +1,5 @@
 import { isHexColor } from './colorSpace';
+import { COLOR_PALETTES, GRADIENT_STOPS } from './lineColoring';
 
 /** Bump whenever the rendered pixels for identical input change. */
 export const RENDERER_VERSION = '1.0.0';
@@ -13,12 +14,13 @@ export const REFERENCE_RENDER_EDGE = 1000;
  * How the line is coloured.
  * - monochrome:    one colour (`lineColor`, default black)
  * - sampled-color: colour derived from the photo along the line
- * - custom-color:  PREPARED (user-picked colour; later part)
- * - gradient:      PREPARED (designed colour ramp along the line)
+ * - custom-color:  PREPARED (not needed: monochrome takes any `lineColor`)
+ * - gradient:      colour ramp along the line (`gradient.colors`, start → end)
+ * The ONE colour intensity (`sampling.strength`) scales the chroma in every mode.
  */
 export const RENDER_COLOR_MODES = ['monochrome', 'sampled-color', 'custom-color', 'gradient'] as const;
 export type RenderColorMode = (typeof RENDER_COLOR_MODES)[number];
-export const AVAILABLE_RENDER_COLOR_MODES: readonly RenderColorMode[] = ['monochrome', 'sampled-color'];
+export const AVAILABLE_RENDER_COLOR_MODES: readonly RenderColorMode[] = ['monochrome', 'sampled-color', 'gradient'];
 
 /**
  * What lies behind the line. 'original' is meant for preview/development;
@@ -45,6 +47,11 @@ export interface ColorSamplingSettings {
   readonly darkLightness: { readonly min: number; readonly max: number };
 }
 
+/** Colour ramp along the line (evenly spaced stops; a palette or start + end colour). */
+export interface GradientSettings {
+  readonly colors: readonly string[];
+}
+
 export interface RenderSettings {
   readonly colorMode: RenderColorMode;
   /** Line colour for monochrome (and later custom-color). */
@@ -56,6 +63,13 @@ export interface RenderSettings {
   readonly background: RenderBackgroundMode;
   /** Used for background 'custom'. */
   readonly backgroundColor: string;
+  /**
+   * The chosen background colour before the lightness slider (white for all
+   * projects older than phase 12.2): backgroundColor = colorAtLightness(base, l).
+   */
+  readonly backgroundBase: string;
+  readonly gradient: GradientSettings;
+  /** Colour sampling; `strength` is the colour intensity of ALL colour modes. */
   readonly sampling: ColorSamplingSettings;
 }
 
@@ -76,6 +90,8 @@ export const DEFAULT_RENDER_SETTINGS: RenderSettings = {
   lineOpacity: 1,
   background: 'white',
   backgroundColor: '#ffffff',
+  backgroundBase: '#ffffff',
+  gradient: { colors: COLOR_PALETTES[0]!.colors },
   sampling: DEFAULT_COLOR_SAMPLING,
 };
 
@@ -133,6 +149,15 @@ function color(name: string, value: unknown, fallback: string, issues: RenderSet
   return fallback;
 }
 
+function gradient(value: unknown, fallback: GradientSettings, issues: RenderSettingsIssue[]): GradientSettings {
+  const colors = (value as { colors?: unknown } | undefined)?.colors;
+  if (Array.isArray(colors) && colors.length >= GRADIENT_STOPS.min && colors.length <= GRADIENT_STOPS.max && colors.every(isHexColor)) {
+    return { colors: colors.map((c) => c.toLowerCase()) };
+  }
+  issues.push({ name: 'gradient', value, message: `gradient needs ${GRADIENT_STOPS.min}…${GRADIENT_STOPS.max} #rgb/#rrggbb colours; using the default` });
+  return fallback;
+}
+
 function lightness(name: string, value: { min: unknown; max: unknown } | undefined, fallback: NumericRange, issues: RenderSettingsIssue[]): NumericRange {
   const min = num(`${name}.min`, value?.min ?? fallback.min, RENDER_LIMITS.lightness, issues);
   const max = num(`${name}.max`, value?.max ?? fallback.max, RENDER_LIMITS.lightness, issues);
@@ -158,6 +183,8 @@ export function sanitizeRenderSettings(input: Partial<RenderSettings> = {}): { v
     lineOpacity: num('lineOpacity', s.lineOpacity, RENDER_LIMITS.lineOpacity, issues),
     background: oneOf('background', s.background, RENDER_BACKGROUND_MODES, d.background, issues),
     backgroundColor: color('backgroundColor', s.backgroundColor, d.backgroundColor, issues),
+    backgroundBase: color('backgroundBase', s.backgroundBase, d.backgroundBase, issues),
+    gradient: gradient(s.gradient, d.gradient, issues),
     sampling: {
       stationSpacing: num('sampling.stationSpacing', s.sampling.stationSpacing, RENDER_LIMITS.stationSpacing, issues),
       sampleRadius: num('sampling.sampleRadius', s.sampling.sampleRadius, RENDER_LIMITS.sampleRadius, issues),

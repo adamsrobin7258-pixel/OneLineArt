@@ -758,3 +758,63 @@ drei Auswahlfelder, damit die Zeichnung sichtbar bleibt.
 - Glättung ist in 6 Stufen (0–5 Chaikin-Durchläufe), weil das die vorhandene Engine-Grenze ist.
 - Die Hintergrundhelligkeit gilt für den einfarbigen Papierhintergrund; die Einstellung „Originalfoto als
   Hintergrund“ bleibt Entwickleransicht.
+
+## Bildbearbeitung und erweitertes Farbsystem (Phase 12.2)
+
+### Bild-Edit-State (`core/imageEdit`)
+```
+Original (Datei, unverändert, gespeichert) ──Import──▶ Anzeige-Kopie ≤ 4096 px (sourcePreview, bleibt erhalten)
+                                                          │  ImageEdit { rotation: 0|90|180|270, crop: Rechteck 0..1 }
+                                                          ▼  applyImageEdit (platform/browser/bitmapDecoder.ts)
+                                        bearbeitete Anzeige-Kopie (preview) + Arbeitskopie (processed)
+                                                          ▼
+                                   bestehende Bildanalyse → bestehende One-Line-Engine → OneLinePath
+```
+- **Ein Rechteck statt vier Werte:** Zoom = Größe des Ausschnitts (`zoomOf`/`withZoom`, 1–10×), Pan =
+  Lage (`panOf`/`withPan`), Seitenverhältnis = Form (`withCropAspect`). Keine widersprüchlichen Werte;
+  dasselbe Rechteck ergibt immer dieselben Pixel (`cropPixelRect` rundet einmal, für alle gleich).
+- **Nicht destruktiv, speicherschonend:** Das Original wird weder verändert noch neu dekodiert. Drehen
+  (Vierteldrehungen) und Zuschneiden sind EIN Zeichenvorgang auf der Anzeige-Kopie (exakte Pixelkopie),
+  danach entsteht die Arbeitskopie wie beim Import. Der Identitäts-Edit ergibt bitgenau die Arbeitskopie
+  des Imports (Browser-Test) → alte Projekte und Organic-Pfade bleiben unverändert.
+- **Neuberechnung:** Ein angewendeter Edit ist eine neue Eingabe. Der Reducer (`edit-applied`) verwirft
+  Analyse und Pfade, `revision` zählt hoch, `sessionKeyOf(session)` (= Bild-ID bzw. `id@revision`)
+  adressiert alle Worker-Ergebnisse — verspätete Ergebnisse eines früheren Edits werden nie übernommen.
+  Die Worker-/Cache-Logik ist unverändert; sie arbeitet nur mit dem neuen Schlüssel.
+- **Editor (Schritt „Bild“ → „Bearbeiten“):** `ui/components/CropStage` (fester Rahmen, Bild darunter:
+  Ziehen = verschieben, Mausrad/Pinch/Regler = Zoom, Ecken = Ausschnitt ändern, Pfeiltasten/+/− per
+  Tastatur), Drehen links/rechts, Seitenverhältnis Frei/Original/1:1/4:5/16:9, Live-Vorschau. Gearbeitet
+  wird an einem Entwurf; erst „Übernehmen“ ändert die Eingabe. Zurück-Taste = Abbrechen.
+- **Export „Original“** = der Ausschnitt in Originalpixeln (`editedSize`).
+
+### Farbsystem (reines Rendering)
+| Einstellung | Feld in `RenderSettings` | Umsetzung |
+|---|---|---|
+| Einfarbig + Linienfarbe | `colorMode: 'monochrome'`, `lineColor` | Farbwähler + Hex-Feld |
+| Verlauf (Start/Ende) | `colorMode: 'gradient'`, `gradient.colors` | Farbe je Punkt nach Bogenlänge, OKLab-Interpolation (`gradientLineColors`) |
+| Farbpalette | `gradient.colors` = Palette (5 Paletten, `COLOR_PALETTES`) | mehrstufiger Verlauf |
+| Foto | `colorMode: 'sampled-color'` | unverändert |
+| Hintergrundfarbe | `backgroundBase` (Weiß/Schwarz/eigene) → `backgroundColor` | |
+| Hintergrundhelligkeit | wirkt auf `backgroundBase` (`colorAtLightness`) | Weiß als Basis = exakt die Grautöne aus 12.1 |
+| Farbintensität | `sampling.strength` (EIN Wert) | skaliert die OKLab-Buntheit in allen Modi; 1 = Farbe wie gewählt |
+
+- Verläufe nutzen dieselben `LineColors` und denselben Lauf-Renderer wie die Fotofarben; `usesLineColors`
+  entscheidet an allen Stellen (Vorschau, Animation, Bild-/Videoexport, Vorschaubild). Farben werden je
+  Pfad und Farbeinstellung gecacht (`lineColorsFor`).
+- Schwarze/weiße Linien wechseln auf dunklem Grund automatisch; eine selbst gewählte Linienfarbe bleibt.
+- Nichts davon erreicht `resolveOneLineSettings`, Analyse oder Worker (per Browser-Test über Worker-Zähler
+  abgesichert).
+
+### Kompatibilität
+- Projekte: neues Feld `edit` (fehlt bei alten Projekten → unbearbeitet). Render-Einstellungen: neue Felder
+  `gradient`, `backgroundBase` (fehlen → Standard; Weiß als Basis reproduziert alte Grautöne exakt).
+  Kein neues Speicherformat, keine Migration.
+- Oberfläche: „Darstellung“ heißt jetzt Einfarbig | Verlauf | Foto (vorher Schwarz | Farbe); das
+  Anpassen-Panel hat die Bereiche Linie | Darstellung | Farbe.
+
+### Bekannte Grenzen
+- Zuschnitte werden aus der Anzeige-Kopie (≤ 4096 px) berechnet: bei sehr großen Fotos und kleinen
+  Ausschnitten hat die Arbeitskopie weniger als 2048 px (z. B. 30 % eines 48-MP-Fotos → ~1230 px). Für die
+  Linienzeichnung reicht das; ein erneutes Dekodieren des Originals wäre speicherintensiv.
+- Nur Vierteldrehungen; freie Rotation ist über den Typ `ImageRotation` vorbereitet, nicht umgesetzt.
+- Messwerte (Desktop-Chromium, 8000×6000 px): Import 0,55 s, Drehen 0,47 s, Zuschnitt 0,01–0,4 s.

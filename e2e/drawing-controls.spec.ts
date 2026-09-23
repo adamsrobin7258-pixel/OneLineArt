@@ -8,6 +8,8 @@ const openAdjust = async (page: Page) => {
   await page.getByRole('button', { name: 'Anpassen' }).click();
   await expect(page.getByTestId('adjust-panel')).toBeVisible();
 };
+/** Shows one section of the "Anpassen" panel (Linie | Darstellung | Farbe). */
+const section = (page: Page, name: 'Linie' | 'Darstellung' | 'Farbe') => page.getByRole('radiogroup', { name: 'Bereich' }).getByRole('radio', { name }).click();
 /** Moves a slider with the keyboard (like a user) and releases it. */
 async function slide(page: Page, name: string, keys: string[]) {
   await page.getByRole('slider', { name }).focus();
@@ -102,16 +104,18 @@ test('render controls change only the drawing of the same line and reach the exp
   const paths = await workers(page, 'pathGeneration');
 
   await openAdjust(page);
+  await section(page, 'Darstellung');
   await slide(page, 'Linienbreite', ['End']);
   await expect(page.getByRole('slider', { name: 'Linienbreite' })).toHaveAttribute('aria-valuetext', '4,00');
   await slide(page, 'Zeichenstärke', ['ArrowLeft', 'ArrowLeft']);
   await expect(page.getByRole('slider', { name: 'Zeichenstärke' })).toHaveAttribute('aria-valuetext', '90 %');
-  await expect(page.getByRole('slider', { name: 'Farbintensität' })).toBeDisabled();
-  await page.getByRole('radio', { name: 'Farbe' }).click();
+  // One colour intensity for every colour mode (phase 12.2).
+  await section(page, 'Farbe');
+  await page.getByRole('radio', { name: 'Foto' }).click();
   await expect(page.getByRole('slider', { name: 'Farbintensität' })).toBeEnabled();
   await slide(page, 'Farbintensität', ['Home']);
   await expect(page.getByRole('slider', { name: 'Farbintensität' })).toHaveAttribute('aria-valuetext', '0 %');
-  await page.getByRole('radio', { name: 'Schwarz' }).click();
+  await page.getByRole('radio', { name: 'Einfarbig' }).click();
   await expect(settingsScreen(page)).toHaveAttribute('data-path-status', 'ready');
   // Nothing of this recomputes the line or the analysis.
   expect(await workers(page, 'pathGeneration')).toBe(paths);
@@ -127,7 +131,8 @@ test('render controls change only the drawing of the same line and reach the exp
   await page.getByRole('button', { name: 'Zurück' }).click();
   await page.getByRole('button', { name: 'Zurück' }).click();
   await openAdjust(page);
-  await slide(page, 'Hintergrund', ['Home']);
+  await section(page, 'Darstellung');
+  await slide(page, 'Hintergrundhelligkeit', ['Home']);
   await expect(page.getByText('Einfarbige Linie – auf dunklem Grund hell')).toBeVisible();
   await goToExport(page);
   const png = (await exportAndDownload(page, 'Bild')).buffer;
@@ -142,8 +147,9 @@ test('render controls change only the drawing of the same line and reach the exp
   await page.getByRole('button', { name: 'Zurück' }).click();
   await openAdjust(page);
   await page.getByRole('button', { name: 'Zurücksetzen' }).click();
+  await section(page, 'Darstellung');
   await expect(page.getByRole('slider', { name: 'Linienbreite' })).toHaveAttribute('aria-valuetext', '1,00');
-  await expect(page.getByRole('slider', { name: 'Hintergrund' })).toHaveAttribute('aria-valuetext', '100 %');
+  await expect(page.getByRole('slider', { name: 'Hintergrundhelligkeit' })).toHaveAttribute('aria-valuetext', '100 %');
   await expect(page.getByRole('button', { name: 'Zurücksetzen' })).toBeDisabled();
 });
 

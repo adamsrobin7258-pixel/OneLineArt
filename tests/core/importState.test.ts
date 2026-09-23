@@ -7,6 +7,10 @@ import {
   requireAnalysisSource,
   importReducer,
   resolveOneLineSettings,
+  sessionKeyOf,
+  IDENTITY_EDIT,
+  type ImageEdit,
+  type ProcessedImage,
   type ImportAction,
   type ImportState,
   type ImportedImage,
@@ -388,5 +392,87 @@ describe('reopening a stored project', () => {
       if (s.status !== 'ready') throw new Error('not ready');
       expect(s.session).toMatchObject({ analysisStatus: 'pending', pathStatus: 'idle', path: null, paths: {} });
     }
+  });
+});
+
+describe('image edits in the session', () => {
+  const sessionOf = (state: ImportState<Preview>) => {
+    if (state.status !== 'ready') throw new Error(`expected ready, got ${state.status}`);
+    return state.session;
+  };
+  const analysisFor = (imageId: string, width = 4, height = 3) => {
+    const a = uniformAnalyzer.analyze({ width, height, data: new Uint8ClampedArray(width * height * 4) }, createRandom(1));
+    return { ...a, meta: { ...a.meta, sourceImageId: imageId, sourceSize: { width, height } } };
+  };
+  const rotated: ImportAction<Preview> = {
+    type: 'edit-applied',
+    imageId: 'a',
+    edit: { rotation: 90, crop: { x: 0, y: 0, width: 1, height: 1 } },
+    preview: { tag: 'a-rotated' },
+    processed: { sourceImageId: 'a', pixels: { width: 3, height: 4, data: new Uint8ClampedArray(48) }, scale: 1 },
+  };
+  const analysed = () => {
+    const s = run([...loadImage(1, 'a'), { type: 'analysis-started', imageId: 'a' }, { type: 'analysis-succeeded', imageId: 'a', analysis: analysisFor('a') }]);
+    expect(sessionOf(s).analysisStatus).toBe('ready');
+    return s;
+  };
+
+  it('a new image is unedited; its unedited display copy is kept', () => {
+    const s = sessionOf(run(loadImage(1, 'a')));
+    expect(s.edit).toEqual(IDENTITY_EDIT);
+    expect(s.revision).toBe(0);
+    expect(sessionKeyOf(s)).toBe('a');
+    expect(s.sourcePreview).toBe(s.preview);
+  });
+
+  it('an edit is a new input: analysis and paths are dropped and must be computed again', () => {
+    const base = analysed();
+    const before = sessionOf(base);
+    const s = sessionOf(run([rotated], base));
+    expect(s.edit.rotation).toBe(90);
+    expect(s.processed.pixels).toMatchObject({ width: 3, height: 4 });
+    expect(s.preview).toEqual({ tag: 'a-rotated' });
+    expect(s.sourcePreview).toBe(before.sourcePreview); // the unedited copy stays
+    expect(s.original).toBe(before.original); // the original is untouched
+    expect(s.analysisStatus).toBe('pending');
+    expect(s.analysis).toBeNull();
+    expect(s.paths).toEqual({});
+    expect(s.pathStatus).toBe('idle');
+    expect(s.oneLine).toBe(before.oneLine); // drawing settings stay
+    expect(sessionKeyOf(s)).toBe('a@1');
+  });
+
+  it('results of the previous edit are never accepted', () => {
+    const edited = run([rotated], analysed());
+    // A late analysis of the unedited image (address 'a') is ignored.
+    const late = run([{ type: 'analysis-started', imageId: 'a' }, { type: 'analysis-succeeded', imageId: 'a', analysis: analysisFor('a') }], edited);
+    expect(sessionOf(late).analysisStatus).toBe('pending');
+    // The analysis of the edited input is accepted.
+    const ok = run([{ type: 'analysis-started', imageId: 'a@1' }, { type: 'analysis-succeeded', imageId: 'a@1', analysis: analysisFor('a', 3, 4) }], edited);
+    expect(sessionOf(ok).analysisStatus).toBe('ready');
+    // Edits addressed to an older revision are ignored too.
+    expect(run([{ ...rotated, preview: { tag: 'stale' } }], edited)).toBe(edited);
+  });
+
+  it('a reopened project brings its edit (already applied) and its stored drawing', () => {
+    const oneLine = resolveOneLineSettings();
+    const path = { coords: new Float32Array([0, 0, 3, 4]), bounds: { width: 3, height: 4 }, meta: { generatorId: 'x', generatorVersion: '1', seed: 1, sourceImageId: 'a' } };
+    const s = sessionOf(
+      run([
+        { type: 'import-started', requestId: 1, fileName: 'a.jpg' },
+        {
+          type: 'import-succeeded',
+          requestId: 1,
+          image: imported('a'),
+          restore: { oneLine, path },
+          edited: { edit: (rotated as { edit: ImageEdit }).edit, preview: { tag: 'a-rotated' }, processed: (rotated as { processed: ProcessedImage }).processed },
+        },
+      ]),
+    );
+    expect(s.edit.rotation).toBe(90);
+    expect(s.pathStatus).toBe('ready');
+    expect(s.path).toBe(path);
+    expect(s.analysisStatus).toBe('deferred');
+    expect(s.sourcePreview).toEqual({ tag: 'a' });
   });
 });

@@ -14,6 +14,7 @@ import {
   type RasterImage,
   type RenderSettings,
   type Size,
+  usesLineColors,
 } from '../../../core';
 import { createSurface, freeSurface, lineColorsFor, type Surface } from '../artworkRenderer';
 
@@ -61,7 +62,7 @@ export interface ArtworkAnimator {
 export function createArtworkAnimator(source: AnimatorSource): ArtworkAnimator {
   const { path, settings } = source;
   const size = renderSize(path.bounds, source.longEdge);
-  const lineColors = settings.colorMode === 'sampled-color' ? lineColorsFor(path, source.image, settings) : null;
+  const lineColors = usesLineColors(settings) ? lineColorsFor(path, source.image, settings) : null;
   const plan = planArtwork({ path, settings, width: size.width, height: size.height, lineColors });
   const index = createPathProgress(path);
   const backgroundImage = source.backgroundImage ?? undefined;

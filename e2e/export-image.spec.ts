@@ -68,7 +68,7 @@ test('black and colour; detail levels Minimal and Detail', async ({ page }) => {
   expect(blackStats.coloured).toBeLessThan(0.02);
   expect(blackStats.line).toBeGreaterThan(0.005);
 
-  await page.getByRole('group', { name: 'Video' }).getByRole('radio', { name: 'Farbe' }).click();
+  await page.getByRole('group', { name: 'Video' }).getByRole('radio', { name: 'Foto' }).click();
   const colour = await exportAndDownload(page, 'Bild');
   expect((await colourfulness(page, colour.buffer, 'image/png')).coloured).toBeGreaterThan(0.3);
 
@@ -77,7 +77,7 @@ test('black and colour; detail levels Minimal and Detail', async ({ page }) => {
   await page.getByRole('button', { name: 'Zurück' }).click();
   await page.getByRole('radio', { name: 'Detail' }).click();
   await expect(page.getByTestId('settings-screen')).toHaveAttribute('data-path-status', 'ready', { timeout: 60_000 });
-  await page.getByRole('radio', { name: 'Schwarz' }).click();
+  await page.getByRole('radio', { name: 'Einfarbig' }).click();
   await goToExport(page);
   await imagePanel(page).getByRole('radio', { name: '2048 px', exact: true }).click();
   const detail = await exportAndDownload(page, 'Bild');

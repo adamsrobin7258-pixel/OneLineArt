@@ -94,6 +94,7 @@ export function createProjectRepository(backend: StorageBackend, options: Projec
         createdAt: record.createdAt,
         updatedAt: record.updatedAt,
         image: { id: record.image.id, fileName: record.image.fileName, source: image.data, metadata: record.image.metadata, contentHash: record.image.contentHash },
+        edit: record.edit,
         oneLine: record.oneLine,
         render: record.render,
         animation: record.animation,

@@ -48,9 +48,9 @@ test('video export with progress: 1080p, 5 s, black, Balanced — no new analysi
 });
 
 for (const [detail, display] of [
-  ['Minimal', 'Farbe'],
-  ['Detail', 'Schwarz'],
-  ['Detail', 'Farbe'],
+  ['Minimal', 'Foto'],
+  ['Detail', 'Einfarbig'],
+  ['Detail', 'Foto'],
 ] as const) {
   test(`video: ${detail}, ${display}`, async ({ page }) => {
     test.setTimeout(180_000);

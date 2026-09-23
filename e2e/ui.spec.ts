@@ -59,7 +59,7 @@ for (const [name, width, height] of [
     const art = await page.getByTestId('image-viewer').boundingBox();
     expect(art!.width).toBeGreaterThan(width * 0.6);
     expect(art!.height).toBeGreaterThan(height * 0.25);
-    for (const label of ['Minimal', 'Balanced', 'Detail', 'Schwarz', 'Farbe']) await expect(page.getByRole('radio', { name: label, exact: true })).toBeInViewport();
+    for (const label of ['Minimal', 'Balanced', 'Detail', 'Einfarbig', 'Verlauf', 'Foto']) await expect(page.getByRole('radio', { name: label, exact: true })).toBeInViewport();
     await expect(page.getByRole('button', { name: 'Weiter' })).toBeInViewport();
     await expect(page.getByRole('button', { name: 'Meine Werke' })).toBeInViewport();
 

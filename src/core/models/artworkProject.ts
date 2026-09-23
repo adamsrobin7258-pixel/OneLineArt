@@ -3,6 +3,7 @@ import type { OneLinePath } from './oneLinePath';
 import type { EffectiveOneLineSettings } from '../drawing';
 import type { OriginalImage } from './originalImage';
 import type { RenderSettings } from '../rendering';
+import type { ImageEdit } from '../imageEdit';
 
 /** Version of the stored project format ("projectVersion"). */
 export const ARTWORK_PROJECT_SCHEMA_VERSION = 1;
@@ -27,6 +28,8 @@ export interface ArtworkProject {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly image: OriginalImage;
+  /** Non-destructive edit (rotation + crop) of the original; identity for older projects. */
+  readonly edit: ImageEdit;
   /** Detail level, seed, effective engine parameters and engine version: enough to reproduce the path. */
   readonly oneLine: EffectiveOneLineSettings;
   /** How the line is rendered (colour mode, background, width, opacity). */

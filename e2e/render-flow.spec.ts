@@ -43,12 +43,12 @@ test('import → Balanced → black → colour → detail change → black, with
   // 3–4: Balanced drawing, rendered in black
   await expect(settings(page)).toHaveAttribute('data-path-status', 'ready', { timeout: 60_000 });
   await expect(settings(page)).toHaveAttribute('data-rendered-mode', 'monochrome');
-  await expect(page.getByRole('radio', { name: 'Schwarz' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByRole('radio', { name: 'Einfarbig' })).toHaveAttribute('aria-checked', 'true');
   await expect.poll(() => lineColourfulness(page)).toBeLessThan(0.02);
   const paths = await workers(page, 'pathGeneration');
 
   // 5–6: colour — only re-rendered, no new analysis, no new path
-  await page.getByRole('radio', { name: 'Farbe' }).click();
+  await page.getByRole('radio', { name: 'Foto' }).click();
   await expect(settings(page)).toHaveAttribute('data-rendered-mode', 'sampled-color');
   await expect(page.getByRole('status').filter({ hasText: 'Zeichnung wird berechnet' })).toHaveCount(0);
   await expect.poll(() => lineColourfulness(page)).toBeGreaterThan(0.3);
@@ -62,7 +62,7 @@ test('import → Balanced → black → colour → detail change → black, with
   await expect(settings(page)).toHaveAttribute('data-rendered-mode', 'sampled-color');
 
   // 9–10: back to black
-  await page.getByRole('radio', { name: 'Schwarz' }).click();
+  await page.getByRole('radio', { name: 'Einfarbig' }).click();
   await expect(settings(page)).toHaveAttribute('data-rendered-mode', 'monochrome');
   await expect.poll(() => lineColourfulness(page)).toBeLessThan(0.02);
   expect(await workers(page, 'analysis')).toBe(1);

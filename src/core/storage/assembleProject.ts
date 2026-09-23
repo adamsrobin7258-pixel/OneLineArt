@@ -1,6 +1,7 @@
 import type { EffectiveOneLineSettings } from '../drawing';
 import { ARTWORK_PROJECT_SCHEMA_VERSION, type AnimationSettings, type ArtworkProject, type OneLinePath, type OriginalImage } from '../models';
 import type { RenderSettings } from '../rendering/renderSettings';
+import { IDENTITY_EDIT, type ImageEdit } from '../imageEdit';
 import { CURRENT_VERSIONS } from './projectRecord';
 import { STORAGE_LIMITS } from './types';
 
@@ -11,6 +12,8 @@ export interface AssembleProjectParams {
   readonly createdAt: string | null;
   readonly now: Date;
   readonly image: OriginalImage;
+  /** Omitted = unedited. */
+  readonly edit?: ImageEdit;
   readonly oneLine: EffectiveOneLineSettings;
   readonly path: OneLinePath;
   readonly render: RenderSettings;
@@ -27,6 +30,7 @@ export function assembleProject(p: AssembleProjectParams): ArtworkProject {
     createdAt: p.createdAt ?? now,
     updatedAt: now,
     image: p.image,
+    edit: p.edit ?? IDENTITY_EDIT,
     oneLine: p.oneLine,
     render: p.render,
     animation: p.animation,

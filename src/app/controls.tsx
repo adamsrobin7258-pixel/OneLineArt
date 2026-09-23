@@ -1,7 +1,7 @@
 import { DETAIL_LEVELS, DRAWING_STYLES, DURATION_PRESETS_MS, FINAL_HOLD_MS, isDarkBackground, timelineDurationMs, type DrawingStyle, type OneLineDetailLevel } from '../core';
 import { OptionGroup } from '../ui/components/OptionGroup';
 import { SegmentedControl } from '../ui/components/SegmentedControl';
-import { CUSTOM_DETAIL_LABEL, DETAIL_LEVEL_LABELS, DISPLAY_OPTIONS, DRAWING_STYLE_LABELS, LIGHT_LINE_HINT, displayOf } from './drawingLabels';
+import { CUSTOM_DETAIL_LABEL, DETAIL_LEVEL_LABELS, DISPLAY_OPTIONS, DRAWING_STYLE_LABELS, LIGHT_LINE_HINT, OWN_LINE_COLOR_HINT, displayOf } from './drawingLabels';
 import type { RenderSettingsController } from './state/useRenderSettings';
 
 const DETAIL_OPTIONS = DETAIL_LEVELS.map((value) => ({ value, label: DETAIL_LEVEL_LABELS[value].label }));
@@ -52,10 +52,16 @@ export function StyleChoice({ value, onChange, fill }: { value: DrawingStyle; on
   );
 }
 
-/** Schwarz | Farbe — changes only how the same line is drawn. */
+/** Einfarbig | Verlauf | Foto — changes only how the same line is drawn. */
 export function DisplayChoice({ render, fill }: { render: RenderSettingsController; fill?: boolean }) {
   const current = displayOf(render.renderSettings.colorMode);
-  const caption = current.value === 'black' && isDarkBackground(render.renderSettings) ? LIGHT_LINE_HINT : current.hint;
+  const { lineColor } = render.renderSettings;
+  const caption =
+    current.value !== 'single' || lineColor === '#000000'
+      ? current.hint
+      : lineColor === '#ffffff' && isDarkBackground(render.renderSettings)
+        ? LIGHT_LINE_HINT
+        : OWN_LINE_COLOR_HINT;
   return (
     <OptionGroup label="Darstellung" caption={caption}>
       <SegmentedControl

@@ -7,3 +7,4 @@ export * from './renderSettings';
 export * from './colorSampling';
 export * from './renderer';
 export * from './renderControls';
+export * from './lineColoring';

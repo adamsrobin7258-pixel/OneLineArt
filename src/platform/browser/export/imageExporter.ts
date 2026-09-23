@@ -12,6 +12,7 @@ import {
   type ExportSource,
   type ImageExportSettings,
   type RasterImage,
+  usesLineColors,
 } from '../../../core';
 import { freeSurface, lineColorsFor, renderArtworkSurface } from '../artworkRenderer';
 import { canExportInWorker, runImageExportInWorker } from './imageExportRunner';
@@ -62,7 +63,7 @@ export async function exportArtworkImage(request: ImageExportRequest): Promise<E
   // Off the main thread when possible. The photo background ('original') stays on the main
   // thread: sending it would copy a large bitmap for a developer-only option.
   if (canExportInWorker() && render.background !== 'original') {
-    const lineColors = render.colorMode === 'sampled-color' ? lineColorsFor(source.path, source.image, render) : null;
+    const lineColors = usesLineColors(render) ? lineColorsFor(source.path, source.image, render) : null;
     const done = await runImageExportInWorker(
       { path: source.path, settings: render, longEdge, lineColors, mimeType: info.mimeType, quality },
       { ...(signal ? { signal } : {}), onEncoding: () => onPhase?.('encoding') },

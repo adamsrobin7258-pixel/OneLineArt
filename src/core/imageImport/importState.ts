@@ -1,6 +1,7 @@
 import { AnalysisError, type AnalysisErrorCode, type ImageAnalysis } from '../imageAnalysis';
 import type { EngineErrorCode } from '../engine';
 import { DEFAULT_DRAWING_SETTINGS, resolveOneLineSettings, type DrawingSettings, type EffectiveOneLineSettings } from '../drawing';
+import { IDENTITY_EDIT, type ImageEdit } from '../imageEdit';
 import type { OneLinePath, OriginalImage, ProcessedImage } from '../models';
 import type { ImageImportErrorCode } from './errors';
 import type { ImportedImage } from './types';
@@ -11,8 +12,16 @@ import type { ImportedImage } from './types';
  */
 export interface ImageSession<TPreview> {
   readonly original: OriginalImage;
+  /** Working copy of the EDITED image (analysis, path, colour sampling). */
   readonly processed: ProcessedImage;
+  /** Display copy of the EDITED image. */
   readonly preview: TPreview;
+  /** Display copy of the unedited image (source of every edit; the original file stays untouched). */
+  readonly sourcePreview: TPreview;
+  /** Non-destructive edit (rotation + crop) applied to get `processed` / `preview`. */
+  readonly edit: ImageEdit;
+  /** Counts edits in this session; results of an earlier edit are never accepted (see sessionKeyOf). */
+  readonly revision: number;
   readonly analysisStatus: AnalysisStatus;
   /** Set only while analysisStatus is 'ready'; always belongs to `original`. */
   readonly analysis: ImageAnalysis | null;
@@ -39,6 +48,22 @@ export type PathErrorCode = EngineErrorCode | 'analysis-missing' | 'out-of-memor
  */
 export type AnalysisStatus = 'deferred' | 'pending' | 'running' | 'ready' | 'failed';
 
+/** The same image after an edit (display + working copy derived from `sourcePreview`). */
+export interface EditedImageData<TPreview> {
+  readonly edit: ImageEdit;
+  readonly preview: TPreview;
+  readonly processed: ProcessedImage;
+}
+
+/**
+ * Identity of everything derived from the session's CURRENT input (image +
+ * edit). Unedited sessions use the image id (as before); every edit gets a
+ * new key, so analysis and path results of an older edit are dropped.
+ */
+export function sessionKeyOf(session: Pick<ImageSession<unknown>, 'original' | 'revision'>): string {
+  return session.revision === 0 ? session.original.id : `${session.original.id}@${session.revision}`;
+}
+
 /** Drawing of a reopened project: used as is (never recomputed on open). */
 export interface RestoredDrawing {
   readonly oneLine: EffectiveOneLineSettings;
@@ -56,7 +81,15 @@ export type ImportStatus = ImportState<unknown>['status'];
 export type ImportAction<TPreview> =
   | { readonly type: 'import-started'; readonly requestId: number; readonly fileName: string }
   | { readonly type: 'processing-started'; readonly requestId: number }
-  | { readonly type: 'import-succeeded'; readonly requestId: number; readonly image: ImportedImage<TPreview>; readonly restore?: RestoredDrawing }
+  | {
+      readonly type: 'import-succeeded';
+      readonly requestId: number;
+      readonly image: ImportedImage<TPreview>;
+      readonly restore?: RestoredDrawing;
+      /** Stored edit of a reopened project, already applied to the image. */
+      readonly edited?: EditedImageData<TPreview>;
+    }
+  | ({ readonly type: 'edit-applied'; readonly imageId: string } & EditedImageData<TPreview>)
   | { readonly type: 'import-failed'; readonly requestId: number; readonly error: ImageImportErrorCode }
   | { readonly type: 'image-removed' }
   | { readonly type: 'analysis-started'; readonly imageId: string }
@@ -70,10 +103,10 @@ export type ImportAction<TPreview> =
 
 export const EMPTY_IMPORT_STATE: ImportState<never> = { status: 'empty' };
 
-/** A restored drawing must belong to this image and its working copy. */
-function restoreFits(restore: RestoredDrawing, image: ImportedImage<unknown>): boolean {
+/** A restored drawing must belong to this image and its (edited) working copy. */
+function restoreFits(restore: RestoredDrawing, image: ImportedImage<unknown>, processed: ProcessedImage): boolean {
   const { meta, bounds } = restore.path;
-  const { width, height } = image.processed.pixels;
+  const { width, height } = processed.pixels;
   return (meta.sourceImageId === undefined || meta.sourceImageId === image.original.id) && bounds.width === width && bounds.height === height;
 }
 
@@ -95,11 +128,17 @@ export function importReducer<TPreview>(state: ImportState<TPreview>, action: Im
       return isCurrent(state, action.requestId) && state.status === 'loading' ? { ...state, status: 'processing' } : state;
     case 'import-succeeded': {
       if (!isCurrent(state, action.requestId)) return state;
-      const restore = action.restore && restoreFits(action.restore, action.image) ? action.restore : null;
+      const processed = action.edited?.processed ?? action.image.processed;
+      const restore = action.restore && restoreFits(action.restore, action.image, processed) ? action.restore : null;
       return {
         status: 'ready',
         session: {
-          ...action.image,
+          original: action.image.original,
+          processed,
+          preview: action.edited?.preview ?? action.image.preview,
+          sourcePreview: action.image.preview,
+          edit: action.edited?.edit ?? IDENTITY_EDIT,
+          revision: 0,
           analysisStatus: restore ? 'deferred' : 'pending',
           analysis: null,
           analysisError: null,
@@ -116,6 +155,29 @@ export function importReducer<TPreview>(state: ImportState<TPreview>, action: Im
       return { status: 'error', error: action.error, fileName: state.fileName };
     case 'image-removed':
       return EMPTY_IMPORT_STATE;
+    case 'edit-applied': {
+      // A new input for the analysis: everything derived from the previous edit is dropped
+      // (analysis, paths); the drawing settings stay.
+      if (state.status !== 'ready' || sessionKeyOf(state.session) !== action.imageId) return state;
+      const s = state.session;
+      return {
+        status: 'ready',
+        session: {
+          ...s,
+          edit: action.edit,
+          preview: action.preview,
+          processed: action.processed,
+          revision: s.revision + 1,
+          analysisStatus: 'pending',
+          analysis: null,
+          analysisError: null,
+          pathStatus: 'idle',
+          path: null,
+          pathError: null,
+          paths: {},
+        },
+      };
+    }
     case 'analysis-started':
     case 'analysis-succeeded':
     case 'analysis-failed':
@@ -140,7 +202,7 @@ function pathReducer<TPreview>(
   state: ImportState<TPreview>,
   action: Extract<ImportAction<TPreview>, { type: 'drawing-changed' | 'path-started' | 'path-succeeded' | 'path-failed' }>,
 ): ImportState<TPreview> {
-  if (state.status !== 'ready' || state.session.original.id !== action.imageId) return state;
+  if (state.status !== 'ready' || sessionKeyOf(state.session) !== action.imageId) return state;
   const session = state.session;
   const update = (patch: Partial<ImageSession<TPreview>>): ImportState<TPreview> => ({ status: 'ready', session: { ...session, ...patch } });
   const currentKey = session.oneLine.key;
@@ -186,7 +248,7 @@ type AnalysisAction<TPreview> = Extract<
  * session's working copy is rejected instead of silently used.
  */
 function analysisReducer<TPreview>(state: ImportState<TPreview>, action: AnalysisAction<TPreview>): ImportState<TPreview> {
-  if (state.status !== 'ready' || state.session.original.id !== action.imageId) return state;
+  if (state.status !== 'ready' || sessionKeyOf(state.session) !== action.imageId) return state;
   const session = state.session;
   const update = (patch: Partial<ImageSession<TPreview>>): ImportState<TPreview> => ({ status: 'ready', session: { ...session, ...patch } });
 

@@ -7,7 +7,11 @@ import {
   importReducer,
   requireAnalysisSource,
   resolveOneLineSettings,
+  sessionKeyOf,
+  isIdentityEdit,
+  IDENTITY_EDIT,
   DETAIL_LEVELS,
+  type ImageEdit,
   type DrawingSettings,
   type EffectiveOneLineSettings,
   type ImportState,
@@ -16,7 +20,7 @@ import {
 } from '../../core';
 import { runAnalysis, type AnalysisJob, type AnalysisOutcome } from '../../platform/browser/analysisRunner';
 import { PathGenerationError, runPathGeneration, type PathJob, type PathOutcome } from '../../platform/browser/pathRunner';
-import { bitmapDecoder } from '../../platform/browser/bitmapDecoder';
+import { applyImageEdit, bitmapDecoder } from '../../platform/browser/bitmapDecoder';
 import { createId } from '../../platform/browser/ids';
 
 export interface ImageImportController {
@@ -48,6 +52,12 @@ export interface ImageImportController {
    * image only on success; rejects with a StorageError otherwise.
    */
   readonly openProject: (project: ArtworkProject) => Promise<void>;
+  /**
+   * Applies a non-destructive edit (rotation + crop) to the current image. The
+   * edited image is a new input: analysis and path are computed again; the
+   * original stays untouched. Resolves when applied (or superseded).
+   */
+  readonly applyEdit: (edit: ImageEdit) => Promise<void>;
 }
 
 export type PathRun = Omit<PathOutcome, 'path'> & { readonly effective: EffectiveOneLineSettings };
@@ -61,11 +71,19 @@ export function useImageImport(): ImageImportController {
   const [state, dispatch] = useReducer(importReducer<ImageBitmap>, EMPTY_IMPORT_STATE);
   const currentRequest = useRef(0);
   const currentPreview = useRef<ImageBitmap | null>(null);
+  /** Display copy of the current edit (null while unedited: then the source preview is shown). */
+  const editedPreview = useRef<ImageBitmap | null>(null);
+
+  const releaseEditedPreview = useCallback(() => {
+    if (editedPreview.current) bitmapDecoder.releasePreview(editedPreview.current);
+    editedPreview.current = null;
+  }, []);
 
   const releasePreview = useCallback(() => {
+    releaseEditedPreview();
     if (currentPreview.current) bitmapDecoder.releasePreview(currentPreview.current);
     currentPreview.current = null;
-  }, []);
+  }, [releaseEditedPreview]);
 
   const selectFile = useCallback(
     (file: File | null) => {
@@ -110,21 +128,42 @@ export function useImageImport(): ImageImportController {
         console.error('Stored original could not be decoded', error);
         throw new StorageError('damaged', 'Stored original could not be decoded', { cause: error });
       }
+      // The stored edit is applied again to the fresh display copy (same edit ⇒ same working copy).
+      const edit = project.edit ?? IDENTITY_EDIT;
+      let edited = null;
+      if (!isIdentityEdit(edit)) {
+        try {
+          const result = await applyImageEdit(image.preview, edit, image.original.metadata);
+          edited = { edit, preview: result.preview, processed: { sourceImageId: image.original.id, pixels: result.pixels, scale: result.scale } };
+        } catch (error) {
+          bitmapDecoder.releasePreview(image.preview);
+          console.error('Stored image edit could not be applied', error);
+          throw new StorageError('damaged', 'Stored image edit could not be applied', { cause: error });
+        }
+      }
       const discard = (error: StorageError) => {
+        if (edited) bitmapDecoder.releasePreview(edited.preview);
         bitmapDecoder.releasePreview(image.preview);
         throw error;
       };
       if (currentRequest.current !== requestId) return discard(new StorageError('read-failed', 'Superseded'));
       if (image.original.contentHash !== project.image.contentHash) return discard(new StorageError('damaged', 'Stored original differs'));
-      const { width, height } = image.processed.pixels;
+      const { width, height } = (edited?.processed ?? image.processed).pixels;
       if (project.path.bounds.width !== width || project.path.bounds.height !== height) {
         return discard(new StorageError('incompatible-version', 'Working copy size differs from the stored drawing'));
       }
       releasePreview();
       currentPreview.current = image.preview;
+      editedPreview.current = edited?.preview ?? null;
       const restored = { ...image, original: { ...image.original, fileName: project.image.fileName } };
       dispatch({ type: 'import-started', requestId, fileName: project.image.fileName });
-      dispatch({ type: 'import-succeeded', requestId, image: restored, restore: { oneLine: project.oneLine, path: project.path } });
+      dispatch({
+        type: 'import-succeeded',
+        requestId,
+        image: restored,
+        restore: { oneLine: project.oneLine, path: project.path },
+        ...(edited ? { edited } : {}),
+      });
     },
     [releasePreview],
   );
@@ -138,7 +177,8 @@ export function useImageImport(): ImageImportController {
   // Analysis: started once per image, cancelled as soon as the image changes.
   const [analysisRun, setAnalysisRun] = useState<Omit<AnalysisOutcome, 'analysis'> | null>(null);
   const analysisJob = useRef<AnalysisJob | null>(null);
-  const imageId = state.status === 'ready' ? state.session.original.id : null;
+  // Everything derived (analysis, paths) belongs to the image AND its edit.
+  const imageId = state.status === 'ready' ? sessionKeyOf(state.session) : null;
   const analysisPending = state.status === 'ready' && state.session.analysisStatus === 'pending';
 
   useEffect(() => {
@@ -174,6 +214,11 @@ export function useImageImport(): ImageImportController {
   const [pathRuns, setPathRuns] = useState<Record<string, PathRun>>({});
   const pathJob = useRef<{ key: string; job: PathJob; settle: () => void; done: Promise<void> } | null>(null);
   const session = state.status === 'ready' ? state.session : null;
+  const editSeq = useRef(0);
+  const latestKey = useRef<string | null>(null);
+  useEffect(() => {
+    latestKey.current = imageId;
+  }, [imageId]);
 
   const setDrawing = useCallback(
     (drawing: Partial<DrawingSettings>) => {
@@ -185,7 +230,7 @@ export function useImageImport(): ImageImportController {
   const generatePath = useCallback(
     (target?: EffectiveOneLineSettings): Promise<void> => {
       if (!session) return Promise.resolve();
-      const id = session.original.id;
+      const id = sessionKeyOf(session);
       const effective = target ?? session.oneLine;
       const key = effective.key;
       if (session.paths[key]) return Promise.resolve();
@@ -242,6 +287,33 @@ export function useImageImport(): ImageImportController {
     [imageId],
   );
 
+  const applyEdit = useCallback(
+    async (edit: ImageEdit): Promise<void> => {
+      if (!session) return;
+      const key = sessionKeyOf(session);
+      const identity = isIdentityEdit(edit);
+      const seq = ++editSeq.current;
+      const result = await applyImageEdit(session.sourcePreview, edit, session.original.metadata);
+      // Only the latest edit of the still current image is applied.
+      const stillCurrent = editSeq.current === seq && latestKey.current === key;
+      if (!stillCurrent) {
+        if (!identity) bitmapDecoder.releasePreview(result.preview);
+        return;
+      }
+      const previous = editedPreview.current;
+      editedPreview.current = identity ? null : result.preview;
+      dispatch({
+        type: 'edit-applied',
+        imageId: key,
+        edit,
+        preview: result.preview,
+        processed: { sourceImageId: session.original.id, pixels: result.pixels, scale: result.scale },
+      });
+      if (previous) bitmapDecoder.releasePreview(previous);
+    },
+    [session],
+  );
+
   const retryAnalysis = useCallback(() => {
     if (imageId) dispatch({ type: 'analysis-retry', imageId });
   }, [imageId]);
@@ -256,5 +328,5 @@ export function useImageImport(): ImageImportController {
 
   const pathRun = session ? (pathRuns[session.oneLine.key] ?? null) : null;
 
-  return { state, selectFile, removeImage, retryAnalysis, analysisRun, setDrawing, generatePath, generateAllLevels, pathRun, pathRuns, openProject };
+  return { state, selectFile, removeImage, retryAnalysis, analysisRun, setDrawing, generatePath, generateAllLevels, pathRun, pathRuns, openProject, applyEdit };
 }

@@ -49,9 +49,9 @@ test('complete user flow without console errors: new work → animation → expo
   await expect(settingsScreen(page)).toHaveAttribute('data-path-status', 'ready', { timeout: 60_000 });
   await page.getByRole('radio', { name: 'Detail' }).click();
   await expect(settingsScreen(page)).toHaveAttribute('data-path-status', 'ready', { timeout: 60_000 });
-  await page.getByRole('radio', { name: 'Farbe' }).click();
+  await page.getByRole('radio', { name: 'Foto' }).click();
   await expect(settingsScreen(page)).toHaveAttribute('data-rendered-mode', 'sampled-color');
-  await page.getByRole('radio', { name: 'Schwarz' }).click();
+  await page.getByRole('radio', { name: 'Einfarbig' }).click();
   expect(await workers(page, 'analysis')).toBe(1);
   expect(await workers(page, 'pathGeneration')).toBe(2);
 
@@ -98,7 +98,7 @@ test('save status: open → Gespeichert, change → Speichern, save, gallery and
   await page.getByRole('button', { name: 'Meine Werke' }).click();
   await page.getByRole('button', { name: 'Zurück' }).click();
   await expect(saveButton(page)).toHaveText('Gespeichert');
-  await page.getByRole('radio', { name: 'Farbe' }).click();
+  await page.getByRole('radio', { name: 'Foto' }).click();
   await expect(saveButton(page)).toHaveText('Speichern');
   await saveButton(page).click();
   await expect(saveButton(page)).toHaveText('Gespeichert');
@@ -122,7 +122,7 @@ test('the path never changes: colour, animation, image and video export, saving 
   await expect(saveButton(page)).toHaveText('Gespeichert');
   const [original] = await storedPathHashes(page);
 
-  await page.getByRole('radio', { name: 'Farbe' }).click();
+  await page.getByRole('radio', { name: 'Foto' }).click();
   await page.getByRole('button', { name: 'Weiter' }).click();
   await page.getByRole('button', { name: 'Abspielen' }).click();
   await page.waitForTimeout(500);
@@ -139,7 +139,7 @@ test('the path never changes: colour, animation, image and video export, saving 
   await page.getByRole('button', { name: 'Meine Werke' }).click();
   await page.getByTestId('gallery-item').first().getByRole('button', { name: /öffnen/ }).click();
   await expect(settingsScreen(page)).toHaveAttribute('data-path-status', 'ready');
-  await page.getByRole('radio', { name: 'Schwarz' }).click();
+  await page.getByRole('radio', { name: 'Einfarbig' }).click();
   await saveButton(page).click();
   await expect(saveButton(page)).toHaveText('Gespeichert');
   expect(await storedPathHashes(page)).toEqual([original]);

@@ -4,6 +4,7 @@ import {
   DEFAULT_RENDER_SETTINGS,
   STORAGE_LIMITS,
   StorageError,
+  IDENTITY_EDIT,
   assembleProject,
   createMemoryStorageBackend,
   createProjectRepository,
@@ -168,6 +169,29 @@ describe('damaged and incompatible data', () => {
     expect((await repo.list())[0]).toMatchObject({ style: 'geometric', custom: true });
   });
 
+  it('the image edit is stored and restored; older projects are unedited', async () => {
+    const repo = createProjectRepository(createMemoryStorageBackend());
+    const edit = { rotation: 90 as const, crop: { x: 0.1, y: 0.2, width: 0.5, height: 0.6 } };
+    await repo.save({ ...project('e'), edit }, null);
+    expect((await repo.load('e')).project.edit).toEqual(edit);
+
+    const { backend, repo: repo2, record } = await stored();
+    const legacy = Object.fromEntries(Object.entries(record).filter(([k]) => k !== 'edit'));
+    backend.stores.get('projects')!.set('a', legacy);
+    expect((await repo2.load('a')).project.edit).toEqual(IDENTITY_EDIT);
+    expect((await repo2.list())[0]).toMatchObject({ status: 'ok' });
+  });
+
+  it('older render settings (before colours) open with defaults', async () => {
+    const { backend, repo, record } = await stored();
+    const render = Object.fromEntries(Object.entries(record.render as object).filter(([k]) => k !== 'gradient' && k !== 'backgroundBase'));
+    backend.stores.get('projects')!.set('a', { ...record, render });
+    const loaded = (await repo.load('a')).project.render;
+    expect(loaded.gradient).toEqual(DEFAULT_RENDER_SETTINGS.gradient);
+    expect(loaded.backgroundBase).toBe('#ffffff');
+    expect(loaded.colorMode).toBe('sampled-color');
+  });
+
   it('a newer project format is reported as incompatible, never guessed', async () => {
     const { backend, repo, record } = await stored();
     backend.stores.get('projects')!.set('a', { ...record, formatVersion: 99 });
@@ -183,6 +207,8 @@ describe('damaged and incompatible data', () => {
       ['bad settings', { ...record, render: { ...(record.render as object), lineWidth: Number.NaN } }],
       ['out-of-range settings', { ...record, render: { ...(record.render as object), lineWidth: 1000 } }],
       ['unknown level', { ...record, oneLine: { ...(record.oneLine as object), drawing: { detailLevel: 'ultra' } } }],
+      ['bad edit', { ...record, edit: { rotation: 45, crop: { x: 0, y: 0, width: 1, height: 1 } } }],
+      ['bad crop', { ...record, edit: { rotation: 0, crop: { x: 'links' } } }],
       ['unknown style', { ...record, oneLine: { ...(record.oneLine as object), drawing: { detailLevel: 'detail', style: 'cubist' } } }],
       ['bad custom detail', { ...record, oneLine: { ...(record.oneLine as object), drawing: { detailLevel: 'detail', detail: 'viel' } } }],
       ['bad date', { ...record, createdAt: 'yesterday' }],

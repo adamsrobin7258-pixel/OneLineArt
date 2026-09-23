@@ -1,6 +1,7 @@
 import type { OneLinePath, Size } from '../models';
 import type { LineColors } from './colorSampling';
 import { toHexColor } from './colorSpace';
+import { applyColorIntensity } from './lineColoring';
 import { fullCursor, type PathCursor } from './pathCursor';
 import { REFERENCE_RENDER_EDGE, RENDER_LIMITS, RENDERER_VERSION, RenderError, type RenderSettings } from './renderSettings';
 import type { PathSink } from './types';
@@ -88,6 +89,11 @@ function checkPath(path: OneLinePath): void {
   if (!(path.bounds.width > 0 && path.bounds.height > 0)) throw new RenderError('invalid-input', 'Path bounds must be positive');
 }
 
+/** Colour modes drawn from per-vertex colours (photo colours or a gradient along the line). */
+export function usesLineColors(settings: RenderSettings): boolean {
+  return settings.colorMode === 'sampled-color' || settings.colorMode === 'gradient';
+}
+
 /**
  * Resolves settings + target size into a drawing plan. Validates that the
  * target keeps the path's aspect ratio (no distortion, no crop) and that
@@ -107,8 +113,8 @@ export function planArtwork({ path, settings, width, height, lineColors }: Artwo
 
   const n = path.coords.length >> 1;
   let stroke: ArtworkPlan['stroke'];
-  if (settings.colorMode === 'sampled-color') {
-    if (!lineColors || lineColors.vertexCount !== n) throw new RenderError('invalid-input', 'Sampled colours missing or made for another path');
+  if (usesLineColors(settings)) {
+    if (!lineColors || lineColors.vertexCount !== n) throw new RenderError('invalid-input', 'Line colours missing or made for another path');
     const starts: number[] = [];
     const colors: string[] = [];
     let previous = '';
@@ -123,7 +129,7 @@ export function planArtwork({ path, settings, width, height, lineColors }: Artwo
     }
     stroke = { kind: 'runs', starts: Int32Array.from(starts), colors };
   } else {
-    stroke = { kind: 'solid', color: settings.lineColor };
+    stroke = { kind: 'solid', color: applyColorIntensity(settings.lineColor, settings.sampling.strength) };
   }
 
   const background: ArtworkPlan['background'] =
@@ -247,7 +253,7 @@ export function describeArtwork(plan: ArtworkPlan, path: OneLinePath, lineColors
   const c = path.coords;
   let length = 0;
   for (let i = 2; i < c.length; i += 2) length += Math.hypot(c[i]! - c[i - 2]!, c[i + 1]! - c[i - 1]!);
-  const sampled = plan.stroke.kind === 'runs';
+  const sampled = plan.stroke.kind === 'runs' && plan.settings.colorMode === 'sampled-color';
   return {
     rendererVersion: RENDERER_VERSION,
     renderWidth: plan.width,

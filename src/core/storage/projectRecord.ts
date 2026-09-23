@@ -1,5 +1,6 @@
 import { sanitizeAnimationSettings } from '../animation/animationSettings';
 import { DETAIL_LEVELS, DRAWING_STYLES, type EffectiveOneLineSettings } from '../drawing';
+import { sanitizeImageEdit, type ImageEdit } from '../imageEdit';
 import { ANALYSIS_ALGORITHM_VERSION } from '../imageAnalysis/parameters';
 import { ONE_LINE_ENGINE_VERSION } from '../engine/oneLine/parameters';
 import {
@@ -32,6 +33,8 @@ export interface ProjectRecord {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly image: { readonly id: string; readonly fileName: string; readonly contentHash: string; readonly metadata: ImageMetadata };
+  /** Added in phase 12.2; absent in older records (= unedited). */
+  readonly edit: ImageEdit;
   readonly oneLine: EffectiveOneLineSettings;
   readonly render: RenderSettings;
   readonly animation: AnimationSettings;
@@ -102,6 +105,7 @@ export function toProjectRecord(project: ArtworkProject, thumbnail: ProjectThumb
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
     image: { id: image.id, fileName: image.fileName, contentHash: image.contentHash, metadata: image.metadata },
+    edit: project.edit,
     oneLine: project.oneLine,
     render: project.render,
     animation: project.animation,
@@ -169,6 +173,8 @@ export function parseProjectRecord(raw: unknown): ProjectRecord {
       contentHash: check<string>(isText(image.contentHash, 200) && image.contentHash.length > 0, image.contentHash, 'content hash'),
       metadata,
     },
+    // Older records have no edit: the unedited image, exactly as before.
+    edit: strictSettings('image edit', () => sanitizeImageEdit(record.edit)),
     oneLine,
     render: strictSettings('render settings', () => sanitizeRenderSettings(record.render as Partial<RenderSettings>)),
     animation: strictSettings('animation settings', () => sanitizeAnimationSettings(record.animation as Partial<AnimationSettings>)),

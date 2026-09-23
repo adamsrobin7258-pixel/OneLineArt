@@ -39,14 +39,16 @@ describe('render settings', () => {
   it('fall back for invalid colours, unknown or prepared-only modes', () => {
     const { value, issues } = sanitizeRenderSettings({
       lineColor: 'red',
-      colorMode: 'gradient',
+      // 'gradient' became available in phase 12.2; 'custom-color' stays prepared-only.
+      colorMode: 'custom-color',
       background: 'marble' as never,
     });
     expect(value.lineColor).toBe('#000000');
     expect(value.colorMode).toBe('monochrome');
     expect(value.background).toBe('white');
     expect(issues.map((i) => i.name)).toEqual(['colorMode', 'lineColor', 'background']);
-    expect(sanitizeRenderSettings({ colorMode: 'custom-color' }).value.colorMode).toBe('monochrome');
+    expect(sanitizeRenderSettings({ colorMode: 'marble' as never }).value.colorMode).toBe('monochrome');
+    expect(sanitizeRenderSettings({ colorMode: 'gradient' }).value.colorMode).toBe('gradient');
   });
 
   it('fix an inverted lightness range', () => {
