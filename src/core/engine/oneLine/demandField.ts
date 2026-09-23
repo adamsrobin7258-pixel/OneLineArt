@@ -1,5 +1,5 @@
 import type { ImageAnalysis } from '../../imageAnalysis';
-import { percentile } from '../../imageAnalysis';
+import { gaussianBlur, percentile } from '../../imageAnalysis';
 import type { ScalarField, Size } from '../../models';
 import { EngineError } from './errors';
 import type { OneLineEngineParameters } from './parameters';
@@ -95,7 +95,9 @@ export function buildDemandField(analysis: ImageAnalysis, p: OneLineEngineParame
     const s = ((1 - tone) * imp + tone * (1 - luminance.data[i]!)) * (1 - mod + mod * g);
     data[i] = floor + (1 - floor) * Math.pow(Math.min(1, Math.max(0, s)), p.demandGamma);
   }
-  return { demand: { ...size, data }, global };
+  const demand: ScalarField = { ...size, data };
+  const smoothing = Math.max(0, p.demandSmoothing) * Math.max(size.width, size.height);
+  return { demand: smoothing > 0.3 ? gaussianBlur(demand, smoothing) : demand, global };
 }
 
 /**

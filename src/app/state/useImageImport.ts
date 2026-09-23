@@ -6,6 +6,10 @@ import {
   importImage,
   importReducer,
   requireAnalysisSource,
+  resolveOneLineSettings,
+  DETAIL_LEVELS,
+  type DrawingSettings,
+  type EffectiveOneLineSettings,
   type ImportState,
 } from '../../core';
 import { runAnalysis, type AnalysisJob, type AnalysisOutcome } from '../../platform/browser/analysisRunner';
@@ -23,11 +27,22 @@ export interface ImageImportController {
   readonly retryAnalysis: () => void;
   /** Diagnostics of the last finished analysis (developer view only). */
   readonly analysisRun: Omit<AnalysisOutcome, 'analysis'> | null;
-  /** Computes the One-Line path of the current image (developer view in part 4). */
-  readonly generatePath: () => void;
-  /** Metrics and diagnostics of the last generated path (developer view only). */
-  readonly pathRun: Omit<PathOutcome, 'path'> | null;
+  /** Changes the drawing configuration (detail level, seed, …) of the current image. */
+  readonly setDrawing: (drawing: Partial<DrawingSettings>) => void;
+  /**
+   * Computes the path for the current configuration (or `target`) from the
+   * EXISTING analysis. Cached results are reused; resolves when done or superseded.
+   */
+  readonly generatePath: (target?: EffectiveOneLineSettings) => Promise<void>;
+  /** Computes all three detail levels one after another (developer comparison). */
+  readonly generateAllLevels: () => Promise<void>;
+  /** Metrics of the current configuration's path (developer view only). */
+  readonly pathRun: PathRun | null;
+  /** Metrics of every computed configuration of this image, by key. */
+  readonly pathRuns: Readonly<Record<string, PathRun>>;
 }
+
+export type PathRun = Omit<PathOutcome, 'path'> & { readonly effective: EffectiveOneLineSettings };
 
 /**
  * Owns the lifetime of imported image data. Exactly one image session exists
@@ -117,39 +132,75 @@ export function useImageImport(): ImageImportController {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analysisPending, imageId]);
 
-  // Path generation: on request, cancelled as soon as the image changes.
-  const [pathRun, setPathRun] = useState<Omit<PathOutcome, 'path'> | null>(null);
-  const pathJob = useRef<PathJob | null>(null);
+  // Path generation: per configuration, from the existing analysis; one job at a time,
+  // superseded jobs are cancelled; everything is dropped when the image changes.
+  const [pathRuns, setPathRuns] = useState<Record<string, PathRun>>({});
+  const pathJob = useRef<{ key: string; job: PathJob; settle: () => void; done: Promise<void> } | null>(null);
   const session = state.status === 'ready' ? state.session : null;
 
-  const generatePath = useCallback(() => {
-    if (!session || session.pathStatus === 'running') return;
-    const id = session.original.id;
-    dispatch({ type: 'path-started', imageId: id });
-    if (!session.analysis) return; // reducer marks 'analysis-missing'
-    pathJob.current?.cancel();
-    const job = runPathGeneration(session.processed, session.analysis);
-    pathJob.current = job;
-    job.promise.then(
-      ({ path, ...run }) => {
-        setPathRun(run);
-        dispatch({ type: 'path-succeeded', imageId: id, path });
-      },
-      (error: unknown) => {
-        console.error('Path generation failed', error);
-        dispatch({ type: 'path-failed', imageId: id, error: error instanceof PathGenerationError ? error.code : 'generation-failed' });
-      },
-    );
-  }, [session]);
+  const setDrawing = useCallback(
+    (drawing: Partial<DrawingSettings>) => {
+      if (imageId) dispatch({ type: 'drawing-changed', imageId, drawing });
+    },
+    [imageId],
+  );
+
+  const generatePath = useCallback(
+    (target?: EffectiveOneLineSettings): Promise<void> => {
+      if (!session) return Promise.resolve();
+      const id = session.original.id;
+      const effective = target ?? session.oneLine;
+      const key = effective.key;
+      if (session.paths[key]) return Promise.resolve();
+      if (pathJob.current?.key === key) return pathJob.current.done;
+      dispatch({ type: 'path-started', imageId: id, key });
+      if (!session.analysis) return Promise.resolve(); // reducer records 'analysis-missing'
+
+      if (pathJob.current) {
+        pathJob.current.job.cancel();
+        pathJob.current.settle();
+      }
+      const job = runPathGeneration(session.processed, session.analysis, effective.settings, effective.parameters);
+      let settle = () => {};
+      const done = new Promise<void>((resolve) => {
+        settle = resolve;
+        job.promise.then(
+          ({ path, ...run }) => {
+            setPathRuns((runs) => ({ ...runs, [key]: { ...run, effective } }));
+            dispatch({ type: 'path-succeeded', imageId: id, key, path });
+            resolve();
+          },
+          (error: unknown) => {
+            console.error('Path generation failed', error);
+            dispatch({ type: 'path-failed', imageId: id, key, error: error instanceof PathGenerationError ? error.code : 'generation-failed' });
+            resolve();
+          },
+        );
+      }).finally(() => {
+        if (pathJob.current?.job === job) pathJob.current = null;
+      });
+      pathJob.current = { key, job, settle, done };
+      return done;
+    },
+    [session],
+  );
+
+  const generateAllLevels = useCallback(async () => {
+    if (!session) return;
+    for (const level of DETAIL_LEVELS) {
+      await generatePath(resolveOneLineSettings({ ...session.oneLine.drawing, detailLevel: level }));
+    }
+  }, [session, generatePath]);
 
   useEffect(
     () => () => {
       analysisJob.current?.cancel();
       analysisJob.current = null;
-      pathJob.current?.cancel();
+      pathJob.current?.job.cancel();
+      pathJob.current?.settle();
       pathJob.current = null;
       setAnalysisRun(null);
-      setPathRun(null);
+      setPathRuns({});
     },
     [imageId],
   );
@@ -166,5 +217,7 @@ export function useImageImport(): ImageImportController {
     [releasePreview],
   );
 
-  return { state, selectFile, removeImage, retryAnalysis, analysisRun, generatePath, pathRun };
+  const pathRun = session ? (pathRuns[session.oneLine.key] ?? null) : null;
+
+  return { state, selectFile, removeImage, retryAnalysis, analysisRun, setDrawing, generatePath, generateAllLevels, pathRun, pathRuns };
 }

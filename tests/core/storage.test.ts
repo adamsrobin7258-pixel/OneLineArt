@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ARTWORK_PROJECT_SCHEMA_VERSION,
   DEFAULT_ANIMATION_SETTINGS,
-  DEFAULT_ONE_LINE_SETTINGS,
+  resolveOneLineSettings,
   DEFAULT_RENDER_STYLE,
   createMemoryRepository,
   type ArtworkProject,
@@ -21,7 +21,7 @@ const project = (id: string, updatedAt: string): ArtworkProject => ({
     metadata: { format: 'jpeg', mimeType: 'image/jpeg', fileSizeBytes: 3, width: 64, height: 48, aspectRatio: 64 / 48, orientation: 1 },
     contentHash: '00000000',
   },
-  settings: DEFAULT_ONE_LINE_SETTINGS,
+  oneLine: resolveOneLineSettings(),
   renderStyle: DEFAULT_RENDER_STYLE,
   animation: DEFAULT_ANIMATION_SETTINGS,
   path: null,

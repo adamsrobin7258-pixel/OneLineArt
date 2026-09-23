@@ -1,4 +1,6 @@
 export type EngineErrorCode =
+  /** Parameters or settings are not finite or combine impossibly. */
+  | 'invalid-parameters'
   /** The analysis is missing layers or has inconsistent sizes. */
   | 'invalid-analysis'
   /** Aborted via shouldAbort (time limit or cancellation). */

@@ -7,8 +7,11 @@ interface Rendered {
   readonly bitmap: ImageBitmap;
 }
 
-/** Renders the path over a background for the developer view; frees the bitmap when replaced. */
-export function usePathOverlay(path: OneLinePath | null, background: OverlayBackground | null, key: string): ImageBitmap | null {
+/**
+ * Renders a path (optionally over a background) to a bitmap for the viewer;
+ * frees the bitmap when replaced. Technical preview until the rendering of part 6.
+ */
+export function usePathBitmap(path: OneLinePath | null, background: OverlayBackground | null, key: string): ImageBitmap | null {
   const [rendered, setRendered] = useState<Rendered | null>(null);
 
   useEffect(() => {

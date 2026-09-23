@@ -32,7 +32,8 @@ src/
     imageProcessing/  ImageOperation, fitWithin/orientedSize
     imageAnalysis/    Bildanalyse: Luminanz, Kontrast, Kanten, Detail, Textur, Importance (Teil 3)
     engine/           OneLinePath-API, Pipeline, Validierung, Metriken
-      oneLine/          One-Line-Engine (Teil 4)
+      oneLine/          One-Line-Engine (Teil 4), Parametergrenzen (Teil 5)
+    drawing/          Detailstufen, Zeichenoptionen, effektive Einstellungen (Teil 5)
     rendering/        PathCursor, tracePath, SVG-Rendering
     animation/        AnimationTimeline (Zeit -> Position auf dem echten Pfad)
     export/           Exporter-Schnittstellen                 (Impl. Teil 8)
@@ -265,3 +266,62 @@ Bounding Box, Start/Ende, Importance-Abdeckung, Laufzeit, interne Zähler, Param
 | Semantik | keine Gesichts-/Objekterkennung; Motivtreue hängt an Tonwert + Konturen |
 | Kreuzungen | werden durch 2-opt meist aufgelöst (wenige verbleiben, wo Entwirren scharfe Knicke erzwänge) |
 | Determinismus | bitgleich auf derselben JS-Engine (siehe Teil 3) |
+
+## Detailstufen und Zeichenparameter (Teil 5)
+
+### Datenfluss
+
+```
+OriginalImage
+  → ImageAnalysis                      (einmal pro Bild, unabhängig vom Detailgrad)
+  → DrawingSettings                    Detailstufe, Seed, [Liniencharakter, Kreuzungen, Startpunkt], Overrides
+  → resolveOneLineSettings()           Engine-Defaults ← DetailProfile ← Optionen ← Overrides → Grenzen prüfen
+  → EffectiveOneLineSettings           settings + parameters + Engine-Version + stabiler Schlüssel
+  → generateOneLine(analysis, …)       Engine aus Teil 4, direkt aufrufbar wie bisher
+  → OneLinePath                        im Session-Cache unter dem Schlüssel
+```
+
+Ein Wechsel der Detailstufe erzeugt nur einen neuen Schlüssel: Die Analyse wird wiederverwendet,
+berechnete Pfade werden pro Schlüssel zwischengespeichert (Zurückwechseln ist sofort).
+Ein Pfad gilt nur als aktuell, wenn sein Schlüssel der aktuellen Konfiguration entspricht.
+
+### Profile (`drawing/detailLevels.ts`, einzige Definitionsstelle)
+| | Minimal | Balanced (Standard) | Detail |
+|---|---|---|---|
+| Detailachse → Nachfragepunkte | 0,2 → 11 200 | 0,5 → 22 000 | 1,0 → 40 000 |
+| `demandSmoothing` (kleine Strukturen) | 0,006 (unterdrückt) | 0 | 0 |
+| `globalModulation` (große vs. kleine Formen) | 0,35 | 0,15 | 0,05 |
+| `toneWeight` (Tonwert vs. Struktur) | 0,7 | 0,6 | 0,4 |
+| `demandGamma` / `demandFloor` | 3,2 / 0,006 | 2,6 / 0,01 | 3,0 / 0,01 |
+| `importanceReferencePercentile` | 0,995 | 0,995 | 0,98 |
+| Konturführung (`contourAlignment`/`contourScale`) | 3 / 2 | 3 / 2 | 3,5 / 1,5 |
+| `curvaturePenalty` | 0,6 (ruhiger) | 0,35 | 0,25 |
+| Glättung / Vereinfachung | 3 / 0,6 | 2 / 0,3 | 2 / 0,15 |
+
+Balanced entspricht exakt den in Teil 4 kalibrierten Engine-Defaults.
+
+### Vorbereitete Optionen (noch ohne UI)
+- `lineCharacter`: calm | balanced | organic | dynamic — nur `balanced` verfügbar; die anderen sind
+  als `null` markiert, bis sie kalibriert sind (Hebel: curvaturePenalty, contourAlignment, Glättung, neighborCount).
+- `crossingStyle`: minimize | allow | encourage — nur `minimize` (Verhalten aus Teil 4). Kreuzungen können
+  die One-Line-Eigenschaft nie gefährden, da der Pfad immer eine Punktfolge bleibt.
+- `startPoint`: auto | fixed (normierte Koordinaten) — in der Engine bereits umgesetzt, UI folgt.
+- `overrides`: beliebige Engine-Parameter für spätere Experten-Einstellungen.
+
+### Parametervalidierung (`engine/oneLine/parameterLimits.ts`)
+Eine Tabelle mit min/max/ganzzahlig für jeden Parameter und für Seed, Detail, maxPoints, Startpunkt.
+NaN/Infinity/Nicht-Zahlen → `EngineError('invalid-parameters')`; Bereichsverletzungen werden begrenzt und
+gemeldet; unmögliche Kombinationen (Budget min > max, maxWorkingEdge < workingMaxEdge) werden korrigiert.
+Die Engine validiert bei jedem Aufruf.
+
+### Projekt
+`ArtworkProject.oneLine` speichert die `EffectiveOneLineSettings` (Detailstufe, Seed, effektive Parameter,
+Engine-ID und -Version, Schlüssel) — ausreichend, um ein Werk zu reproduzieren. Persistenz: Teil 8.
+
+### Laufzeiten (Desktop-Chromium, Produktionsbuild, Worker)
+| Foto | Minimal | Balanced | Detail |
+|---|---|---|---|
+| Astronautin 512² | 1,1 s | 1,6 s | 2,7 s |
+| Kaffeetasse 600×400 | 1,0 s | 1,6 s | 2,7 s |
+| Rakete 640×427 | 1,2 s | 1,7 s | 2,8 s |
+| Kameramann 256² | 1,4 s | 1,5 s | 3,2 s |

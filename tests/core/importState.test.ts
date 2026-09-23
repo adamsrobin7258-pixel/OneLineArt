@@ -232,8 +232,8 @@ describe('One-Line path in the image session', () => {
       ],
       run(loadImage(1, 'a')),
     );
-  const pathFor = (imageId: string, width = 4, height = 3) => ({
-    coords: new Float32Array([0, 0, 1, 1]),
+  const pathFor = (imageId: string, width = 4, height = 3, x = 1) => ({
+    coords: new Float32Array([0, 0, x, 1]),
     bounds: { width, height },
     meta: { generatorId: 'test', generatorVersion: '1', seed: 1, sourceImageId: imageId },
   });
@@ -241,44 +241,111 @@ describe('One-Line path in the image session', () => {
     if (state.status !== 'ready') throw new Error('not ready');
     return state.session;
   };
+  const keyOf = (state: ImportState<Preview>) => session(state).oneLine.key;
 
-  it('starts idle; generation is on request only', () => {
-    expect(session(analysed()).pathStatus).toBe('idle');
-    expect(session(analysed()).path).toBeNull();
+  it('starts idle with Balanced as the default drawing configuration', () => {
+    const s = session(analysed());
+    expect(s.pathStatus).toBe('idle');
+    expect(s.path).toBeNull();
+    expect(s.oneLine.drawing.detailLevel).toBe('balanced');
   });
 
-  it('idle → running → ready stores the path', () => {
-    const s = session(run([{ type: 'path-started', imageId: 'a' }, { type: 'path-succeeded', imageId: 'a', path: pathFor('a') }], analysed()));
+  it('idle → running → ready stores the path under its configuration key', () => {
+    const state = analysed();
+    const key = keyOf(state);
+    const s = session(run([{ type: 'path-started', imageId: 'a', key }, { type: 'path-succeeded', imageId: 'a', key, path: pathFor('a') }], state));
     expect(s.pathStatus).toBe('ready');
     expect(s.path?.meta.sourceImageId).toBe('a');
+    expect(s.paths[key]).toBe(s.path);
   });
 
   it('requires a finished analysis', () => {
-    const s = session(importReducer(run(loadImage(1, 'a')), { type: 'path-started', imageId: 'a' }));
+    const state = run(loadImage(1, 'a'));
+    const s = session(importReducer(state, { type: 'path-started', imageId: 'a', key: keyOf(state) }));
     expect(s.pathStatus).toBe('failed');
     expect(s.pathError).toBe('analysis-missing');
   });
 
   it('never accepts a path of another image', () => {
-    let state = run([{ type: 'path-started', imageId: 'a' }], analysed());
-    state = importReducer(state, { type: 'path-succeeded', imageId: 'a', path: pathFor('other') });
+    let state = analysed();
+    const key = keyOf(state);
+    state = run([{ type: 'path-started', imageId: 'a', key }], state);
+    state = importReducer(state, { type: 'path-succeeded', imageId: 'a', key, path: pathFor('other') });
     expect(session(state).path).toBeNull();
     state = run(loadImage(2, 'b'), state);
-    state = importReducer(state, { type: 'path-succeeded', imageId: 'a', path: pathFor('a') });
+    state = importReducer(state, { type: 'path-succeeded', imageId: 'a', key, path: pathFor('a') });
     expect(session(state).original.id).toBe('b');
     expect(session(state).path).toBeNull();
+    expect(session(state).paths).toEqual({});
   });
 
   it('rejects a path for a different canvas size', () => {
-    const s = session(run([{ type: 'path-started', imageId: 'a' }, { type: 'path-succeeded', imageId: 'a', path: pathFor('a', 9, 9) }], analysed()));
+    const state = analysed();
+    const key = keyOf(state);
+    const s = session(run([{ type: 'path-started', imageId: 'a', key }, { type: 'path-succeeded', imageId: 'a', key, path: pathFor('a', 9, 9) }], state));
     expect(s.pathStatus).toBe('failed');
     expect(s.pathError).toBe('invalid-result');
   });
 
   it('records failures and allows another attempt', () => {
-    let state = run([{ type: 'path-started', imageId: 'a' }, { type: 'path-failed', imageId: 'a', error: 'aborted' }], analysed());
+    const state0 = analysed();
+    const key = keyOf(state0);
+    let state = run([{ type: 'path-started', imageId: 'a', key }, { type: 'path-failed', imageId: 'a', key, error: 'aborted' }], state0);
     expect(session(state).pathError).toBe('aborted');
-    state = importReducer(state, { type: 'path-started', imageId: 'a' });
+    state = importReducer(state, { type: 'path-started', imageId: 'a', key });
     expect(session(state).pathStatus).toBe('running');
+  });
+
+  describe('detail level changes', () => {
+    it('a new configuration makes the old path non-current, but keeps it cached', () => {
+      const state0 = analysed();
+      const balanced = keyOf(state0);
+      let state = run([{ type: 'path-started', imageId: 'a', key: balanced }, { type: 'path-succeeded', imageId: 'a', key: balanced, path: pathFor('a') }], state0);
+      state = importReducer(state, { type: 'drawing-changed', imageId: 'a', drawing: { detailLevel: 'detail' } });
+      const s = session(state);
+      expect(s.oneLine.drawing.detailLevel).toBe('detail');
+      expect(s.oneLine.key).not.toBe(balanced);
+      expect(s.path).toBeNull();
+      expect(s.pathStatus).toBe('idle');
+      expect(s.paths[balanced]).toBeDefined();
+      // Switching back is instant.
+      const back = session(importReducer(state, { type: 'drawing-changed', imageId: 'a', drawing: { detailLevel: 'balanced' } }));
+      expect(back.pathStatus).toBe('ready');
+      expect(back.path).toBe(s.paths[balanced]);
+    });
+
+    it('14. changing the level never touches the analysis', () => {
+      const state0 = analysed();
+      const before = session(state0);
+      const after = session(importReducer(state0, { type: 'drawing-changed', imageId: 'a', drawing: { detailLevel: 'minimal' } }));
+      expect(after.analysis).toBe(before.analysis);
+      expect(after.analysisStatus).toBe('ready');
+      expect(after.processed).toBe(before.processed);
+    });
+
+    it('a late result for a previous configuration is cached but never shown as current', () => {
+      const state0 = analysed();
+      const balanced = keyOf(state0);
+      let state = run([{ type: 'path-started', imageId: 'a', key: balanced }], state0);
+      state = importReducer(state, { type: 'drawing-changed', imageId: 'a', drawing: { detailLevel: 'minimal' } });
+      state = importReducer(state, { type: 'path-succeeded', imageId: 'a', key: balanced, path: pathFor('a') });
+      expect(session(state).path).toBeNull();
+      expect(session(state).oneLine.drawing.detailLevel).toBe('minimal');
+      expect(session(state).paths[balanced]).toBeDefined();
+    });
+
+    it('a new image starts again at Balanced with no cached paths', () => {
+      let state = importReducer(analysed(), { type: 'drawing-changed', imageId: 'a', drawing: { detailLevel: 'detail', seed: 9 } });
+      state = run(loadImage(2, 'b'), state);
+      expect(session(state).oneLine.drawing.detailLevel).toBe('balanced');
+      expect(session(state).oneLine.drawing.seed).toBe(1);
+      expect(session(state).paths).toEqual({});
+    });
+
+    it('changing the seed is a different configuration', () => {
+      const state0 = analysed();
+      const s = session(importReducer(state0, { type: 'drawing-changed', imageId: 'a', drawing: { seed: 2 } }));
+      expect(s.oneLine.key).not.toBe(keyOf(state0));
+    });
   });
 });

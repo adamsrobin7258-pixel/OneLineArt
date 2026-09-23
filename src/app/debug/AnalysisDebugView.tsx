@@ -1,6 +1,9 @@
 import { useMemo, useState } from 'react';
 import {
   ANALYSIS_LAYERS,
+  DETAIL_LEVELS,
+  measureImportanceRepresentation,
+  resolveAllDetailLevels,
   fieldStats,
   hashBytes,
   validateOneLinePath,
@@ -8,12 +11,12 @@ import {
   type DebugColormap,
   type ImageSession,
 } from '../../core';
-import type { AnalysisOutcome } from '../../platform/browser/analysisRunner';
 import type { OverlayBackground } from '../../platform/browser/pathOverlay';
-import type { PathOutcome } from '../../platform/browser/pathRunner';
+import { DETAIL_LEVEL_LABELS } from '../drawingLabels';
+import type { ImageImportController } from '../state/useImageImport';
 import { ImageViewer } from '../../ui/components/ImageViewer';
 import { useFieldBitmap } from './useFieldBitmap';
-import { usePathOverlay } from './usePathOverlay';
+import { usePathBitmap } from '../preview/usePathBitmap';
 
 type PathLayer = 'pathOnOriginal' | 'pathOnImportance' | 'pathOnly';
 type DebugLayer = 'original' | AnalysisLayerName | PathLayer;
@@ -38,9 +41,7 @@ const isPathLayer = (layer: DebugLayer): layer is PathLayer => (PATH_LAYERS as r
 
 interface AnalysisDebugViewProps {
   session: ImageSession<ImageBitmap>;
-  run: Omit<AnalysisOutcome, 'analysis'> | null;
-  pathRun: Omit<PathOutcome, 'path'> | null;
-  onGeneratePath: () => void;
+  controller: ImageImportController;
 }
 
 const fmt = (v: number, digits = 1) => v.toLocaleString('de-DE', { maximumFractionDigits: digits, minimumFractionDigits: digits });
@@ -49,7 +50,20 @@ const fmt = (v: number, digits = 1) => v.toLocaleString('de-DE', { maximumFracti
  * Developer-only inspection of every analysis layer and of the One-Line path
  * (enable with ?debug=analysis). Deliberately technical.
  */
-export function AnalysisDebugView({ session, run, pathRun, onGeneratePath }: AnalysisDebugViewProps) {
+export function AnalysisDebugView({ session, controller }: AnalysisDebugViewProps) {
+  const { analysisRun: run, pathRun, pathRuns, setDrawing, generatePath, generateAllLevels } = controller;
+  const onGeneratePath = () => void generatePath();
+  const levels = useMemo(() => resolveAllDetailLevels(session.oneLine.drawing), [session.oneLine.drawing]);
+  const fineRepresentation = useMemo(
+    () =>
+      Object.fromEntries(
+        DETAIL_LEVELS.map((level) => {
+          const p = session.paths[levels[level].key];
+          return [level, p && session.analysis ? measureImportanceRepresentation(p, session.analysis.importance, 192) : null];
+        }),
+      ),
+    [session.paths, session.analysis, levels],
+  );
   const [layer, setLayer] = useState<DebugLayer>('importance');
   const [colormap, setColormap] = useState<DebugColormap>('grayscale');
   const { analysis, path } = session;
@@ -66,7 +80,7 @@ export function AnalysisDebugView({ session, run, pathRun, onGeneratePath }: Ana
         ? { kind: 'field', field: analysis.importance }
         : { kind: 'blank' };
   const pathHash = useMemo(() => (path ? hashBytes(new Uint8Array(path.coords.buffer, path.coords.byteOffset, path.coords.byteLength)) : ''), [path]);
-  const overlay = usePathOverlay(path, background, `${pathHash}:${layer}`);
+  const overlay = usePathBitmap(path, background, `${pathHash}:${layer}`);
   const validation = useMemo(() => (path ? validateOneLinePath(path) : null), [path]);
 
   const shown = layer === 'original' ? session.preview : isPathLayer(layer) ? (overlay ?? session.preview) : (fieldBitmap ?? session.preview);
@@ -83,6 +97,8 @@ export function AnalysisDebugView({ session, run, pathRun, onGeneratePath }: Ana
       data-path-hash={pathHash}
       data-path-valid={validation ? String(validation.valid) : ''}
       data-path-source={path?.meta.sourceImageId ?? ''}
+      data-detail-level={session.oneLine.drawing.detailLevel}
+      data-config-key={session.oneLine.key}
     >
       <div className="debug__bar">
         {(['original', ...ANALYSIS_LAYERS] as DebugLayer[]).map((name) => (
@@ -114,6 +130,69 @@ export function AnalysisDebugView({ session, run, pathRun, onGeneratePath }: Ana
         ))}
         {session.pathStatus === 'failed' && <span className="debug__error">Pfad fehlgeschlagen: {session.pathError}</span>}
       </div>
+      <div className="debug__bar">
+        <span>Detailstufe:</span>
+        {DETAIL_LEVELS.map((level) => (
+          <button
+            key={level}
+            type="button"
+            className={`debug__tab${level === session.oneLine.drawing.detailLevel ? ' is-active' : ''}`}
+            onClick={() => setDrawing({ detailLevel: level })}
+          >
+            {DETAIL_LEVEL_LABELS[level].label}
+          </button>
+        ))}
+        <label className="debug__toggle">
+          Seed
+          <input
+            type="number"
+            className="debug__seed"
+            value={session.oneLine.drawing.seed}
+            min={0}
+            onChange={(e) => {
+              const seed = Number(e.target.value);
+              if (Number.isFinite(seed)) setDrawing({ seed });
+            }}
+          />
+        </label>
+        <button type="button" className="debug__tab debug__tab--action" disabled={session.analysisStatus !== 'ready'} onClick={() => void generateAllLevels()}>
+          Alle drei Stufen berechnen
+        </button>
+      </div>
+      <table className="debug__compare" data-testid="level-comparison">
+        <thead>
+          <tr>
+            <th>Stufe</th>
+            <th>Punkte</th>
+            <th>Nachfragepkt.</th>
+            <th>Länge px</th>
+            <th>Abdeckung</th>
+            <th>Top-Importance erreicht (192)</th>
+            <th>Dichte hoch/übrig</th>
+            <th>Kreuzungen</th>
+            <th>Laufzeit</th>
+          </tr>
+        </thead>
+        <tbody>
+          {DETAIL_LEVELS.map((level) => {
+            const r = pathRuns[levels[level].key];
+            const rep = fineRepresentation[level];
+            return (
+              <tr key={level} data-level={level} data-computed={r ? 'true' : 'false'} className={level === session.oneLine.drawing.detailLevel ? 'is-active' : ''} onClick={() => setDrawing({ detailLevel: level })}>
+                <td>{DETAIL_LEVEL_LABELS[level].label}</td>
+                <td data-metric="points">{r ? r.metrics.pointCount : '–'}</td>
+                <td>{r ? r.diagnostics.demandPoints : '–'}</td>
+                <td data-metric="length">{r ? Math.round(r.metrics.length) : '–'}</td>
+                <td>{r?.metrics.coverage ? `${(r.metrics.coverage.demandCovered * 100).toFixed(1)} %` : '–'}</td>
+                <td data-metric="touched">{rep ? `${(rep.highImportanceTouched * 100).toFixed(1)} %` : '–'}</td>
+                <td>{rep ? (rep.highImportanceDensity / Math.max(1e-9, rep.otherDensity)).toFixed(2) : '–'}</td>
+                <td>{r ? (r.metrics.selfIntersections ?? '–') : '–'}</td>
+                <td data-metric="ms">{r ? `${Math.round(r.durationMs)} ms` : '–'}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
       <p className="debug__stats" data-testid="analysis-stats">
         {analysis
           ? [
@@ -129,6 +208,11 @@ export function AnalysisDebugView({ session, run, pathRun, onGeneratePath }: Ana
       </p>
       {m && pathRun && path && (
         <dl className="debug__metrics" data-testid="path-metrics">
+          <dt>Detailstufe</dt>
+          <dd>
+            {DETAIL_LEVEL_LABELS[pathRun.effective.drawing.detailLevel].label} · Schlüssel {pathRun.effective.key}
+            {pathRun.effective.issues.length ? ` · Anpassungen: ${pathRun.effective.issues.map((i) => i.message).join('; ')}` : ''}
+          </dd>
           <dt>Engine</dt>
           <dd>
             {path.meta.generatorId} v{path.meta.generatorVersion} · Seed {path.meta.seed} · {Math.round(pathRun.durationMs)} ms · {pathRun.runner}
@@ -174,7 +258,7 @@ export function AnalysisDebugView({ session, run, pathRun, onGeneratePath }: Ana
             2-opt-Züge · {pathRun.diagnostics.rawPoints} → {pathRun.diagnostics.smoothedPoints} → {pathRun.diagnostics.finalPoints} Punkte (roh → geglättet → vereinfacht)
           </dd>
           <dt>Parameter</dt>
-          <dd className="debug__params">{JSON.stringify(pathRun.parameters)}</dd>
+          <dd className="debug__params">{JSON.stringify({ settings: pathRun.effective.settings, parameters: pathRun.effective.parameters })}</dd>
         </dl>
       )}
       <div className="debug__viewer">

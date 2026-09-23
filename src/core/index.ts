@@ -8,6 +8,7 @@ export * from './imageImport';
 export * from './imageProcessing';
 export * from './imageAnalysis';
 export * from './engine';
+export * from './drawing';
 export * from './rendering';
 export * from './animation';
 export * from './export';

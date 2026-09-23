@@ -1,6 +1,6 @@
 import type { AnimationSettings } from './animationSettings';
 import type { OneLinePath } from './oneLinePath';
-import type { OneLineSettings } from './oneLineSettings';
+import type { EffectiveOneLineSettings } from '../drawing';
 import type { OriginalImage } from './originalImage';
 import type { RenderStyle } from './renderedArtwork';
 
@@ -14,7 +14,8 @@ export interface ArtworkProject {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly image: OriginalImage;
-  readonly settings: OneLineSettings;
+  /** Detail level, seed, effective engine parameters and engine version: enough to reproduce the path. */
+  readonly oneLine: EffectiveOneLineSettings;
   readonly renderStyle: RenderStyle;
   readonly animation: AnimationSettings;
   /** Null until a path was generated. */

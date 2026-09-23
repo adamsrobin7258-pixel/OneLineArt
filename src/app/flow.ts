@@ -10,4 +10,4 @@ export const FLOW_STEPS = [
 
 export type FlowStepId = (typeof FLOW_STEPS)[number]['id'];
 
-export const AVAILABLE_STEPS: ReadonlySet<FlowStepId> = new Set(['image']);
+export const AVAILABLE_STEPS: ReadonlySet<FlowStepId> = new Set(['image', 'settings']);

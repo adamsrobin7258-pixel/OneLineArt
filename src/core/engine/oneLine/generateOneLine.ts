@@ -4,6 +4,7 @@ import type { Random } from '../../utils';
 import { pathFromCoords } from '../path';
 import { validateOneLinePath, type PathValidationOptions } from '../validation';
 import { buildAdaptiveDemandField } from './demandField';
+import { sanitizeEngineParameters, sanitizeOneLineSettings } from './parameterLimits';
 import { buildOrientationField, contourAwareCost } from './orientationField';
 import { EngineError } from './errors';
 import { chaikinOpen, dropDuplicatePoints, simplifyPolyline } from './geometry';
@@ -89,8 +90,11 @@ export function engineValidationOptions(
  * one area, and the connections between regions come from the same route
  * optimization that shapes the details. Pure and deterministic.
  */
-export function generateOneLine(input: OneLineRunInput, parameters: OneLineEngineParameters, hooks: OneLineRunHooks): OneLineRunResult {
-  const { image, analysis, settings } = input;
+export function generateOneLine(input: OneLineRunInput, rawParameters: OneLineEngineParameters, hooks: OneLineRunHooks): OneLineRunResult {
+  const { image, analysis } = input;
+  // Central validation: rejects non-finite values, clamps to the safety limits.
+  const parameters = sanitizeEngineParameters(rawParameters).value;
+  const settings = sanitizeOneLineSettings(input.settings).value;
   const shouldAbort = hooks.shouldAbort ?? (() => false);
   const progress = (value: number) => hooks.onProgress?.(value);
   const checkAbort = () => {
@@ -112,14 +116,18 @@ export function generateOneLine(input: OneLineRunInput, parameters: OneLineEngin
   checkAbort();
   progress(0.45);
 
-  // 3. Deterministic start: highest global relevance × demand at a point.
+  // 3. Deterministic start: the point nearest a fixed start, or (auto) the
+  //    point with the highest global relevance × demand.
   const { xs, ys } = stipples;
   const sampleAt = (field: ScalarField, x: number, y: number) =>
     field.data[Math.min(field.height - 1, Math.floor(y)) * field.width + Math.min(field.width - 1, Math.floor(x))]!;
   let start = 0;
   let bestScore = -Infinity;
+  const fixed = settings.startPoint;
   for (let i = 0; i < xs.length; i++) {
-    const score = sampleAt(global, xs[i]!, ys[i]!) * sampleAt(demand, xs[i]!, ys[i]!);
+    const score = fixed
+      ? -Math.hypot(xs[i]! - fixed.x * gw, ys[i]! - fixed.y * gh)
+      : sampleAt(global, xs[i]!, ys[i]!) * sampleAt(demand, xs[i]!, ys[i]!);
     if (score > bestScore) {
       bestScore = score;
       start = i;

@@ -317,6 +317,89 @@ body {
   cursor: pointer;
 }
 
+/* ---------- Settings step ---------- */
+
+.settings {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 0;
+}
+
+.settings__stage {
+  position: relative;
+  min-height: 0;
+  display: grid;
+}
+
+.settings__stage > .viewer {
+  transition: opacity 200ms var(--ease);
+}
+
+.settings__stage.is-busy > .viewer {
+  opacity: 0.35;
+}
+
+.settings__busy {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  margin: 0;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  font-size: 14px;
+}
+
+.toolbar--settings .segmented {
+  margin: 0 auto;
+}
+
+/* ---------- Segmented control ---------- */
+
+.segmented {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  background: var(--color-surface);
+}
+
+.segmented__option {
+  font: inherit;
+  font-size: 14px;
+  padding: 7px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  transition: background-color 160ms var(--ease), color 160ms var(--ease);
+}
+
+.segmented__option.is-selected {
+  background: var(--color-ink);
+  color: var(--color-surface);
+}
+
+.segmented__option:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+
+@media (max-width: 480px) {
+  .toolbar--settings {
+    justify-content: center;
+  }
+  .toolbar--settings .segmented {
+    order: -1;
+    width: 100%;
+    justify-content: center;
+  }
+}
+
 /* ---------- Analysis debug view (developer only, ?debug=analysis) ---------- */
 
 .debug {
@@ -389,6 +472,38 @@ body {
 
 .debug__params {
   word-break: break-all;
+}
+
+.debug__compare {
+  border-collapse: collapse;
+  font-size: 11px;
+  color: var(--color-muted);
+}
+
+.debug__compare th,
+.debug__compare td {
+  padding: 2px 8px;
+  border-bottom: 1px solid var(--color-line);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.debug__compare th:first-child,
+.debug__compare td:first-child {
+  text-align: left;
+}
+
+.debug__compare tr.is-active td {
+  color: var(--color-ink);
+}
+
+.debug__compare tbody tr {
+  cursor: pointer;
+}
+
+.debug__seed {
+  width: 7em;
+  font: inherit;
 }
 
 .debug__stats {

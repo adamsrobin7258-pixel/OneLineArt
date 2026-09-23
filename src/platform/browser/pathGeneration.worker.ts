@@ -13,7 +13,7 @@ self.addEventListener('message', (event: MessageEvent<PathRequest>) => {
       shouldAbort: () => performance.now() - started > timeLimitMs,
     });
     const durationMs = performance.now() - started;
-    const metrics = computePathMetrics(result.path, { demand: result.demand });
+    const metrics = computePathMetrics(result.path, { demand: result.demand, importance: analysis.importance });
     response = { ok: true, path: result.path, metrics, diagnostics: result.diagnostics, durationMs };
     transfer = [result.path.coords.buffer];
   } catch (error) {

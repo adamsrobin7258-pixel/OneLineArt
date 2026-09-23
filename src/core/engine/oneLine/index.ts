@@ -1,4 +1,5 @@
 export * from './parameters';
+export * from './parameterLimits';
 export * from './errors';
 export * from './demandField';
 export * from './orientationField';

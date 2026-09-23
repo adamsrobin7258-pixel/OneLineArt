@@ -10,6 +10,11 @@ export interface OneLineSettings {
   readonly detail: number;
   /** Hard upper bound for the number of path points. */
   readonly maxPoints: number;
+  /**
+   * Where the line starts, normalized to [0, 1] on both axes (0,0 = top-left).
+   * Omitted = automatic (most relevant area).
+   */
+  readonly startPoint?: { readonly x: number; readonly y: number };
 }
 
 export const DEFAULT_ONE_LINE_SETTINGS: OneLineSettings = {

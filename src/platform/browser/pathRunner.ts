@@ -78,7 +78,7 @@ export function runPathGeneration(
           });
           resolve({
             path: result.path,
-            metrics: computePathMetrics(result.path, { demand: result.demand }),
+            metrics: computePathMetrics(result.path, { demand: result.demand, importance: analysis.importance }),
             diagnostics: result.diagnostics,
             durationMs: performance.now() - started,
             runner: 'main-thread',

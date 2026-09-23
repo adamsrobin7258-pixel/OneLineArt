@@ -18,11 +18,58 @@ export interface PathMetrics {
   /** Proper self-intersections; null if the path is too large to count cheaply. */
   readonly selfIntersections: number | null;
   readonly coverage: CoverageReport | null;
+  /** How well the line represents the analysis' important structures (level-independent reference). */
+  readonly representation: ImportanceRepresentation | null;
+}
+
+/**
+ * Representation of important structures, measured against the ANALYSIS
+ * importance (not the engine's demand), so different detail levels are
+ * compared against the same reference.
+ */
+export interface ImportanceRepresentation {
+  /** Cells on the long edge of the measuring grid. */
+  readonly cellsOnLongEdge: number;
+  /** Share of high-importance cells (top 20 %) the line passes through at all. */
+  readonly highImportanceTouched: number;
+  /** Mean line length per px² in high-importance cells. */
+  readonly highImportanceDensity: number;
+  /** Mean line length per px² in all other cells. */
+  readonly otherDensity: number;
+}
+
+/** Share of cells counted as high-importance. */
+export const HIGH_IMPORTANCE_SHARE = 0.2;
+
+export function measureImportanceRepresentation(path: OneLinePath, importance: ScalarField, cellsOnLongEdge = 96): ImportanceRepresentation {
+  const report = measureCoverage(path, importance, cellsOnLongEdge);
+  const order = [...report.target.keys()].sort((a, b) => report.target[b]! - report.target[a]! || a - b);
+  const highCount = Math.max(1, Math.round(order.length * HIGH_IMPORTANCE_SHARE));
+  const high = new Uint8Array(order.length);
+  for (let i = 0; i < highCount; i++) high[order[i]!] = 1;
+  const cellSize = Math.max(path.bounds.width, path.bounds.height) / cellsOnLongEdge;
+  const area = cellSize * cellSize;
+  let touched = 0, highLength = 0, otherLength = 0;
+  for (let i = 0; i < order.length; i++) {
+    if (high[i]) {
+      if (report.deposited[i]! > 0) touched++;
+      highLength += report.deposited[i]!;
+    } else otherLength += report.deposited[i]!;
+  }
+  const others = Math.max(1, order.length - highCount);
+  return {
+    cellsOnLongEdge,
+    highImportanceTouched: touched / highCount,
+    highImportanceDensity: highLength / (highCount * area),
+    otherDensity: otherLength / (others * area),
+  };
 }
 
 export interface MetricsOptions {
   /** Demand/importance field spanning the canvas, for coverage. */
   readonly demand?: ScalarField;
+  /** Analysis importance, for the level-independent representation metric. */
+  readonly importance?: ScalarField;
   readonly coverageCells?: number;
   readonly maxSegmentsForIntersections?: number;
 }
@@ -61,6 +108,7 @@ export function computePathMetrics(path: OneLinePath, options: MetricsOptions = 
     curvaturePerLength: length > 0 ? turnSum / length : 0,
     selfIntersections: segments <= (options.maxSegmentsForIntersections ?? 400_000) ? countSelfIntersections(path) : null,
     coverage: options.demand ? measureCoverage(path, options.demand, options.coverageCells ?? 48) : null,
+    representation: options.importance ? measureImportanceRepresentation(path, options.importance) : null,
   };
 }
 

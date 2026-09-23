@@ -8,11 +8,17 @@ import { isAnalysisDebugEnabled } from '../../platform/browser/debugFlags';
 import { AnalysisDebugView } from '../debug/AnalysisDebugView';
 import { ANALYSIS_ERROR_MESSAGES, FORMAT_LABELS, IMPORT_ERROR_MESSAGES } from '../importMessages';
 import { useFilePicker } from '../state/useFilePicker';
-import { useImageImport } from '../state/useImageImport';
+import type { ImageImportController } from '../state/useImageImport';
+
+interface ImportScreenProps {
+  controller: ImageImportController;
+  /** Proceed to the drawing settings (enabled once the image is analysed). */
+  onContinue: () => void;
+}
 
 /** Step 1: choose a photo, inspect it, replace or remove it. */
-export function ImportScreen() {
-  const { state, selectFile, removeImage, retryAnalysis, analysisRun, generatePath, pathRun } = useImageImport();
+export function ImportScreen({ controller, onContinue }: ImportScreenProps) {
+  const { state, selectFile, removeImage, retryAnalysis } = controller;
   const picker = useFilePicker(selectFile);
   const canTakePhoto = useMemo(() => supportsCameraCapture(), []);
   const debugAnalysis = useMemo(() => isAnalysisDebugEnabled(), []);
@@ -49,7 +55,7 @@ export function ImportScreen() {
         <>
           <div className="import__stage" {...dropToReplace}>
             {debugAnalysis ? (
-              <AnalysisDebugView key={state.session.original.id} session={state.session} run={analysisRun} pathRun={pathRun} onGeneratePath={generatePath} />
+              <AnalysisDebugView key={state.session.original.id} session={state.session} controller={controller} />
             ) : (
               <ImageViewer key={state.session.original.id} image={state.session.preview} label={state.session.original.fileName} />
             )}
@@ -88,7 +94,11 @@ export function ImportScreen() {
               <Button variant="quiet" onClick={removeImage}>
                 Bild entfernen
               </Button>
-              <Button disabled title="Einstellungen folgen in einem späteren Schritt">
+              <Button
+                disabled={state.session.analysisStatus !== 'ready'}
+                title={state.session.analysisStatus === 'ready' ? undefined : 'Das Bild wird noch analysiert'}
+                onClick={onContinue}
+              >
                 Weiter
               </Button>
             </div>

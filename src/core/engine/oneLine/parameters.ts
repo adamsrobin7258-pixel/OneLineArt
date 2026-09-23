@@ -29,6 +29,12 @@ export interface OneLineEngineParameters {
   readonly demandGamma: number;
   /** Minimum demand everywhere, so the whole canvas takes part (0..1). */
   readonly demandFloor: number;
+  /**
+   * Gaussian smoothing of the demand before stippling, as a fraction of the
+   * working long edge (0 = off). Suppresses small details so large forms
+   * dominate — the abstraction lever of a reduced detail level.
+   */
+  readonly demandSmoothing: number;
   /** Percentile used as the reference maximum for importance. */
   readonly importanceReferencePercentile: number;
 
@@ -81,6 +87,7 @@ export const DEFAULT_ENGINE_PARAMETERS: OneLineEngineParameters = {
   globalModulation: 0.15,
   demandGamma: 2.6,
   demandFloor: 0.01,
+  demandSmoothing: 0,
   importanceReferencePercentile: 0.995,
   pointBudget: { min: 4000, max: 40000 },
   relaxationIterations: 8,

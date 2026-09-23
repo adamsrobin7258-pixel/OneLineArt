@@ -1,5 +1,6 @@
 import { AnalysisError, type AnalysisErrorCode, type ImageAnalysis } from '../imageAnalysis';
 import type { EngineErrorCode } from '../engine';
+import { DEFAULT_DRAWING_SETTINGS, resolveOneLineSettings, type DrawingSettings, type EffectiveOneLineSettings } from '../drawing';
 import type { OneLinePath, OriginalImage, ProcessedImage } from '../models';
 import type { ImageImportErrorCode } from './errors';
 import type { ImportedImage } from './types';
@@ -16,10 +17,15 @@ export interface ImageSession<TPreview> {
   /** Set only while analysisStatus is 'ready'; always belongs to `original`. */
   readonly analysis: ImageAnalysis | null;
   readonly analysisError: AnalysisErrorCode | null;
+  /** Current drawing configuration (Balanced by default for every new image). */
+  readonly oneLine: EffectiveOneLineSettings;
+  /** Status of the path for the CURRENT configuration. */
   readonly pathStatus: PathStatus;
-  /** Set only while pathStatus is 'ready'; always generated from this session's analysis. */
+  /** Path for the current configuration; never a path made with other settings. */
   readonly path: OneLinePath | null;
   readonly pathError: PathErrorCode | null;
+  /** Finished paths of this image by configuration key (switching back is instant). */
+  readonly paths: Readonly<Record<string, OneLinePath>>;
 }
 
 /** Path generation runs on request (not automatically on import). */
@@ -47,9 +53,10 @@ export type ImportAction<TPreview> =
   | { readonly type: 'analysis-succeeded'; readonly imageId: string; readonly analysis: ImageAnalysis }
   | { readonly type: 'analysis-failed'; readonly imageId: string; readonly error: AnalysisErrorCode }
   | { readonly type: 'analysis-retry'; readonly imageId: string }
-  | { readonly type: 'path-started'; readonly imageId: string }
-  | { readonly type: 'path-succeeded'; readonly imageId: string; readonly path: OneLinePath }
-  | { readonly type: 'path-failed'; readonly imageId: string; readonly error: PathErrorCode };
+  | { readonly type: 'drawing-changed'; readonly imageId: string; readonly drawing: Partial<DrawingSettings> }
+  | { readonly type: 'path-started'; readonly imageId: string; readonly key: string }
+  | { readonly type: 'path-succeeded'; readonly imageId: string; readonly key: string; readonly path: OneLinePath }
+  | { readonly type: 'path-failed'; readonly imageId: string; readonly key: string; readonly error: PathErrorCode };
 
 export const EMPTY_IMPORT_STATE: ImportState<never> = { status: 'empty' };
 
@@ -78,9 +85,11 @@ export function importReducer<TPreview>(state: ImportState<TPreview>, action: Im
           analysisStatus: 'pending',
           analysis: null,
           analysisError: null,
+          oneLine: resolveOneLineSettings(DEFAULT_DRAWING_SETTINGS),
           pathStatus: 'idle',
           path: null,
           pathError: null,
+          paths: {},
         },
       };
     case 'import-failed':
@@ -93,6 +102,7 @@ export function importReducer<TPreview>(state: ImportState<TPreview>, action: Im
     case 'analysis-failed':
     case 'analysis-retry':
       return analysisReducer(state, action);
+    case 'drawing-changed':
     case 'path-started':
     case 'path-succeeded':
     case 'path-failed':
@@ -101,33 +111,43 @@ export function importReducer<TPreview>(state: ImportState<TPreview>, action: Im
 }
 
 /**
- * Paths are accepted only for the session's own image, only once its analysis
- * exists, and only if the path says it was made for this image and canvas.
+ * Paths belong to (image, configuration). They are accepted only for the
+ * session's own image, only once its analysis exists, only if the path says
+ * it was made for this image and canvas — and they count as the current
+ * result only for the configuration they were computed with. Changing the
+ * drawing settings never re-runs the analysis; it only selects another key.
  */
 function pathReducer<TPreview>(
   state: ImportState<TPreview>,
-  action: Extract<ImportAction<TPreview>, { type: 'path-started' | 'path-succeeded' | 'path-failed' }>,
+  action: Extract<ImportAction<TPreview>, { type: 'drawing-changed' | 'path-started' | 'path-succeeded' | 'path-failed' }>,
 ): ImportState<TPreview> {
   if (state.status !== 'ready' || state.session.original.id !== action.imageId) return state;
   const session = state.session;
   const update = (patch: Partial<ImageSession<TPreview>>): ImportState<TPreview> => ({ status: 'ready', session: { ...session, ...patch } });
+  const currentKey = session.oneLine.key;
 
   switch (action.type) {
+    case 'drawing-changed': {
+      const oneLine = resolveOneLineSettings({ ...session.oneLine.drawing, ...action.drawing });
+      if (oneLine.key === currentKey) return state;
+      const cached = session.paths[oneLine.key] ?? null;
+      return update({ oneLine, path: cached, pathStatus: cached ? 'ready' : 'idle', pathError: null });
+    }
     case 'path-started':
-      if (session.pathStatus === 'running') return state;
+      if (action.key !== currentKey || session.pathStatus === 'running') return state;
       if (session.analysisStatus !== 'ready') return update({ pathStatus: 'failed', pathError: 'analysis-missing', path: null });
       return update({ pathStatus: 'running', pathError: null, path: null });
     case 'path-failed':
-      return session.pathStatus === 'running' ? update({ pathStatus: 'failed', pathError: action.error, path: null }) : state;
+      return action.key === currentKey && session.pathStatus === 'running' ? update({ pathStatus: 'failed', pathError: action.error, path: null }) : state;
     case 'path-succeeded': {
-      if (session.pathStatus !== 'running') return state;
       const { meta, bounds } = action.path;
       if (meta.sourceImageId !== undefined && meta.sourceImageId !== session.original.id) return state;
       const { width, height } = session.processed.pixels;
-      if (bounds.width !== width || bounds.height !== height) {
-        return update({ pathStatus: 'failed', pathError: 'invalid-result', path: null });
-      }
-      return update({ pathStatus: 'ready', path: action.path, pathError: null });
+      const fits = bounds.width === width && bounds.height === height;
+      if (action.key !== currentKey) return fits ? update({ paths: { ...session.paths, [action.key]: action.path } }) : state;
+      if (session.pathStatus !== 'running') return state;
+      if (!fits) return update({ pathStatus: 'failed', pathError: 'invalid-result', path: null });
+      return update({ pathStatus: 'ready', path: action.path, pathError: null, paths: { ...session.paths, [action.key]: action.path } });
     }
     default:
       return state;
