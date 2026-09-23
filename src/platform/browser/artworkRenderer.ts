@@ -14,9 +14,9 @@ import {
   type RenderSettings,
 } from '../../core';
 
-type Surface = { canvas: OffscreenCanvas | HTMLCanvasElement; ctx: RenderContext2D };
+export type Surface = { canvas: OffscreenCanvas | HTMLCanvasElement; ctx: RenderContext2D };
 
-function createSurface(width: number, height: number): Surface {
+export function createSurface(width: number, height: number): Surface {
   const canvas: OffscreenCanvas | HTMLCanvasElement =
     typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(width, height) : Object.assign(document.createElement('canvas'), { width, height });
   const ctx = canvas.getContext('2d', { alpha: true }) as unknown as RenderContext2D | null;
@@ -24,7 +24,7 @@ function createSurface(width: number, height: number): Surface {
   return { canvas, ctx };
 }
 
-function free(surface: Surface): void {
+export function freeSurface(surface: Surface): void {
   surface.canvas.width = 0;
   surface.canvas.height = 0;
 }
@@ -79,11 +79,11 @@ export async function renderArtwork(request: RenderArtworkRequest): Promise<Rast
     base.ctx.globalAlpha = plan.lineOpacity;
     base.ctx.drawImage(layer.canvas as never, 0, 0, size.width, size.height);
     base.ctx.globalAlpha = 1;
-    free(layer);
+    freeSurface(layer);
   }
 
   const image = base.canvas instanceof OffscreenCanvas ? base.canvas.transferToImageBitmap() : await createImageBitmap(base.canvas);
-  free(base);
+  freeSurface(base);
   return {
     format: 'raster',
     size,

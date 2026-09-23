@@ -3,7 +3,6 @@ import type { LineColors } from './colorSampling';
 import { toHexColor } from './colorSpace';
 import { fullCursor, type PathCursor } from './pathCursor';
 import { REFERENCE_RENDER_EDGE, RENDER_LIMITS, RENDERER_VERSION, RenderError, type RenderSettings } from './renderSettings';
-import { tracePath } from './tracePath';
 import type { PathSink } from './types';
 
 /**
@@ -166,49 +165,81 @@ export function drawArtworkBackground(plan: ArtworkPlan, ctx: RenderContext2D, b
 
 /**
  * Draws THE line at full opacity (opacity is applied once by the caller, see
- * `renderArtwork` in the platform layer) — optionally only up to `cursor`
- * (the creation animation uses the same function).
- *
- * Monochrome: one moveTo + n−1 lineTo in a single stroke.
- * Sampled colour: canvas cannot vary the colour within one stroke, so the
- * SAME point sequence is stroked in consecutive colour runs; each run starts at
- * the previous run's last vertex. No vertex is added, moved or dropped, runs
- * never skip a segment, and the geometry remains exactly the one OneLinePath.
+ * `renderArtwork` in the platform layer) — optionally only up to `cursor`.
+ * The static artwork is the range from the start to the end of the path.
  */
 export function drawArtworkLine(plan: ArtworkPlan, path: OneLinePath, ctx: RenderContext2D, cursor: PathCursor = fullCursor(path)): void {
+  drawArtworkLineRange(plan, path, ctx, null, cursor);
+}
+
+/** Index of the colour run containing segment k (binary search over run starts). */
+function runOf(starts: Int32Array, k: number): number {
+  let lo = 0;
+  let hi = starts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (starts[mid]! <= k) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}
+
+/**
+ * THE line-drawing function for both the static artwork and the animation:
+ * draws the part of the path between two cursors — continuing exactly where
+ * `from` ended (null = the start) up to `to`. Drawing 0→a then a→b yields the
+ * same geometry as 0→b, so an animation only adds the new piece per frame.
+ *
+ * Segment k connects point k and k+1. A cursor {index: m, tip} has drawn the
+ * segments 0…m−2 completely and segment m−1 up to `tip` (if any).
+ *
+ * Monochrome: one stroke per call. Sampled colour: canvas cannot vary the
+ * colour within one stroke, so the SAME point sequence is stroked in
+ * consecutive colour runs; each run starts at the previous run's last point.
+ * No point is added, moved or dropped — the geometry is the one OneLinePath.
+ */
+export function drawArtworkLineRange(plan: ArtworkPlan, path: OneLinePath, ctx: RenderContext2D, from: PathCursor | null, to: PathCursor): void {
+  const c = path.coords;
+  const n = c.length >> 1;
+  const fromIndex = from ? Math.max(1, Math.min(n, from.index)) : 1;
+  const fromTip = from?.tip ?? null;
+  const toIndex = Math.max(1, Math.min(n, to.index));
+  const toTip = to.tip;
+  // Nothing new to draw?
+  if (toIndex < fromIndex || (toIndex === fromIndex && (!toTip || (fromTip && fromTip.x === toTip.x && fromTip.y === toTip.y)))) return;
+
   const { scaleX: sx, scaleY: sy } = plan;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1;
   ctx.lineWidth = plan.lineWidthPx;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  const scaled: PathSink = { moveTo: (x, y) => ctx.moveTo(x * sx, y * sy), lineTo: (x, y) => ctx.lineTo(x * sx, y * sy) };
 
-  if (plan.stroke.kind === 'solid') {
-    ctx.strokeStyle = plan.stroke.color;
-    ctx.beginPath();
-    tracePath(path, scaled, cursor);
-    ctx.stroke();
-    return;
-  }
+  const runs = plan.stroke.kind === 'runs' ? plan.stroke : null;
+  let run = runs ? runOf(runs.starts, fromIndex - 1) : 0;
+  ctx.strokeStyle = runs ? runs.colors[run]! : (plan.stroke as { color: string }).color;
+  let lastX = fromTip ? fromTip.x : c[(fromIndex - 1) * 2]!;
+  let lastY = fromTip ? fromTip.y : c[(fromIndex - 1) * 2 + 1]!;
+  ctx.beginPath();
+  ctx.moveTo(lastX * sx, lastY * sy);
 
-  const c = path.coords;
-  const n = c.length >> 1;
-  const drawnPoints = Math.min(cursor.index, n);
-  const { starts, colors } = plan.stroke;
-  for (let r = 0; r < starts.length; r++) {
-    const from = starts[r]!;
-    if (from >= drawnPoints) break;
-    const to = Math.min(r + 1 < starts.length ? starts[r + 1]! : n - 1, drawnPoints - 1);
-    const endsWithTip = cursor.tip !== null && to === drawnPoints - 1;
-    if (to <= from && !endsWithTip) continue;
-    ctx.strokeStyle = colors[r]!;
-    ctx.beginPath();
-    scaled.moveTo(c[from * 2]!, c[from * 2 + 1]!);
-    for (let i = from + 1; i <= to; i++) scaled.lineTo(c[i * 2]!, c[i * 2 + 1]!);
-    if (endsWithTip) scaled.lineTo(cursor.tip!.x, cursor.tip!.y);
-    ctx.stroke();
-  }
+  const piece = (segment: number, x: number, y: number) => {
+    if (runs && run + 1 < runs.starts.length && runs.starts[run + 1]! <= segment) {
+      // Colour changes: finish this run and continue at the very same point.
+      ctx.stroke();
+      run = runOf(runs.starts, segment);
+      ctx.strokeStyle = runs.colors[run]!;
+      ctx.beginPath();
+      ctx.moveTo(lastX * sx, lastY * sy);
+    }
+    ctx.lineTo(x * sx, y * sy);
+    lastX = x;
+    lastY = y;
+  };
+
+  for (let k = fromIndex - 1; k <= toIndex - 2; k++) piece(k, c[(k + 1) * 2]!, c[(k + 1) * 2 + 1]!);
+  if (toTip) piece(toIndex - 1, toTip.x, toTip.y);
+  ctx.stroke();
 }
 
 /** Reproducible description of a rendering (runtime is added by the caller). */

@@ -384,3 +384,53 @@ werden abgelehnt). Vorschau: `PREVIEW_RENDER_EDGE` = 2048.
 | Rendering Detail (Schwarz / Farbe) | 240–255 / 180–220 ms | 295–330 / 225–310 ms | 410–485 / 350–425 ms |
 | Farb-Sampling (einmal pro Pfad) | 130 ms (Balanced), 180 ms (Detail) | | |
 | Pfadberechnung (zum Vergleich) | 1,5–1,6 s (Balanced), 2,6–3,0 s (Detail) | | |
+
+## Entstehungs-Animation (Teil 7)
+
+### Datenfluss
+```
+OneLinePath (fertig, unverändert) ─┐
+RenderSettings ────────────────────┼─► createArtworkAnimator (einmalig: Plan, Farben, Bogenlängen-Index, Hintergrund)
+                                   │
+requestAnimationFrame(now) ─► playback.tick (reiner Zustand, Uhr injiziert) ─► progress 0…1
+                                                                              │
+     cursorAtProgress (Binärsuche über kumulierte Längen) ◄───────────────────┘
+                 │
+     drawArtworkLineRange(vorheriger Cursor → neuer Cursor) auf persistente Linienebene
+                 │
+     Komposition: Hintergrund + Linienebene (Deckkraft) → Canvas
+```
+Während der Animation laufen weder Analyse noch Engine; es entstehen keine neuen Punkte.
+
+### Kern (`core/animation`, ohne DOM)
+- `pathProgress.ts`: `createPathProgress(path)` baut kumulierte Bogenlängen (Float64). `cursorAtProgress`
+  findet per Binärsuche das Segment und interpoliert die Spitze; Positionen innerhalb von
+  `SNAP_EPSILON` · Länge an einem Punkt rasten auf den Punkt ein (keine Mini-Segmente/Duplikate).
+  NaN → `AnimationError`, ±Infinity/außerhalb → auf 0…1 begrenzt.
+- `playback.ts`: Zustandsmaschine `ready → playing ⇄ paused → finished` (play nach finished = von vorn),
+  zeitbasiert über Ankerzeit/Ankerfortschritt; Geschwindigkeit, seek, replay.
+- `animationSettings.ts`: Dauer-Presets 5/10/15/30 s (Standard 10 s), Geschwindigkeiten 0,5/1/2/4×
+  (vorbereitet), Easing `linear` (`ease-in-out` vorbereitet), `sanitizeAnimationSettings`,
+  `progressAtTime`, `frameTimesMs` (für den späteren Export).
+- `rendering/renderer.ts`: `drawArtworkLineRange(plan, path, ctx, from, to)` zeichnet genau das Stück
+  zwischen zwei Cursorn mit denselben Strichen/Farbläufen wie `drawArtworkLine` (das intern dieselbe
+  Funktion nutzt).
+
+### Browser (`platform/browser/animation`)
+- `artworkAnimator.ts`: `renderAt(ctx, p)` inkrementell, `renderFresh(ctx, p)` unabhängig von der Historie
+  (für Export in Teil 8). Bei `p = 1` wird die ganze Linie in einem Zug gezeichnet – bei Deckkraft 1
+  direkt auf den Hintergrund wie beim statischen Rendering: das letzte Frame ist pixelidentisch
+  (Browser-Test, alle Modi, weißer und Original-Hintergrund).
+- `animationLoop.ts`: rAF-Schleife, Metriken (Frames, fps, ausgelassene Frames, Renderzeit).
+
+### Laufzeiten (Desktop-Chromium headless, 2048 px, 10 s)
+| | Ø Frame | letzter (voller) Frame | fps | ausgelassen |
+|---|---|---|---|---|
+| Balanced Schwarz / Farbe | 0,4 / 0,5 ms | 5 / 15 ms | 60 | 0 |
+| Detail Schwarz / Farbe | 0,5 / 0,6 ms | 13 / 25 ms | 60 | 0 |
+
+### Bekannte Grenzen
+- Zwischenframes entstehen aus aneinandergesetzten Teilstrichen; an den Stoßstellen kann die
+  Kantenglättung minimal dunkler sein als im Endbild (nur während der Animation sichtbar).
+- Geschwindigkeit und `ease-in-out` sind im Kern vorhanden, aber noch ohne UI.
+- Der Animations-Canvas hat Vorschau-Auflösung (2048 px); Export-Auflösungen folgen in Teil 8.

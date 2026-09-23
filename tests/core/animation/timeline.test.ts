@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createTimeline, toSvgPathData } from '../../src/core';
-import { pathFrom } from '../helpers';
+import { createTimeline, toSvgPathData } from '../../../src/core';
+import { pathFrom } from '../../helpers';
 
 // Segment lengths 10 and 30 -> total 40.
 const path = pathFrom([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 30 }]);

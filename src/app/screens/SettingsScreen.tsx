@@ -18,6 +18,8 @@ interface SettingsScreenProps {
   controller: ImageImportController;
   render: RenderSettingsController;
   onBack: () => void;
+  /** To the drawing-process preview (enabled once the drawing is ready). */
+  onContinue: () => void;
 }
 
 /**
@@ -25,7 +27,7 @@ interface SettingsScreenProps {
  * recomputes only the line (the image analysis is reused); the previous
  * drawing stays visible, dimmed, until the new one is ready.
  */
-export function SettingsScreen({ session, controller, render, onBack }: SettingsScreenProps) {
+export function SettingsScreen({ session, controller, render, onBack, onContinue }: SettingsScreenProps) {
   const { renderSettings, updateRenderSettings } = render;
   const { oneLine, path, pathStatus, analysisStatus } = session;
   const { generatePath, setDrawing, retryAnalysis } = controller;
@@ -91,7 +93,7 @@ export function SettingsScreen({ session, controller, render, onBack }: Settings
             onChange={(value) => updateRenderSettings({ colorMode: DISPLAY_OPTIONS.find((o) => o.value === value)!.colorMode })}
           />
         </div>
-        <Button disabled title="Folgt in einem späteren Schritt">
+        <Button disabled={pathStatus !== 'ready'} onClick={onContinue}>
           Weiter
         </Button>
       </footer>
