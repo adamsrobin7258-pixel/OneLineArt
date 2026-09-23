@@ -40,12 +40,29 @@ export function hashString(input: string): number {
   return h >>> 0;
 }
 
-/** 32-bit FNV-1a over bytes, as 8-char hex. Used for image content hashes. */
-export function hashBytes(bytes: ArrayLike<number>): string {
+/** Incremental 32-bit FNV-1a, so large files can be hashed chunk by chunk. */
+export interface ByteHasher {
+  update(bytes: ArrayLike<number>): void;
+  /** 8-char hex digest. */
+  digest(): string;
+}
+
+export function createByteHasher(): ByteHasher {
   let h = 0x811c9dc5;
-  for (let i = 0; i < bytes.length; i++) {
-    h ^= bytes[i] as number;
-    h = Math.imul(h, 0x01000193);
-  }
-  return (h >>> 0).toString(16).padStart(8, '0');
+  return {
+    update(bytes) {
+      for (let i = 0; i < bytes.length; i++) {
+        h ^= bytes[i] as number;
+        h = Math.imul(h, 0x01000193);
+      }
+    },
+    digest: () => (h >>> 0).toString(16).padStart(8, '0'),
+  };
+}
+
+/** 32-bit FNV-1a over bytes, as 8-char hex. */
+export function hashBytes(bytes: ArrayLike<number>): string {
+  const hasher = createByteHasher();
+  hasher.update(bytes);
+  return hasher.digest();
 }

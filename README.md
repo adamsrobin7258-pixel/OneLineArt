@@ -9,7 +9,8 @@ Entstehungsvideo auf Basis desselben Pfads.
 ```bash
 npm install
 npm run dev        # Dev-Server
-npm run check      # Typecheck (app · core ohne DOM · node) + Lint + Tests
+npm run check      # Typecheck + Lint + Unit-Tests
+npm run test:e2e   # Browser-Tests (Playwright/Chromium; lokal einmalig: npx playwright install chromium)
 npm run build      # Produktionsbuild
 ```
 

@@ -7,7 +7,6 @@ import {
   createMemoryRepository,
   type ArtworkProject,
 } from '../../src/core';
-import { blankImage } from '../helpers';
 
 const project = (id: string, updatedAt: string): ArtworkProject => ({
   schemaVersion: ARTWORK_PROJECT_SCHEMA_VERSION,
@@ -15,7 +14,13 @@ const project = (id: string, updatedAt: string): ArtworkProject => ({
   name: id,
   createdAt: updatedAt,
   updatedAt,
-  image: { id: 'img', fileName: 'a.jpg', mimeType: 'image/jpeg', pixels: blankImage(), contentHash: '00000000' },
+  image: {
+    id: 'img',
+    fileName: 'a.jpg',
+    source: new Blob([new Uint8Array([0xff, 0xd8, 0xff])], { type: 'image/jpeg' }),
+    metadata: { format: 'jpeg', mimeType: 'image/jpeg', fileSizeBytes: 3, width: 64, height: 48, aspectRatio: 64 / 48, orientation: 1 },
+    contentHash: '00000000',
+  },
   settings: DEFAULT_ONE_LINE_SETTINGS,
   renderStyle: DEFAULT_RENDER_STYLE,
   animation: DEFAULT_ANIMATION_SETTINGS,

@@ -1,12 +1,17 @@
-import type { RasterImage } from './raster';
+import type { BinarySource } from './binarySource';
+import type { ImageMetadata } from './imageMetadata';
 
-/** The photo as imported by the user, decoded to pixels. */
+/**
+ * The photo exactly as the user selected it. Never modified: the untouched
+ * file is kept for later exports and re-processing; decoded pixels live in
+ * ProcessedImage.
+ */
 export interface OriginalImage {
+  /** Unique per import. Every derived result references it. */
   readonly id: string;
   readonly fileName: string;
-  readonly mimeType: string;
-  /** Decoded pixels. Width/height live on the raster. */
-  readonly pixels: RasterImage;
-  /** Content hash of the pixels; part of the determinism key. */
+  readonly source: BinarySource;
+  readonly metadata: ImageMetadata;
+  /** Hash of the file bytes; part of the determinism key. */
   readonly contentHash: string;
 }
