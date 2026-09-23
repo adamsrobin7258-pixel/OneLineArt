@@ -9,6 +9,7 @@ import {
   type ImportState,
 } from '../../core';
 import { runAnalysis, type AnalysisJob, type AnalysisOutcome } from '../../platform/browser/analysisRunner';
+import { PathGenerationError, runPathGeneration, type PathJob, type PathOutcome } from '../../platform/browser/pathRunner';
 import { bitmapDecoder } from '../../platform/browser/bitmapDecoder';
 import { createId } from '../../platform/browser/ids';
 
@@ -22,6 +23,10 @@ export interface ImageImportController {
   readonly retryAnalysis: () => void;
   /** Diagnostics of the last finished analysis (developer view only). */
   readonly analysisRun: Omit<AnalysisOutcome, 'analysis'> | null;
+  /** Computes the One-Line path of the current image (developer view in part 4). */
+  readonly generatePath: () => void;
+  /** Metrics and diagnostics of the last generated path (developer view only). */
+  readonly pathRun: Omit<PathOutcome, 'path'> | null;
 }
 
 /**
@@ -112,11 +117,39 @@ export function useImageImport(): ImageImportController {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analysisPending, imageId]);
 
+  // Path generation: on request, cancelled as soon as the image changes.
+  const [pathRun, setPathRun] = useState<Omit<PathOutcome, 'path'> | null>(null);
+  const pathJob = useRef<PathJob | null>(null);
+  const session = state.status === 'ready' ? state.session : null;
+
+  const generatePath = useCallback(() => {
+    if (!session || session.pathStatus === 'running') return;
+    const id = session.original.id;
+    dispatch({ type: 'path-started', imageId: id });
+    if (!session.analysis) return; // reducer marks 'analysis-missing'
+    pathJob.current?.cancel();
+    const job = runPathGeneration(session.processed, session.analysis);
+    pathJob.current = job;
+    job.promise.then(
+      ({ path, ...run }) => {
+        setPathRun(run);
+        dispatch({ type: 'path-succeeded', imageId: id, path });
+      },
+      (error: unknown) => {
+        console.error('Path generation failed', error);
+        dispatch({ type: 'path-failed', imageId: id, error: error instanceof PathGenerationError ? error.code : 'generation-failed' });
+      },
+    );
+  }, [session]);
+
   useEffect(
     () => () => {
       analysisJob.current?.cancel();
       analysisJob.current = null;
+      pathJob.current?.cancel();
+      pathJob.current = null;
       setAnalysisRun(null);
+      setPathRun(null);
     },
     [imageId],
   );
@@ -133,5 +166,5 @@ export function useImageImport(): ImageImportController {
     [releasePreview],
   );
 
-  return { state, selectFile, removeImage, retryAnalysis, analysisRun };
+  return { state, selectFile, removeImage, retryAnalysis, analysisRun, generatePath, pathRun };
 }

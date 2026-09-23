@@ -1,4 +1,5 @@
 import { AnalysisError, type AnalysisErrorCode, type ImageAnalysis } from '../imageAnalysis';
+import type { EngineErrorCode } from '../engine';
 import type { OneLinePath, OriginalImage, ProcessedImage } from '../models';
 import type { ImageImportErrorCode } from './errors';
 import type { ImportedImage } from './types';
@@ -15,9 +16,16 @@ export interface ImageSession<TPreview> {
   /** Set only while analysisStatus is 'ready'; always belongs to `original`. */
   readonly analysis: ImageAnalysis | null;
   readonly analysisError: AnalysisErrorCode | null;
-  /** Filled in part 4. */
+  readonly pathStatus: PathStatus;
+  /** Set only while pathStatus is 'ready'; always generated from this session's analysis. */
   readonly path: OneLinePath | null;
+  readonly pathError: PathErrorCode | null;
 }
+
+/** Path generation runs on request (not automatically on import). */
+export type PathStatus = 'idle' | 'running' | 'ready' | 'failed';
+
+export type PathErrorCode = EngineErrorCode | 'analysis-missing' | 'out-of-memory' | 'generation-failed';
 
 export type AnalysisStatus = 'pending' | 'running' | 'ready' | 'failed';
 
@@ -38,7 +46,10 @@ export type ImportAction<TPreview> =
   | { readonly type: 'analysis-started'; readonly imageId: string }
   | { readonly type: 'analysis-succeeded'; readonly imageId: string; readonly analysis: ImageAnalysis }
   | { readonly type: 'analysis-failed'; readonly imageId: string; readonly error: AnalysisErrorCode }
-  | { readonly type: 'analysis-retry'; readonly imageId: string };
+  | { readonly type: 'analysis-retry'; readonly imageId: string }
+  | { readonly type: 'path-started'; readonly imageId: string }
+  | { readonly type: 'path-succeeded'; readonly imageId: string; readonly path: OneLinePath }
+  | { readonly type: 'path-failed'; readonly imageId: string; readonly error: PathErrorCode };
 
 export const EMPTY_IMPORT_STATE: ImportState<never> = { status: 'empty' };
 
@@ -62,7 +73,15 @@ export function importReducer<TPreview>(state: ImportState<TPreview>, action: Im
       if (!isCurrent(state, action.requestId)) return state;
       return {
         status: 'ready',
-        session: { ...action.image, analysisStatus: 'pending', analysis: null, analysisError: null, path: null },
+        session: {
+          ...action.image,
+          analysisStatus: 'pending',
+          analysis: null,
+          analysisError: null,
+          pathStatus: 'idle',
+          path: null,
+          pathError: null,
+        },
       };
     case 'import-failed':
       if (!isCurrent(state, action.requestId)) return state;
@@ -74,10 +93,51 @@ export function importReducer<TPreview>(state: ImportState<TPreview>, action: Im
     case 'analysis-failed':
     case 'analysis-retry':
       return analysisReducer(state, action);
+    case 'path-started':
+    case 'path-succeeded':
+    case 'path-failed':
+      return pathReducer(state, action);
   }
 }
 
-type AnalysisAction<TPreview> = Extract<ImportAction<TPreview>, { imageId: string }>;
+/**
+ * Paths are accepted only for the session's own image, only once its analysis
+ * exists, and only if the path says it was made for this image and canvas.
+ */
+function pathReducer<TPreview>(
+  state: ImportState<TPreview>,
+  action: Extract<ImportAction<TPreview>, { type: 'path-started' | 'path-succeeded' | 'path-failed' }>,
+): ImportState<TPreview> {
+  if (state.status !== 'ready' || state.session.original.id !== action.imageId) return state;
+  const session = state.session;
+  const update = (patch: Partial<ImageSession<TPreview>>): ImportState<TPreview> => ({ status: 'ready', session: { ...session, ...patch } });
+
+  switch (action.type) {
+    case 'path-started':
+      if (session.pathStatus === 'running') return state;
+      if (session.analysisStatus !== 'ready') return update({ pathStatus: 'failed', pathError: 'analysis-missing', path: null });
+      return update({ pathStatus: 'running', pathError: null, path: null });
+    case 'path-failed':
+      return session.pathStatus === 'running' ? update({ pathStatus: 'failed', pathError: action.error, path: null }) : state;
+    case 'path-succeeded': {
+      if (session.pathStatus !== 'running') return state;
+      const { meta, bounds } = action.path;
+      if (meta.sourceImageId !== undefined && meta.sourceImageId !== session.original.id) return state;
+      const { width, height } = session.processed.pixels;
+      if (bounds.width !== width || bounds.height !== height) {
+        return update({ pathStatus: 'failed', pathError: 'invalid-result', path: null });
+      }
+      return update({ pathStatus: 'ready', path: action.path, pathError: null });
+    }
+    default:
+      return state;
+  }
+}
+
+type AnalysisAction<TPreview> = Extract<
+  ImportAction<TPreview>,
+  { type: 'analysis-started' | 'analysis-succeeded' | 'analysis-failed' | 'analysis-retry' }
+>;
 
 /**
  * Analysis results are accepted only for the session's own image; anything

@@ -3,7 +3,7 @@ import type { ImageOperation } from '../imageProcessing';
 import { applyOperations } from '../imageProcessing';
 import type { OneLinePath, OneLineSettings, RasterImage } from '../models';
 import { createRandom } from '../utils';
-import { validatePath } from './path';
+import { validateOneLinePath } from './validation';
 import type { OneLinePathGenerator, PathOptimizer } from './types';
 
 export interface PathGenerationConfig {
@@ -42,7 +42,7 @@ export function generateOneLinePath(
     path = optimizer.optimize(path, input, root.fork(`optimize:${optimizer.id}`));
   }
 
-  const validation = validatePath(path);
+  const validation = validateOneLinePath(path);
   if (!validation.valid) {
     throw new Error(`Pipeline produced an invalid path: ${validation.errors.join(' ')}`);
   }

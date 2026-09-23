@@ -5,7 +5,7 @@ import {
   createRandom,
   generateOneLinePath,
   standardAnalyzer,
-  placeholderGenerator,
+  oneLineGenerator,
   pointCount,
   runOneLinePipeline,
   uniformAnalyzer,
@@ -13,7 +13,7 @@ import {
 } from '../../src/core';
 import { blankImage } from '../helpers';
 
-const config = { analyzer: uniformAnalyzer, generator: placeholderGenerator };
+const config = { analyzer: uniformAnalyzer, generator: oneLineGenerator };
 
 describe('one-line pipeline', () => {
   it('is deterministic: same image + same settings => identical path', () => {
@@ -32,12 +32,13 @@ describe('one-line pipeline', () => {
   it('records provenance and image bounds', () => {
     const path = runOneLinePipeline(config, blankImage(64, 48), { ...DEFAULT_ONE_LINE_SETTINGS, seed: 9 });
     expect(path.bounds).toEqual({ width: 64, height: 48 });
-    expect(path.meta).toEqual({ generatorId: placeholderGenerator.id, generatorVersion: placeholderGenerator.version, seed: 9 });
+    expect(path.meta).toEqual({ generatorId: oneLineGenerator.id, generatorVersion: oneLineGenerator.version, seed: 9 });
   });
 
   it('respects maxPoints', () => {
     const path = runOneLinePipeline(config, blankImage(), { ...DEFAULT_ONE_LINE_SETTINGS, detail: 1, maxPoints: 50 });
-    expect(pointCount(path)).toBe(50);
+    expect(pointCount(path)).toBeLessThanOrEqual(50);
+    expect(pointCount(path)).toBeGreaterThanOrEqual(2);
   });
 
   it('runs stages in order and passes the analysis to the generator', () => {
@@ -96,9 +97,9 @@ describe('analysis → engine hand-over', () => {
   it('gives the same result whether analysis runs inside the pipeline or beforehand', () => {
     const image = blankImage(80, 60);
     const settings = { ...DEFAULT_ONE_LINE_SETTINGS, seed: 5 };
-    const viaPipeline = runOneLinePipeline({ analyzer: standardAnalyzer, generator: placeholderGenerator }, image, settings);
+    const viaPipeline = runOneLinePipeline({ analyzer: standardAnalyzer, generator: oneLineGenerator }, image, settings);
     const analysis = standardAnalyzer.analyze(image, createRandom(0));
-    const direct = generateOneLinePath({ generator: placeholderGenerator }, { image, analysis }, settings);
+    const direct = generateOneLinePath({ generator: oneLineGenerator }, { image, analysis }, settings);
     expect(direct.coords).toEqual(viaPipeline.coords);
   });
 });

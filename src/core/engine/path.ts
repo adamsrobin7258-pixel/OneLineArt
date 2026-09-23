@@ -45,6 +45,43 @@ export function pathLength(path: OneLinePath): number {
   return lengths.length ? (lengths[lengths.length - 1] as number) : 0;
 }
 
+export function segmentCount(path: OneLinePath): number {
+  return Math.max(0, pointCount(path) - 1);
+}
+
+export function startPoint(path: OneLinePath): Point {
+  return pointAt(path, 0);
+}
+
+export function endPoint(path: OneLinePath): Point {
+  return pointAt(path, pointCount(path) - 1);
+}
+
+export interface BoundingBox {
+  readonly minX: number;
+  readonly minY: number;
+  readonly maxX: number;
+  readonly maxY: number;
+}
+
+export function boundingBox(path: OneLinePath): BoundingBox {
+  const c = path.coords;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (let i = 0; i < c.length; i += 2) {
+    const x = c[i]!, y = c[i + 1]!;
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  return c.length ? { minX, minY, maxX, maxY } : { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+}
+
+/** Build a path directly from interleaved coordinates (no copy). */
+export function pathFromCoords(coords: Float32Array, bounds: Size, meta: OneLinePathMeta): OneLinePath {
+  return { coords, bounds, meta };
+}
+
 export interface PathValidation {
   readonly valid: boolean;
   readonly errors: readonly string[];

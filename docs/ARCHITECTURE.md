@@ -24,14 +24,15 @@ aufgesetzt.
 src/
   app/              Screens, App-Shell                    (React)
   ui/               Wiederverwendbare Komponenten, Theme  (React)
-  platform/         Browser-Adapter (Bild-Decoder, Analyse-Worker, Canvas; später IndexedDB, Video)
+  platform/         Browser-Adapter (Bild-Decoder, Analyse- und Pfad-Worker, Canvas; später IndexedDB, Video)
   core/             UI- und plattformfreie Kernlogik
     models/           Datenmodelle
     utils/            Seeded RNG, Hashing, Mathe
     imageImport/      Formaterkennung, Header/EXIF, Import-Ablauf, Import-Status (Teil 2)
     imageProcessing/  ImageOperation, fitWithin/orientedSize
     imageAnalysis/    Bildanalyse: Luminanz, Kontrast, Kanten, Detail, Textur, Importance (Teil 3)
-    engine/           OneLinePath-API, Generator-/Optimizer-Schnittstellen, Pipeline
+    engine/           OneLinePath-API, Pipeline, Validierung, Metriken
+      oneLine/          One-Line-Engine (Teil 4)
     rendering/        PathCursor, tracePath, SVG-Rendering
     animation/        AnimationTimeline (Zeit -> Position auf dem echten Pfad)
     export/           Exporter-Schnittstellen                 (Impl. Teil 8)
@@ -91,7 +92,7 @@ Gleiches Bild + gleiche `OneLineSettings` (inkl. `seed`) + gleiche Generator-Ver
 ## Platzhalter (werden ersetzt)
 
 - `uniformAnalyzer` bleibt als Test-Stand-in; die echte Analyse ist `standardAnalyzer` (Teil 3)
-- `placeholderGenerator` (Random Walk, ignoriert den Bildinhalt) → One-Line-Algorithmus in Teil 4
+- Der `placeholderGenerator` aus Teil 1 wurde in Teil 4 durch `oneLineGenerator` ersetzt
 - Die Dev-Vorschau des Platzhalterpfads auf dem Startscreen wurde in Teil 2 durch den Bildimport ersetzt; `PathPreview`/`canvasRenderer` bleiben für Teil 4 erhalten.
 
 ## Bildimport (Teil 2)
@@ -198,3 +199,69 @@ Normalisierungsreferenz, Laufzeit und Runner. Nicht Teil der normalen Oberfläch
 | Determinismus | Bit-identisch auf derselben JS-Engine; `Math.cbrt`/`Math.exp` können zwischen Engines im letzten Bit abweichen |
 | Semantik | Keine Objekterkennung (z. B. Gesichter); „globale Relevanz“ ist rein bildstatistisch |
 | Normalisierung | Relativ pro Bild (mit Untergrenzen) – Werte sind innerhalb eines Bildes vergleichbar, zwischen Bildern nur eingeschränkt |
+
+## One-Line-Engine (Teil 4)
+
+### Datenfluss
+
+```
+OriginalImage ─(Teil 2)─► ProcessedImage.pixels (≤ 2048 px)
+  ─(Teil 3, Worker)─► ImageAnalysis { importance, globalRelevance, luminance, … }
+  ─(Teil 4, Worker)─► generateOneLine(input, parameters, { rng: seed, shouldAbort })
+       1. Nachfragefeld   demandField.ts        Importance + Tonwert + globale Relevanz → Liniendichte
+       2. Nachfragepunkte stippling.ts          geschichtete Stichprobe (Seed) + gewichtete Lloyd-Relaxation
+       3. Start           generateOneLine.ts    Punkt mit max. globaler Relevanz × Nachfrage
+       4. Startroute      tour.ts               geschlossene Moore-Kurve, am Start geöffnet (keine Sprünge)
+       5. Optimierung     tour.ts               2-opt: konturbewusste Länge + Krümmungsstrafe
+                          orientationField.ts   Strukturtensor → Konturrichtung und -stärke
+       6. Geometrie       geometry.ts           Bildkoordinaten, Chaikin-Glättung, Douglas–Peucker
+       7. Validierung     ../validation.ts      ein Strich, endlich, im Bild, keine Sprünge, renderbar
+  ─► OneLinePath (ein Koordinatenpuffer, Reihenfolge = Zeichenreihenfolge)
+  ─► ImageSession.path  →  Rendering (Teil 6) und Animation (Teil 7)
+```
+
+### Warum dieser Ansatz
+Jeder Nachfragepunkt wird **genau einmal** besucht. Dadurch kann die Linie nicht in
+einem Bereich hängen bleiben, jede Region bekommt die ihr zustehende Linienmenge,
+und die Verbindungen zwischen Regionen entstehen aus derselben Routenoptimierung
+wie die Details. Kanten bestimmen die Geometrie nicht direkt: Sie erhöhen die
+Dichte (über die Importance) und machen es teurer, eine Kontur zu **queren** als ihr
+zu **folgen**. Konturen treten so als Linienzüge aus der Mäanderfläche hervor.
+
+### Abdeckungsmodell
+Nachfragepunkte sind die Einheiten der Linien-Nachfrage (unberührt → besucht).
+Für Metriken misst `coverage.ts` pro Zelle abgegebene vs. benötigte Linienlänge
+(unberührt / teilweise / ausreichend).
+
+### Parameter (`engine/oneLine/parameters.ts`)
+| Gruppe | Parameter |
+|---|---|
+| Arbeitsraster | `workingMaxEdge`, `minPixelsPerDensePoint`, `maxWorkingEdge` |
+| Nachfrage | `toneWeight`, `globalModulation`, `demandGamma`, `demandFloor`, `importanceReferencePercentile` |
+| Linienbudget | `pointBudget` (min/max, über `settings.detail`), `settings.maxPoints` |
+| Stippling | `relaxationIterations` |
+| Pfadoptimierung | `neighborCount`, `contourAlignment`, `contourScale`, `curvaturePenalty`, `maxMovesPerPoint` |
+| Geometrie | `smoothingIterations`, `smoothingRatio`, `simplificationTolerance` (bei 2048 px, skaliert) |
+| Sicherheit | `maxSegmentFraction`, `maxZeroLengthShare`, Zeitlimit im Worker (60 s) |
+
+Version: `ONE_LINE_ENGINE_VERSION`; der Pfad speichert Generator, Version, Seed und `sourceImageId`.
+
+### Validierung (`engine/validation.ts`)
+1. ≥ 2 Punkte · 2. ein Koordinatenpuffer mit Herkunft · 3. alle Werte endlich ·
+4. alle Punkte im Bild · 5. keine ungültigen Segmente · 6. Länge > 0 ·
+7. keine Sprünge (Segment ≤ max(Anteil der Diagonale, 4 × Punktabstand im dünnsten Bereich)) ·
+8. höchstens 1 % Null-Längen-Segmente · 9. renderbar als genau ein `moveTo` + n−1 `lineTo`.
+
+### Debug
+`?debug=analysis` → „Pfad berechnen“, Overlays (Pfad / Pfad + Original / Pfad + Importance)
+und Metriken: Länge, Punkte, Segmente, Ø/max. Segmentlänge, Ø Krümmung, Selbstkreuzungen,
+Bounding Box, Start/Ende, Importance-Abdeckung, Laufzeit, interne Zähler, Parameter, Version.
+
+### Bekannte Grenzen
+| Thema | Stand |
+|---|---|
+| Laufzeit | ≈ 1,2–1,6 s (Fotos) bis ≈ 2,6 s (stark konzentrierte Motive) im Desktop-Chromium-Worker; mobil voraussichtlich 2–4× |
+| Stil | Der Charakter ist „Mäander/TSP-Art“: Ton entsteht über Liniendichte; feine Details < ~2 Punktabstände gehen verloren |
+| Semantik | keine Gesichts-/Objekterkennung; Motivtreue hängt an Tonwert + Konturen |
+| Kreuzungen | werden durch 2-opt meist aufgelöst (wenige verbleiben, wo Entwirren scharfe Knicke erzwänge) |
+| Determinismus | bitgleich auf derselben JS-Engine (siehe Teil 3) |

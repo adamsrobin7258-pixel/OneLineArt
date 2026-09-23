@@ -13,9 +13,15 @@ export interface PathGenerationContext {
   readonly rng: Random;
   /** Progress in [0, 1]; used by the UI via a worker later. */
   readonly onProgress?: (progress: number) => void;
+  /**
+   * Polled between work units. Returning true aborts with an EngineError
+   * ('aborted'); used for time limits and cancellation. Never changes a
+   * result — a run either completes deterministically or fails.
+   */
+  readonly shouldAbort?: () => boolean;
 }
 
-/** Computes the single continuous line. The real algorithm arrives in part 4. */
+/** Computes the single continuous line. */
 export interface OneLinePathGenerator {
   readonly id: string;
   /** Bump whenever output for identical input changes. */

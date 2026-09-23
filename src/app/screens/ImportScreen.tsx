@@ -12,7 +12,7 @@ import { useImageImport } from '../state/useImageImport';
 
 /** Step 1: choose a photo, inspect it, replace or remove it. */
 export function ImportScreen() {
-  const { state, selectFile, removeImage, retryAnalysis, analysisRun } = useImageImport();
+  const { state, selectFile, removeImage, retryAnalysis, analysisRun, generatePath, pathRun } = useImageImport();
   const picker = useFilePicker(selectFile);
   const canTakePhoto = useMemo(() => supportsCameraCapture(), []);
   const debugAnalysis = useMemo(() => isAnalysisDebugEnabled(), []);
@@ -49,7 +49,7 @@ export function ImportScreen() {
         <>
           <div className="import__stage" {...dropToReplace}>
             {debugAnalysis ? (
-              <AnalysisDebugView key={state.session.original.id} session={state.session} run={analysisRun} />
+              <AnalysisDebugView key={state.session.original.id} session={state.session} run={analysisRun} pathRun={pathRun} onGeneratePath={generatePath} />
             ) : (
               <ImageViewer key={state.session.original.id} image={state.session.preview} label={state.session.original.fileName} />
             )}

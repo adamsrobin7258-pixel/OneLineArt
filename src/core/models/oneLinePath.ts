@@ -21,4 +21,6 @@ export interface OneLinePathMeta {
   readonly generatorId: string;
   readonly generatorVersion: string;
   readonly seed: number;
+  /** OriginalImage id the path was generated for, when known. */
+  readonly sourceImageId?: string;
 }

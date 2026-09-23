@@ -215,3 +215,70 @@ describe('analysis in the image session', () => {
     expect(requireAnalysisSource(state)).toBe(s.processed);
   });
 });
+
+describe('One-Line path in the image session', () => {
+  const analysed = () =>
+    run(
+      [
+        { type: 'analysis-started', imageId: 'a' },
+        {
+          type: 'analysis-succeeded',
+          imageId: 'a',
+          analysis: (() => {
+            const an = uniformAnalyzer.analyze({ width: 4, height: 3, data: new Uint8ClampedArray(48) }, createRandom(1));
+            return { ...an, meta: { ...an.meta, sourceImageId: 'a', sourceSize: { width: 4, height: 3 } } };
+          })(),
+        },
+      ],
+      run(loadImage(1, 'a')),
+    );
+  const pathFor = (imageId: string, width = 4, height = 3) => ({
+    coords: new Float32Array([0, 0, 1, 1]),
+    bounds: { width, height },
+    meta: { generatorId: 'test', generatorVersion: '1', seed: 1, sourceImageId: imageId },
+  });
+  const session = (state: ImportState<Preview>) => {
+    if (state.status !== 'ready') throw new Error('not ready');
+    return state.session;
+  };
+
+  it('starts idle; generation is on request only', () => {
+    expect(session(analysed()).pathStatus).toBe('idle');
+    expect(session(analysed()).path).toBeNull();
+  });
+
+  it('idle → running → ready stores the path', () => {
+    const s = session(run([{ type: 'path-started', imageId: 'a' }, { type: 'path-succeeded', imageId: 'a', path: pathFor('a') }], analysed()));
+    expect(s.pathStatus).toBe('ready');
+    expect(s.path?.meta.sourceImageId).toBe('a');
+  });
+
+  it('requires a finished analysis', () => {
+    const s = session(importReducer(run(loadImage(1, 'a')), { type: 'path-started', imageId: 'a' }));
+    expect(s.pathStatus).toBe('failed');
+    expect(s.pathError).toBe('analysis-missing');
+  });
+
+  it('never accepts a path of another image', () => {
+    let state = run([{ type: 'path-started', imageId: 'a' }], analysed());
+    state = importReducer(state, { type: 'path-succeeded', imageId: 'a', path: pathFor('other') });
+    expect(session(state).path).toBeNull();
+    state = run(loadImage(2, 'b'), state);
+    state = importReducer(state, { type: 'path-succeeded', imageId: 'a', path: pathFor('a') });
+    expect(session(state).original.id).toBe('b');
+    expect(session(state).path).toBeNull();
+  });
+
+  it('rejects a path for a different canvas size', () => {
+    const s = session(run([{ type: 'path-started', imageId: 'a' }, { type: 'path-succeeded', imageId: 'a', path: pathFor('a', 9, 9) }], analysed()));
+    expect(s.pathStatus).toBe('failed');
+    expect(s.pathError).toBe('invalid-result');
+  });
+
+  it('records failures and allows another attempt', () => {
+    let state = run([{ type: 'path-started', imageId: 'a' }, { type: 'path-failed', imageId: 'a', error: 'aborted' }], analysed());
+    expect(session(state).pathError).toBe('aborted');
+    state = importReducer(state, { type: 'path-started', imageId: 'a' });
+    expect(session(state).pathStatus).toBe('running');
+  });
+});
