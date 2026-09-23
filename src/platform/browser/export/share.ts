@@ -1,4 +1,4 @@
-import type { ExportFile } from '../../../core';
+import type { ExportFile, ExportFileActions } from '../../../core';
 
 /** Delay before releasing the object URL of a download (the browser needs it until the download started). */
 const REVOKE_DELAY_MS = 60_000;
@@ -37,3 +37,14 @@ export async function shareFile(file: ExportFile<Blob>): Promise<boolean> {
     throw error;
   }
 }
+
+/** Browser: download link + Web Share API (level 2) where available. */
+export const browserFileActions: ExportFileActions<Blob> = {
+  saveKind: 'download',
+  async save(file) {
+    downloadFile(file);
+    return { location: null };
+  },
+  canShare: canShareFile,
+  share: shareFile,
+};

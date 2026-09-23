@@ -639,10 +639,10 @@ Web-App (unverändert) → npm run build → dist/ → npx cap sync android → 
   (sicherer Kontext → WebCodecs, IndexedDB, Worker wie im Browser). Keine Dev-Server-URL.
 - Android-Projekt `android/` (Capacitor-Vorlage): minSdk 24 (Android 7.0), compileSdk/targetSdk 36,
   Android Gradle Plugin 8.13.0, Gradle 8.14.3, Java 21. `versionName` = `package.json`-Version,
-  `versionCode` 1. Berechtigungen: nur `INTERNET` (Capacitor-Standard).
+  `versionCode` 1. Berechtigungen: `INTERNET` (Capacitor-Standard) und `WRITE_EXTERNAL_STORAGE` nur bis
+  Android 9 (`maxSdkVersion="28"`, zum Speichern exportierter Dateien).
 - Release-Signierung vorbereitet: `android/keystore.properties` (Vorlage `keystore.properties.example`,
   git-ignoriert zusammen mit `*.jks`/`*.keystore`); ohne Datei bleibt der Release-Build unsigniert.
-- Der Kern, alle Plattform-Adapter und die UI sind unverändert; es gibt noch keinen nativen Code.
 
 ### Befehle
 | Zweck | Befehl |
@@ -660,9 +660,41 @@ Google-Maven-Repository (`dl.google.com`).
   „Foto aufnehmen“ fällt ohne Kamera-Berechtigung auf den Dateiauswähler zurück (Kamera → Teil 2).
 - Worker, Canvas, IndexedDB, dynamische Imports: Standard der Chromium-WebView.
 - WebCodecs: in der Android-WebView verfügbar (Chromium ≥ 94); H.264 hängt vom Gerät ab, sonst WebM-Fallback.
-- **Dateien sichern/teilen**: „Herunterladen“ (Blob-Link) wird von der WebView nicht verarbeitet, und
-  `navigator.share` gibt es in der WebView nicht → exportierte Dateien können in Teil 1 das Gerät noch
-  nicht verlassen (natives Teilen/Speichern → Teil 2).
-- Zurück-Taste: beendet die App (keine Browser-Historie; Behandlung → Teil 2).
+- Zurück-Taste: siehe „Android-Geräteintegration“.
 - Lifecycle: Hintergrund → `visibilitychange` pausiert die Vorschau; Drehen erzeugt die Activity dank
   `configChanges` nicht neu; gespeicherte Werke bleiben in IndexedDB.
+
+## Android-Geräteintegration (Phase 11, Teil 2)
+
+### Speichern und Teilen exportierter Dateien
+```
+Export (unverändert: Bild-/Videoexporter) → ExportFile<Blob>
+  → ExportFileActions (core/export, Schnittstelle)
+      ├─ Browser: browserFileActions   → Download-Link / Web Share
+      └─ Android: androidFileActions   → Plugin „MediaExport“ (nativ, im App-Modul)
+```
+- Auswahl zur Laufzeit: `platform/fileActions.ts` (`Capacitor.isNativePlatform()` + Plattform `android`).
+- Übertragung: die Datei geht in Stücken zu 1,5 MB (Base64) in den App-Cache
+  (`cache/exports/<id>/<Dateiname>`); nie als ein einziger String, auch nicht bei 4K-Videos. Speichern und
+  Teilen derselben Datei übertragen sie nur einmal. Cache-Dateien werden nach 24 h entfernt.
+- **Speichern** (`MediaExportPlugin.saveToGallery`): Android 10+ über MediaStore (Scoped Storage, keine
+  Berechtigung) nach `Pictures/One Line Art` (Bilder) bzw. `Movies/One Line Art` (Videos); die Datei ist bis
+  zum vollständigen Schreiben unsichtbar (`IS_PENDING`). Android 7–9: öffentlicher Ordner + Media-Scanner,
+  dafür `WRITE_EXTERNAL_STORAGE` (nur ≤ API 28, Laufzeitabfrage beim ersten Speichern).
+- **Teilen** (`MediaExportPlugin.share`): `content://`-URI über den vorhandenen `FileProvider`
+  (`${applicationId}.fileprovider`), `ACTION_SEND` mit Lese-Freigabe im System-Teilen-Dialog.
+- Warum kein fertiges Plugin: die offiziellen Plugins schreiben nicht in MediaStore (Galerie) und übertragen
+  Dateien als ein Base64-String; das eigene Plugin ist eine Java-Klasse ohne weitere Abhängigkeiten.
+
+### Zurück-Taste (`@capacitor/app` 8.1.1)
+Reihenfolge: offener Dialog schließen → laufenden Export abbrechen → „Meine Werke“ → zurück zum Ablauf →
+Export → Vorschau → Zeichnung → Bild. Auf „Bild“ (Startebene) geht die App in den Hintergrund
+(`App.minimizeApp()`, wie andere Android-Apps; die aktuelle Arbeit bleibt im Speicher). Umsetzung:
+`ui/backStack.ts` (Overlays), `app/backNavigation.ts` (Schritte), `platform/capacitor/backButton.ts`.
+Im Browser bleibt alles unverändert.
+
+### Bekannte Android-Einschränkungen
+- Während die App im Hintergrund oder der Bildschirm gesperrt ist, drosselt/pausiert die WebView JavaScript:
+  ein laufender Export wird langsamer oder hält an und läuft beim Zurückkehren weiter.
+- Ob die Teilen-Ziel-App die Datei tatsächlich verschickt hat, meldet Android nicht zurück.
+- „Foto aufnehmen“ öffnet weiterhin den Dateiauswähler (keine Kamera-Berechtigung).

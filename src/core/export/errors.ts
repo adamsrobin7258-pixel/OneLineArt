@@ -11,6 +11,8 @@ export type ExportErrorCode =
   | 'encoding-failed'
   /** Project without drawing or with inconsistent data. */
   | 'invalid-project'
+  /** The finished file could not be saved or handed to the share sheet. */
+  | 'save-failed'
   | 'cancelled';
 
 export class ExportError extends Error {

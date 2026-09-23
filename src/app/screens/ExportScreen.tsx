@@ -18,8 +18,9 @@ import {
   type VideoResolution,
 } from '../../core';
 import type { BrowserExportSource } from '../../platform/browser/export/imageExporter';
-import { canShareFile, downloadFile, shareFile } from '../../platform/browser/export/share';
+import { exportFileActions } from '../../platform/fileActions';
 import { Button } from '../../ui/components/Button';
+import { useBackHandler } from '../../ui/useBackHandler';
 import { SegmentedControl } from '../../ui/components/SegmentedControl';
 import { Icon } from '../../ui/components/Icon';
 import { ImageViewer } from '../../ui/components/ImageViewer';
@@ -136,6 +137,8 @@ export function ExportScreen({ session, render, durationMs, onDurationChange, pr
   };
 
   const running = isExportRunning(state);
+  // Android back button while exporting: stop the export (stays on this screen).
+  useBackHandler(running, cancel);
   const videoBlocked = capability !== null && !capability.supported;
   const percent = Math.round(state.progress * 100);
   const totalVideoMs = timelineDurationMs(durationMs);
@@ -263,7 +266,33 @@ export function ExportScreen({ session, render, durationMs, onDurationChange, pr
 }
 
 function ExportReady({ file }: { file: ExportFile<Blob> }) {
-  const shareable = useMemo(() => canShareFile(file), [file]);
+  const actions = useMemo(() => exportFileActions(), []);
+  const shareable = useMemo(() => actions.canShare(file), [actions, file]);
+  const [saving, setSaving] = useState<'idle' | 'busy' | 'done' | 'failed'>('idle');
+  const [location, setLocation] = useState<string | null>(null);
+  const [shareFailed, setShareFailed] = useState(false);
+  const gallery = actions.saveKind === 'gallery';
+
+  const save = async () => {
+    setSaving('busy');
+    try {
+      setLocation((await actions.save(file)).location);
+      setSaving('done');
+    } catch (error) {
+      console.error('Saving the export failed', error);
+      setSaving('failed');
+    }
+  };
+  const share = async () => {
+    setShareFailed(false);
+    try {
+      await actions.share(file);
+    } catch (error) {
+      console.error('Sharing failed', error);
+      setShareFailed(true);
+    }
+  };
+
   return (
     <div className="export__ready" data-testid="export-ready" data-file-name={file.fileName} data-file-size={file.sizeBytes} data-mime-type={file.mimeType}>
       <p className="export__status-title">
@@ -275,17 +304,30 @@ function ExportReady({ file }: { file: ExportFile<Blob> }) {
         </span>
       </p>
       <div className="export__ready-actions">
-        <Button onClick={() => downloadFile(file)}>
-          <Icon name="download" size={18} />
-          Herunterladen
+        <Button onClick={() => void save()} disabled={saving === 'busy' || (gallery && saving === 'done')}>
+          <Icon name={gallery && saving === 'done' ? 'check' : 'download'} size={18} />
+          {gallery ? (saving === 'busy' ? 'Wird gespeichert …' : saving === 'done' ? 'Gespeichert' : 'In Galerie speichern') : 'Herunterladen'}
         </Button>
         {shareable && (
-          <Button variant="quiet" onClick={() => void shareFile(file).catch((error: unknown) => console.error('Sharing failed', error))}>
+          <Button variant="quiet" onClick={() => void share()}>
             <Icon name="share" size={18} />
             Teilen
           </Button>
         )}
       </div>
+      {gallery && saving === 'done' && (
+        <p className="notice" role="status" data-testid="export-saved">
+          <span>Gespeichert unter „{location ?? 'Galerie'}“ – in der Galerie-App sichtbar.</span>
+        </p>
+      )}
+      {(saving === 'failed' || shareFailed) && (
+        <p className="notice notice--error" role="alert">
+          <Icon name="alert" size={18} />
+          <span>
+            <strong>{EXPORT_ERROR_MESSAGES['save-failed'].title}.</strong> {EXPORT_ERROR_MESSAGES['save-failed'].detail}
+          </span>
+        </p>
+      )}
     </div>
   );
 }

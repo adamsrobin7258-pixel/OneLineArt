@@ -1,8 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DEFAULT_ANIMATION_SETTINGS, sanitizeAnimationSettings, storageErrorCode, StorageError } from '../core';
+import { onSystemBack } from '../platform/capacitor/backButton';
+import { backStack } from '../ui/backStack';
 import { Button } from '../ui/components/Button';
 import { Icon } from '../ui/components/Icon';
 import { StepIndicator } from '../ui/components/StepIndicator';
+import { backAction } from './backNavigation';
 import { STORAGE_ERROR_MESSAGES } from './exportMessages';
 import { FLOW_STEPS, reachableSteps, type FlowStepId } from './flow';
 import { AnimationScreen } from './screens/AnimationScreen';
@@ -44,6 +47,23 @@ export function App() {
   const saved = session ? projects.isSaved(session, render.renderSettings, durationMs) : false;
 
   const reachable = reachableSteps({ hasImage: usable, hasDrawing });
+
+  // Android back button: close what is open (dialog, running export), else one step back.
+  const position = useRef({ view, current });
+  useEffect(() => {
+    position.current = { view, current };
+  }, [view, current]);
+  useEffect(
+    () =>
+      onSystemBack(() => {
+        if (backStack.handle()) return true;
+        const action = backAction(position.current.view, position.current.current);
+        if (action.type === 'view') setView(action.view);
+        else if (action.type === 'step') setStep(action.step);
+        return action.type !== 'exit';
+      }),
+    [],
+  );
 
   return (
     <main className="screen" data-view={view}>

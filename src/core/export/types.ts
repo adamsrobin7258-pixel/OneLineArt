@@ -1,4 +1,5 @@
 import type { OneLinePath, Size } from '../models';
+import type { ExportFile } from './exportState';
 import type { RenderSettings } from '../rendering';
 
 /**
@@ -21,4 +22,24 @@ export interface ExportSource<TImage, TBackground> {
   /** Upright size of the original photo ("Originalgröße"). */
   readonly originalSize: Size;
   readonly projectName?: string | null | undefined;
+}
+
+/** Result of keeping a file on the device. */
+export interface ExportSaveResult {
+  /** User-facing place where the file is now (e.g. "Bilder/One Line Art"); null if the platform decides (browser download). */
+  readonly location: string | null;
+}
+
+/**
+ * What the platform does with a finished export (browser: download + Web
+ * Share; Android: gallery + system share sheet). The export itself is always
+ * produced by the same exporters; only this last step differs.
+ */
+export interface ExportFileActions<TData> {
+  /** 'download': the browser's download; 'gallery': the device's photo/video collection. */
+  readonly saveKind: 'download' | 'gallery';
+  save(file: ExportFile<TData>): Promise<ExportSaveResult>;
+  canShare(file: ExportFile<TData>): boolean;
+  /** Resolves false if the user closed the share sheet without sharing (where the platform reports it). */
+  share(file: ExportFile<TData>): Promise<boolean>;
 }

@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { useBackHandler } from '../useBackHandler';
 
 interface DialogProps {
   open: boolean;
@@ -17,6 +18,8 @@ interface DialogProps {
 export function Dialog({ open, title, children, actions, onClose }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
+  // The Android back button closes the dialog first.
+  useBackHandler(open, onClose);
 
   useEffect(() => {
     const dialog = ref.current;

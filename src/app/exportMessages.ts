@@ -10,6 +10,7 @@ export const EXPORT_ERROR_MESSAGES: Record<ExportErrorCode, UserMessage> = {
   'codec-unsupported': { title: 'Video in dieser Auflösung nicht möglich', detail: 'Dieser Browser unterstützt die Größe nicht. Bitte eine kleinere Auflösung wählen.' },
   'encoding-failed': { title: 'Die Datei konnte nicht erstellt werden', detail: 'Bitte erneut versuchen.' },
   'invalid-project': { title: 'Es gibt noch keine fertige Zeichnung', detail: 'Bitte zuerst eine Zeichnung erstellen.' },
+  'save-failed': { title: 'Die Datei konnte nicht gespeichert werden', detail: 'Bitte freien Speicher prüfen und erneut versuchen.' },
   cancelled: { title: 'Export abgebrochen', detail: 'Es wurde keine Datei erstellt.' },
 };
 
