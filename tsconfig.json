@@ -1,0 +1,11 @@
+{
+  // Editor-only umbrella config. Build/CI use tsconfig.{app,core,node}.json.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["vite/client", "node"],
+    "noEmit": true
+  },
+  "include": ["src", "tests", "vite.config.ts"]
+}
