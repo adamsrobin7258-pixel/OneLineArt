@@ -87,3 +87,55 @@ Stand: Teil 10. ✅ = automatisiert oder im Browser geprüft · ⚠️ = eingesc
   - [ ] Prüfen, dass der gespeicherte Startpunkt verwendet wird (Video beginnt dort)
   - [ ] Android-Zurück: Startpunkt-Auswahl → „Wiedergabe“ → Schritt zurück → „Meine Werke“
   - [ ] Export des Orthogonal-Stils: Bild und Video, Speichern in der Galerie, Teilen
+
+## Phase 13.6–13.8 – Stand nach Commit a9168b2
+- [x] ✅ Projektdatei `.onelineart`: Export/Import, Validierung, Versionsprüfung, Namenskonflikte, kein Überschreiben — `projectFile.test`, `phase13-6-8.spec`
+- [x] ✅ Loop (Vorschau), Startpunkt, Richtung, Geschwindigkeit ohne Pfadberechnung — `playback.test`, `phase13-6-8.spec`
+- [x] ✅ Einstellungen: Standardwerte für neue Werke, gespeicherte Werke unverändert, Neustart — `workDefaults.test`, `phase13-6-8.spec`
+- [x] ✅ Responsive 360 / 390 / 430 / 768 / 1024 / 1280 px (Einstellungen, Importieren, Projektdatei, Wiederholen)
+- [ ] ⏳ Debug-APK über GitHub Actions („Android debug APK“) für diesen Stand
+- [ ] ⏳ Manueller Test auf dem Xiaomi 15 Ultra:
+
+### 13.6 Projektdatei
+  - [ ] Projekt öffnen (vorher: Orthogonal, Detailgrad ≠ Balanced, gedreht/zugeschnitten, Linienbreite geändert, Verlauf oder eigene Farben, Hintergrund Schwarz oder eigene Farbe, Dauer/Geschwindigkeit/Rückwärts/„Endlos“, Startpunkt gesetzt, gespeichert, als Favorit markiert)
+  - [ ] Export-Schritt → „Projektdatei exportieren“ → Meldung „Fertig: <Name> <Datum> <Uhrzeit>.onelineart“
+  - [ ] Auf Android nur „Teilen“ (kein „In Galerie speichern“) → Teilen-Menü → „In Dateien speichern“ (bzw. Dateien/Drive) → Datei liegt dort mit Endung `.onelineart`
+  - [ ] „Meine Werke“ → „Importieren“ (auf dem Handy Symbol mit Pfeil nach oben) → gespeicherte `.onelineart` wählen → Meldung „„<Name> – Import“ wurde importiert.“
+  - [ ] Das importierte Werk öffnen: Originalfoto korrekt (auch in „Bearbeiten“ drehbar/zuschneidbar), fertige Zeichnung erscheint sofort, ohne „Zeichnung wird berechnet“
+  - [ ] Stil, Detailgrad, Bearbeitung (Drehung/Zuschnitt), Linienbreite, Zeichenstärke, Hintergrund, Farben (Einfarbig/Verlauf/Foto, eigene Farben) sind gleich
+  - [ ] Animation: Dauer, Geschwindigkeit, Richtung, „Wiederholen“ sind gleich
+  - [ ] Startpunkt-Marker an derselben Stelle; die Animation beginnt dort
+  - [ ] „Meine Werke“ → Sortierung „Erstellt“: das importierte Werk zeigt das ursprüngliche Erstelldatum
+  - [ ] Das importierte Werk ist KEIN Favorit (Stern leer), auch wenn das Original einer ist
+  - [ ] Dieselbe Datei noch einmal importieren → „<Name> – Import 2“; ein drittes Mal → „– Import 3“
+  - [ ] Eigene ID: importiertes Werk umbenennen, ändern, speichern, löschen → das Original bleibt unverändert und öffnet weiterhin
+  - [ ] Das ursprüngliche Projekt ist nach Export und Import unverändert (Name, Favorit, Einstellungen, Zeichnung)
+  - [ ] Importiertes Werk erneut als Projektdatei exportieren und wieder importieren
+  - [ ] Eine beliebige andere Datei (z. B. ein Foto oder PDF) importieren → Meldung „Keine gültige Projektdatei“, nichts ändert sich
+  - [ ] Touch: „Importieren“ und „Projektdatei exportieren“ gut treffbar; nichts abgeschnitten bei Hoch- und Querformat
+
+### 13.7 Animation
+  - [ ] Play, Pause (Position bleibt stehen), Fortsetzen, „Von vorn“ (beginnt am Startpunkt)
+  - [ ] Vorwärts / Rückwärts
+  - [ ] Geschwindigkeit 0,5× / 1× / 2× / 4×
+  - [ ] Dauer 5 / 10 / 15 / 30 s und „Eigene“
+  - [ ] Wiederholen „Einmal“: endet mit dem fertigen Bild
+  - [ ] Wiederholen „Endlos“: nach ca. 2 s Standbild beginnt die Zeichnung wieder
+  - [ ] „Endlos“ beginnt jede Runde wieder am gespeicherten Startpunkt (auch rückwärts)
+  - [ ] „Endlos“ + Pause / Fortsetzen / „Von vorn“ funktionieren
+  - [ ] Alles einmal mit Organisch, Geometrisch und Orthogonal (auch bei Detail)
+  - [ ] Während „Startpunkt setzen“ zeigt „Wiedergabe“ nur den Startpunkt; das Bild ist groß genug zum Tippen
+  - [ ] Werk mit „Endlos“ speichern, App beenden, wieder öffnen → „Endlos“ und Startpunkt sind erhalten
+  - [ ] Video exportieren mit „Endlos“: das Video enthält die Zeichnung genau einmal (Länge = Dauer ÷ Geschwindigkeit + 2 s)
+  - [ ] App in den Hintergrund und zurück während „Endlos“: Vorschau pausiert, Fortsetzen möglich
+
+### 13.8 Einstellungen
+  - [ ] Zahnrad oben rechts öffnet „Einstellungen“ (bei 360 px passen Speichern, Meine Werke und Zahnrad in die Kopfzeile)
+  - [ ] Alle Standardwerte ändern: Stil, Detailgrad, Hintergrund Schwarz, Linienbreite, Dauer (auch „Eigene“), Geschwindigkeit, Richtung, Wiederholen
+  - [ ] App vollständig beenden und neu starten → alle Werte sind erhalten
+  - [ ] Neues Foto importieren → Stil, Detailgrad, Hintergrund, Linienbreite und Animation entsprechen den Standardwerten
+  - [ ] Ein vorher gespeichertes Werk öffnen → es hat seine eigenen Werte, nicht die Standardwerte
+  - [ ] Standardwerte erneut ändern → das gespeicherte Werk bleibt unverändert („Gespeichert“ bleibt stehen)
+  - [ ] „Auf Standard zurücksetzen“ → Organisch, Balanced, Weiß, 1,00, 10 s, 1×, Vorwärts, Einmal
+  - [ ] Android-Zurück in „Einstellungen“ → zurück zur Zeichnung, App bleibt offen
+  - [ ] Touch/Responsive: alle Auswahlfelder vollständig lesbar und treffbar, Linienbreite per Finger verstellbar, Hoch- und Querformat
