@@ -683,6 +683,9 @@ Export (unverändert: Bild-/Videoexporter) → ExportFile<Blob>
   dafür `WRITE_EXTERNAL_STORAGE` (nur ≤ API 28, Laufzeitabfrage beim ersten Speichern).
 - **Teilen** (`MediaExportPlugin.share`): `content://`-URI über den vorhandenen `FileProvider`
   (`${applicationId}.fileprovider`), `ACTION_SEND` mit Lese-Freigabe im System-Teilen-Dialog.
+- **Speichern unter** (`MediaExportPlugin.saveAs`, nur Projektdatei `.onelineart`): System-Dateidialog
+  (`ACTION_CREATE_DOCUMENT`, keine Berechtigung), Vorschlag = sicherer Dateiname; kopiert dieselbe
+  Cache-Datei an den gewählten Ort. Abbrechen → `saved: false` (kein Fehler).
 - Warum kein fertiges Plugin: die offiziellen Plugins schreiben nicht in MediaStore (Galerie) und übertragen
   Dateien als ein Base64-String; das eigene Plugin ist eine Java-Klasse ohne weitere Abhängigkeiten.
 
@@ -1021,7 +1024,7 @@ ab 960 px, darunter gestapelt.
   (Worker-Zähler). Teilen auf Android über das vorhandene native `MediaExport`-Plugin (Datei an das System-
   Teilen-Menü), im Browser über die Web Share API. Fehler: verständliche Meldung + „Erneut versuchen“,
   App bleibt bedienbar (vorhandene Tests für Encoder- und Canvas-Fehler).
-- Eine Loop-Einstellung gibt es nicht und wurde nicht eingeführt (Entscheidung Phase 13.5).
+- Eine Loop-Einstellung gab es nicht und wurde in 13.5 nicht eingeführt (seit 13.7: Loop nur für die Vorschau).
 
 ## Projektdatei, Loop, Einstellungen (Phase 13.6–13.8)
 
@@ -1045,8 +1048,8 @@ Zusätzliches Austauschformat; die interne Speicherung (IndexedDB) bleibt unver�
   („Name – Import“, „– Import 2“ …), Erstelldatum bleibt, Änderungsdatum = jetzt, nie überschrieben.
   Ein gleiches Foto wird über den Hash geteilt, nicht doppelt gespeichert.
 - UI: Export-Schritt → Abschnitt „Projektdatei“ (aktueller Stand, wie Bild/Video); „Meine Werke“ →
-  „Importieren“. Android: Weitergabe über „Teilen“ (u. a. „In Dateien speichern“), da die Galerie nur
-  Bilder/Videos aufnimmt; im Browser Download. Messung: 20-MB-Foto + 200 000 Punkte → 21,5 MB, Export
+  „Importieren“. Android: „Speichern“ (System-Dateidialog, Ort und Name frei wählbar) und „Teilen“, da die
+  Galerie nur Bilder/Videos aufnimmt; im Browser Download. Messung: 20-MB-Foto + 200 000 Punkte → 21,5 MB, Export
   49 ms, Import inkl. Prüfung 100 ms.
 
 ### 13.7 Animation: Loop
@@ -1068,3 +1071,11 @@ Startpunkt-Wahl zeigt „Wiedergabe“ nur die Startpunkt-Gruppe (mehr Platz fü
 - Globale Export-Voreinstellungen gab es nicht; sie wurden nicht eingeführt.
 - UI: Zahnrad in der Kopfzeile → „Einstellungen“ (Android-Zurück führt zurück).
 
+## Abschluss Phase 13 (13.9)
+Reiner Regressions- und Release-Test, keine neuen Funktionen. `e2e/phase13-release.spec.ts` prüft 13.1–13.8
+im Zusammenhang: ein Werk durch den ganzen Ablauf (Foto → Drehen → Orthogonal/Detail → Startpunkt →
+Animation mit Richtung, Geschwindigkeit, Dauer, Loop → Speichern → Neustart → Öffnen → Bild, Video,
+Projektdatei → Import → importiertes Werk inkl. Video ab dem Startpunkt), den zweiten Loop-Durchlauf
+(beginnt auf geleerter Fläche wieder am Startpunkt) und die Phase-13-Bedienelemente bei 360–1280 px
+(erreichbar, nicht verdeckt). Pfad- und Analyse-Worker werden dabei gezählt: nur Stil/Detail/Bearbeitung
+berechnen neu. Realgerätetest (Xiaomi 15 Ultra) für 13.1–13.8 bestanden, s. `RELEASE_CHECKLIST.md`.
