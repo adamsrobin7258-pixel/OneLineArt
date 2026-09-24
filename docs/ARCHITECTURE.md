@@ -869,3 +869,53 @@ vorwärts, Pfadanfang. Kein neues Speicherformat, keine Migration.
   nennt die tatsächliche Zeit.
 - Liegt der Startpunkt sehr nah am Pfadende, springt der Stift früh zum Pfadanfang (kurzer Sprung, s. oben).
 - Die Startpunktwahl erfolgt per Zeiger/Touch; eine reine Tastaturbedienung zum Setzen gibt es nicht.
+
+## Projekte und Abschluss von Phase 12 (Phase 12.4)
+
+### Projektverwaltung („Meine Werke“)
+Eine Speicherung (`ProjectRepository` auf IndexedDB), keine zweite Datenhaltung:
+- **Speichern/Öffnen:** Projekt = Original (einmal je Inhalt, per Hash) + Bearbeitung + effektive
+  Zeichen-Einstellungen + Pfad + Render-Einstellungen + Animationswahl + Thumbnail. Öffnen stellt alles
+  wieder her, ohne Analyse oder Pfadberechnung; die Bearbeitung wird auf die frische Anzeige-Kopie
+  angewandt (Original bleibt unverändert).
+- **Umbenennen:** leere Namen werden nicht gespeichert (UI und Repository); unbenannte Werke zeigen ihr Datum.
+- **Duplizieren** (`repository.duplicate`): neuer Datensatz mit eigener ID, eigenem Namen („… – Kopie“),
+  neuen Daten, eigener Pfad- und Thumbnail-Kopie; das Original-Foto wird über den Hash geteilt. Änderungen
+  an der Kopie berühren das Original nicht (Unit- und Browser-Test).
+- **Favoriten** (`repository.setFavorite`): Feld `favorite` im Projekt-Datensatz (fehlt bei alten = nein),
+  bleibt beim erneuten Speichern erhalten, ändert das Änderungsdatum nicht; Favoriten stehen oben.
+- **Löschen:** mit Bestätigung; entfernt Datensatz, Pfad, Thumbnail und das Foto, sobald es kein anderes
+  Projekt mehr nutzt.
+- **Erneut exportieren:** öffnet das Werk direkt im Export-Schritt mit seinen gespeicherten Einstellungen
+  (Farbe, Hintergrund, Linienbreite, Bearbeitung, Dauer, Geschwindigkeit, Richtung, Startpunkt).
+- **Thumbnails** werden vom Renderer aus dem Pfad gezeichnet (512 px) — nie ein Screenshot, daher ohne
+  Marker, Rahmen oder Editor-Overlays.
+
+### Zusammenspiel (Gesamtsystem)
+```
+Original ─▶ Bearbeitung (Drehen/Zuschneiden) ─▶ Arbeitsbild ─▶ Analyse ─▶ Engine (Stil, Detail, Glättung) ─▶ OneLinePath
+                                                                                                                 │
+               Rendering (Linienbreite, Stärke, Hintergrund, Farbe/Verlauf/Foto, Intensität) ◀────────────────────┤
+               Animation (Route: Dauer ÷ Geschwindigkeit, Richtung, Startpunkt) ◀─────────────────────────────────┤
+               Projekt (alles oben) ◀────────────────────────────────────────────────────────────────────────────┤
+               Export (Bild = Rendering; Video = Animation + Rendering) ◀─────────────────────────────────────────┘
+```
+Neu berechnet wird nur, was sich ändert: neues Bild / neue Bearbeitung → Analyse + Pfad; Stil, Detail,
+Glättung → Pfad (Cache je Schlüssel); alles Übrige → nur Neuzeichnen. Veraltete Ergebnisse werden über
+`sessionKeyOf` (Bild + Bearbeitungsrevision) verworfen.
+
+### Android-Zurück
+Reihenfolge wie in Phase 11, erweitert um die neuen Ebenen: Bild-Editor, „Anpassen“, „Wiedergabe“ und die
+Startpunkt-Auswahl registrieren sich im Back-Stack und schließen zuerst. Für Browser-Tests stellt nur der
+Dev-Build `window.__systemBack` bereit (nicht im Produktions-/Android-Bundle).
+
+### Messwerte (Desktop-Chromium, Dev-Server)
+| Vorgang | Zeit |
+|---|---|
+| Import + Analyse 8000×6000 JPEG | 2,3 s |
+| Drehen + neue Analyse | 1,9 s |
+| Pfadberechnung (Balanced) | 2,1 s |
+| Galerie mit 31 Werken inkl. Thumbnails | 0,17 s |
+| Werk öffnen (48-MP-Original dekodieren, keine Berechnung) | 1,4–1,6 s |
+| Videoexport 1080p, 5 s + 2 s | 3,3 s |
+| JS-Heap nach GC: Start / nach 10 Öffnungen / nach 30 Löschungen | 9 / 11 / 10 MB |

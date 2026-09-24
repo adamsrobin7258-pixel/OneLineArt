@@ -16,6 +16,8 @@ const PATHS = {
   rotateLeft: 'M5.5 12a6.5 6.5 0 1 0 1.9-4.6M5.5 4.5v3.5H9',
   rotateRight: 'M18.5 12a6.5 6.5 0 1 1-1.9-4.6M18.5 4.5v3.5H15',
   crop: 'M7 3v14h14M3 7h14v14',
+  star: 'M12 3.8l2.5 5.1 5.6.8-4 3.9 1 5.6-5.1-2.7-5.1 2.7 1-5.6-4-3.9 5.6-.8z',
+  copy: 'M9 9h10.5v10.5H9zM15 9V4.5H4.5V15H9',
   sliders: 'M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4',
 } as const;
 
@@ -23,8 +25,8 @@ export type IconName = keyof typeof PATHS;
 
 const FILLED: ReadonlySet<IconName> = new Set(['play', 'pause']);
 
-export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
-  const filled = FILLED.has(name);
+export function Icon({ name, size = 20, filled: fill = false }: { name: IconName; size?: number; filled?: boolean }) {
+  const filled = fill || FILLED.has(name);
   return (
     <svg
       className="icon"

@@ -3,6 +3,7 @@ import { isCustomDrawing, type ImageSession, type OneLinePath } from '../../core
 import { Button } from '../../ui/components/Button';
 import { ImageViewer } from '../../ui/components/ImageViewer';
 import { Icon } from '../../ui/components/Icon';
+import { useBackHandler } from '../../ui/useBackHandler';
 import { StatusPanel } from '../../ui/components/StatusPanel';
 import { AdjustPanel } from '../AdjustPanel';
 import { DetailChoice, DisplayChoice, StyleChoice } from '../controls';
@@ -52,6 +53,8 @@ export function SettingsScreen({ session, controller, render, onBack, onContinue
   const level = oneLine.drawing.detailLevel;
   const custom = isCustomDrawing(oneLine.drawing);
   const [adjusting, setAdjusting] = useState(false);
+  // Android back closes the open panel first.
+  useBackHandler(adjusting, () => setAdjusting(false));
   const panelId = useId();
 
   return (

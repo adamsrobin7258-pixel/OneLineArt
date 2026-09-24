@@ -14,6 +14,7 @@ import { createArtworkAnimator } from '../../platform/browser/animation/artworkA
 import { isAnalysisDebugEnabled } from '../../platform/browser/debugFlags';
 import { Button } from '../../ui/components/Button';
 import { Icon } from '../../ui/components/Icon';
+import { useBackHandler } from '../../ui/useBackHandler';
 import { DisplayChoice, DurationChoice } from '../controls';
 import { PlaybackPanel } from '../PlaybackPanel';
 import type { AnimationChoice } from '../state/useProjects';
@@ -53,6 +54,12 @@ export function AnimationScreen({ session, render, animation, onAnimationChange,
   const { direction, startPoint } = animation;
   const [panelOpen, setPanelOpen] = useState(false);
   const [picking, setPicking] = useState(false);
+  // Android back: first end the start point selection, then close the panel.
+  useBackHandler(panelOpen, () => {
+    setPicking(false);
+    setPanelOpen(false);
+  });
+  useBackHandler(picking, () => setPicking(false));
   const panelId = useId();
   // Where the drawing really starts: the path point nearest to the chosen image point.
   const start = useMemo(() => (path && startPoint ? nearestPathPoint(createPathProgress(path), toPathPoint(path, startPoint)) : null), [path, startPoint]);

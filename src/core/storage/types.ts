@@ -67,6 +67,7 @@ export interface ProjectSummary {
   readonly imageSize: Size | null;
   readonly pointCount: number;
   readonly thumbnail: ProjectThumbnail | null;
+  readonly favorite: boolean;
 }
 
 export interface LoadedProject {
@@ -83,6 +84,13 @@ export interface ProjectRepository {
   load(id: string): Promise<LoadedProject>;
   list(): Promise<readonly ProjectSummary[]>;
   rename(id: string, name: string): Promise<void>;
+  /** Marks or unmarks a favourite (does not change the project's "last changed" date). */
+  setFavorite(id: string, favorite: boolean): Promise<void>;
+  /**
+   * Copies a project into a NEW, independent record `newId` (settings, path,
+   * thumbnail); the original photo is shared by content hash, not copied.
+   */
+  duplicate(id: string, newId: string, name: string): Promise<void>;
   /** Removes the project and every piece of local data only it used. */
   remove(id: string): Promise<void>;
 }

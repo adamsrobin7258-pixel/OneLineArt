@@ -53,6 +53,9 @@ export interface ProjectsController {
   readonly isSaved: (session: ImageSession<ImageBitmap>, render: RenderSettings, animation: AnimationChoice) => boolean;
   readonly save: (session: ImageSession<ImageBitmap>, render: RenderSettings, animation: AnimationChoice) => Promise<void>;
   readonly list: () => Promise<readonly ProjectSummary[]>;
+  /** Independent copy with its own id and name (the original is not touched). */
+  readonly duplicate: (id: string, name: string) => Promise<void>;
+  readonly setFavorite: (id: string, favorite: boolean) => Promise<void>;
   readonly load: (id: string) => Promise<LoadedProject>;
   readonly remove: (id: string) => Promise<void>;
   readonly rename: (id: string, name: string) => Promise<void>;
@@ -148,6 +151,8 @@ export function useProjects(): ProjectsController {
     save,
     list: useCallback(() => repository.list(), [repository]),
     load: useCallback((id: string) => repository.load(id), [repository]),
+    duplicate: useCallback((id: string, name: string) => repository.duplicate(id, createId(), name), [repository]),
+    setFavorite: useCallback((id: string, favorite: boolean) => repository.setFavorite(id, favorite), [repository]),
     remove,
     rename,
     link,

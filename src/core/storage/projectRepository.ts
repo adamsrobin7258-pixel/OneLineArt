@@ -60,7 +60,9 @@ export function createProjectRepository(backend: StorageBackend, options: Projec
     async save(project: ArtworkProject, thumbnail: ProjectThumbnail | null) {
       validateProject(project);
       if (thumbnail && thumbnail.data.size > STORAGE_LIMITS.maxThumbnailBytes) throw new StorageError('invalid-project', 'Thumbnail too large');
-      const record = toProjectRecord(project, thumbnail);
+      // The favourite marker belongs to the gallery: saving the work again keeps it.
+      const stored = (await backend.get('projects', project.id)) as { favorite?: unknown } | undefined;
+      const record = toProjectRecord(project, thumbnail, stored?.favorite === true);
       const ops: StorageOp[] = [
         { type: 'put', store: 'projects', key: project.id, value: record },
         { type: 'put', store: 'paths', key: project.id, value: { coords: new Float32Array(project.path.coords) } satisfies PathRecord },
@@ -124,6 +126,7 @@ export function createProjectRepository(backend: StorageBackend, options: Projec
             imageSize: { width: r.image.metadata.width, height: r.image.metadata.height },
             pointCount: r.path.pointCount,
             thumbnail: r.thumbnail && data ? { ...r.thumbnail, data } : null,
+            favorite: r.favorite,
           };
         } catch (error) {
           // Unreadable projects stay visible (so they can be deleted) instead of breaking the gallery.
@@ -142,17 +145,45 @@ export function createProjectRepository(backend: StorageBackend, options: Projec
             imageSize: null,
             pointCount: 0,
             thumbnail: null,
+            favorite: (raw as { favorite?: unknown } | null)?.favorite === true,
           };
         }
       });
-      return summaries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
+      // Favourites first, then newest first.
+      return summaries.sort((a, b) => Number(b.favorite) - Number(a.favorite) || b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
     },
 
     async rename(id: string, name: string) {
       const trimmed = name.trim();
+      // An empty name is never stored (unnamed works keep showing their default name).
+      if (trimmed === '') throw new StorageError('invalid-project', 'Empty name');
       if (trimmed.length > STORAGE_LIMITS.maxNameLength) throw new StorageError('invalid-project', 'Name too long');
       const record = await readRecord(id);
       await backend.commit([{ type: 'put', store: 'projects', key: id, value: { ...record, name: trimmed, updatedAt: now().toISOString() } }]);
+    },
+
+    async setFavorite(id: string, favorite: boolean) {
+      const record = await readRecord(id);
+      if (record.favorite === favorite) return;
+      await backend.commit([{ type: 'put', store: 'projects', key: id, value: { ...record, favorite } }]);
+    },
+
+    async duplicate(id: string, newId: string, name: string) {
+      if (!newId || newId === id) throw new StorageError('invalid-project', 'A copy needs its own id');
+      if ((await backend.get('projects', newId)) !== undefined) throw new StorageError('invalid-project', `Project ${newId} exists`);
+      const trimmed = name.trim();
+      if (trimmed.length > STORAGE_LIMITS.maxNameLength) throw new StorageError('invalid-project', 'Name too long');
+      const record = await readRecord(id);
+      const path = parsePathRecord(await backend.get('paths', id), record);
+      const thumb = record.thumbnail ? ((await backend.get('thumbnails', id)) as ThumbnailRecord | undefined) : undefined;
+      const date = now().toISOString();
+      const copy: ProjectRecord = { ...record, id: newId, name: trimmed, createdAt: date, updatedAt: date, favorite: false, thumbnail: thumb?.data ? record.thumbnail : null };
+      const ops: StorageOp[] = [
+        { type: 'put', store: 'projects', key: newId, value: copy },
+        { type: 'put', store: 'paths', key: newId, value: { coords: new Float32Array(path.coords) } satisfies PathRecord },
+      ];
+      if (thumb?.data) ops.push({ type: 'put', store: 'thumbnails', key: newId, value: { data: thumb.data } satisfies ThumbnailRecord });
+      await backend.commit(ops);
     },
 
     async remove(id: string) {

@@ -41,6 +41,8 @@ export interface ProjectRecord {
   readonly path: { readonly bounds: Size; readonly meta: OneLinePathMeta; readonly pointCount: number };
   readonly versions: ProjectVersions;
   readonly thumbnail: { readonly width: number; readonly height: number; readonly mimeType: string } | null;
+  /** Gallery marker (phase 12.4); absent in older records (= not a favourite). Kept when the project is saved again. */
+  readonly favorite: boolean;
 }
 
 /** Store "paths", key = project id. */
@@ -96,7 +98,7 @@ export function validateProject(project: ArtworkProject): void {
   if (project.name.length > STORAGE_LIMITS.maxNameLength) throw invalid('Name too long');
 }
 
-export function toProjectRecord(project: ArtworkProject, thumbnail: ProjectThumbnail | null): ProjectRecord {
+export function toProjectRecord(project: ArtworkProject, thumbnail: ProjectThumbnail | null, favorite = false): ProjectRecord {
   const { image, path } = project;
   return {
     formatVersion: ARTWORK_PROJECT_SCHEMA_VERSION,
@@ -112,6 +114,7 @@ export function toProjectRecord(project: ArtworkProject, thumbnail: ProjectThumb
     path: { bounds: path.bounds, meta: path.meta, pointCount: path.coords.length / 2 },
     versions: project.versions,
     thumbnail: thumbnail ? { width: thumbnail.width, height: thumbnail.height, mimeType: thumbnail.mimeType } : null,
+    favorite,
   };
 }
 
@@ -181,6 +184,7 @@ export function parseProjectRecord(raw: unknown): ProjectRecord {
     path,
     versions,
     thumbnail,
+    favorite: check<boolean>(record.favorite === undefined || typeof record.favorite === 'boolean', record.favorite, 'favorite') === true,
   };
 }
 

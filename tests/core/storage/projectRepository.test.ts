@@ -120,6 +120,8 @@ describe('project repository', () => {
     expect((await repo.load('a')).project).toMatchObject({ name: 'Mein Bild', updatedAt: '2026-10-01T00:00:00.000Z' });
     await expect(repo.rename('a', 'x'.repeat(STORAGE_LIMITS.maxNameLength + 1))).rejects.toMatchObject({ code: 'invalid-project' });
     await expect(repo.rename('zzz', 'x')).rejects.toMatchObject({ code: 'not-found' });
+    await expect(repo.rename('a', '   ')).rejects.toMatchObject({ code: 'invalid-project' });
+    expect((await repo.load('a')).project.name).toBe('Mein Bild');
   });
 
   it('rejects projects that cannot be stored', async () => {
@@ -204,6 +206,83 @@ describe('damaged and incompatible data', () => {
     expect((await repo2.load('a')).project.animation).toMatchObject({ durationMs: 15_000, speed: 1, direction: 'forward', startPoint: null });
   });
 
+  it('duplicate: an independent copy with its own id, name, dates and data; the photo is shared once', async () => {
+    const backend = createMemoryStorageBackend();
+    const clock = { t: new Date('2026-09-10T12:00:00Z') };
+    const repo = createProjectRepository(backend, { now: () => clock.t });
+    const original = { ...project('a', { name: 'Oma' }), edit: { rotation: 90 as const, crop: { x: 0.1, y: 0.1, width: 0.5, height: 0.5 } } };
+    await repo.save(original, thumb());
+    await repo.setFavorite('a', true);
+    await repo.duplicate('a', 'b', 'Oma – Kopie');
+
+    const copy = (await repo.load('b')).project;
+    const source = (await repo.load('a')).project;
+    expect(copy).toMatchObject({ id: 'b', name: 'Oma – Kopie', createdAt: '2026-09-10T12:00:00.000Z', updatedAt: '2026-09-10T12:00:00.000Z' });
+    // Every setting is taken over …
+    for (const key of ['image', 'edit', 'oneLine', 'render', 'animation', 'versions'] as const) expect(copy[key], key).toEqual(source[key]);
+    expect([...copy.path.coords]).toEqual([...source.path.coords]);
+    expect((await repo.load('b')).thumbnail).not.toBeNull();
+    // … but it is its own record: not a favourite, the original keeps its name and date.
+    const list = await repo.list();
+    expect(list.find((s) => s.id === 'b')!.favorite).toBe(false);
+    expect(list.find((s) => s.id === 'a')).toMatchObject({ favorite: true, name: 'Oma' });
+    expect(backend.stores.get('images')!.size).toBe(1);
+
+    // Changing the copy leaves the original untouched.
+    await repo.save({ ...copy, render: { ...copy.render, lineColor: '#ff0000' }, animation: { ...copy.animation, durationMs: 5_000 }, edit: { rotation: 0, crop: { x: 0, y: 0, width: 1, height: 1 } } }, thumb());
+    const after = (await repo.load('a')).project;
+    expect(after.render).toEqual(source.render);
+    expect(after.animation).toEqual(source.animation);
+    expect(after.edit).toEqual(source.edit);
+
+    // Deleting the original keeps the shared photo for the copy; deleting the copy removes it.
+    await repo.remove('a');
+    expect(backend.stores.get('images')!.size).toBe(1);
+    expect((await repo.load('b')).project.image.contentHash).toBe('hash-a');
+    await repo.remove('b');
+    for (const store of ['projects', 'paths', 'images', 'thumbnails'] as const) expect(backend.stores.get(store)!.size, store).toBe(0);
+  });
+
+  it('duplicate refuses the same or an existing id and unknown projects', async () => {
+    const repo = createProjectRepository(createMemoryStorageBackend());
+    await repo.save(project('a'), null);
+    await repo.save(project('b'), null);
+    await expect(repo.duplicate('a', 'a', 'x')).rejects.toMatchObject({ code: 'invalid-project' });
+    await expect(repo.duplicate('a', 'b', 'x')).rejects.toMatchObject({ code: 'invalid-project' });
+    await expect(repo.duplicate('zzz', 'c', 'x')).rejects.toMatchObject({ code: 'not-found' });
+    // Without a thumbnail the copy has none either.
+    await repo.duplicate('a', 'c', 'Kopie');
+    expect((await repo.load('c')).thumbnail).toBeNull();
+  });
+
+  it('favourites: set, remove, survive a restart and re-saving; listed first', async () => {
+    const backend = createMemoryStorageBackend();
+    const repo = createProjectRepository(backend);
+    await repo.save(project('old', { updated: '2026-09-01T10:00:00Z' }), null);
+    await repo.save(project('new', { updated: '2026-09-05T10:00:00Z' }), null);
+    expect((await repo.list()).map((s) => [s.id, s.favorite])).toEqual([
+      ['new', false],
+      ['old', false],
+    ]);
+    await repo.setFavorite('old', true);
+    const restarted = createProjectRepository(backend);
+    expect((await restarted.list()).map((s) => [s.id, s.favorite])).toEqual([
+      ['old', true],
+      ['new', false],
+    ]);
+    // Saving the work again keeps the marker; the marker does not change the date.
+    expect((await restarted.list())[0]!.updatedAt).toBe('2026-09-01T10:00:00.000Z');
+    await restarted.save(project('old', { updated: '2026-09-06T10:00:00Z' }), null);
+    expect((await restarted.list())[0]).toMatchObject({ id: 'old', favorite: true });
+    await restarted.setFavorite('old', false);
+    expect((await restarted.list()).map((s) => s.id)).toEqual(['old', 'new']); // newest first again
+    expect((await restarted.list())[0]!.favorite).toBe(false);
+    // Older records without the field are not favourites.
+    const record = backend.stores.get('projects')!.get('new') as Record<string, unknown>;
+    backend.stores.get('projects')!.set('new', Object.fromEntries(Object.entries(record).filter(([k]) => k !== 'favorite')));
+    expect((await restarted.list()).find((s) => s.id === 'new')!.favorite).toBe(false);
+  });
+
   it('a newer project format is reported as incompatible, never guessed', async () => {
     const { backend, repo, record } = await stored();
     backend.stores.get('projects')!.set('a', { ...record, formatVersion: 99 });
@@ -219,6 +298,7 @@ describe('damaged and incompatible data', () => {
       ['bad settings', { ...record, render: { ...(record.render as object), lineWidth: Number.NaN } }],
       ['out-of-range settings', { ...record, render: { ...(record.render as object), lineWidth: 1000 } }],
       ['unknown level', { ...record, oneLine: { ...(record.oneLine as object), drawing: { detailLevel: 'ultra' } } }],
+      ['bad favourite', { ...record, favorite: 'ja' }],
       ['bad start point', { ...record, animation: { ...(record.animation as object), startPoint: { x: 'Auge' } } }],
       ['start point outside', { ...record, animation: { ...(record.animation as object), startPoint: { x: 2, y: 0.5 } } }],
       ['bad edit', { ...record, edit: { rotation: 45, crop: { x: 0, y: 0, width: 1, height: 1 } } }],

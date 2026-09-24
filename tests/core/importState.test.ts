@@ -476,3 +476,42 @@ describe('image edits in the session', () => {
     expect(s.sourcePreview).toEqual({ tag: 'a' });
   });
 });
+
+describe('stale results across edits and images', () => {
+  const sessionOf = (state: ImportState<Preview>) => {
+    if (state.status !== 'ready') throw new Error(`expected ready, got ${state.status}`);
+    return state.session;
+  };
+  const analysisFor = (imageId: string, width = 4, height = 3) => {
+    const a = uniformAnalyzer.analyze({ width, height, data: new Uint8ClampedArray(width * height * 4) }, createRandom(1));
+    return { ...a, meta: { ...a.meta, sourceImageId: imageId, sourceSize: { width, height } } };
+  };
+  const path = (imageId: string) => ({ coords: new Float32Array([0, 0, 4, 3]), bounds: { width: 4, height: 3 }, meta: { generatorId: 'x', generatorVersion: '1', seed: 1, sourceImageId: imageId } });
+
+  it('image A analysed, edited, then image B: late results of A (before or after the edit) never reach B', () => {
+    const edited: ImportAction<Preview> = {
+      type: 'edit-applied',
+      imageId: 'a',
+      edit: { rotation: 180, crop: { x: 0, y: 0, width: 1, height: 1 } },
+      preview: { tag: 'a2' },
+      processed: { sourceImageId: 'a', pixels: { width: 4, height: 3, data: new Uint8ClampedArray(48) }, scale: 1 },
+    };
+    let state = run([...loadImage(1, 'a'), { type: 'analysis-started', imageId: 'a' }, edited, { type: 'analysis-started', imageId: 'a@1' }]);
+    state = run(loadImage(2, 'b'), state);
+    state = run([{ type: 'analysis-started', imageId: 'b' }], state);
+    const late: ImportAction<Preview>[] = [
+      { type: 'analysis-succeeded', imageId: 'a', analysis: analysisFor('a') },
+      { type: 'analysis-succeeded', imageId: 'a@1', analysis: analysisFor('a') },
+      { type: 'path-succeeded', imageId: 'a@1', key: sessionOf(state).oneLine.key, path: path('a') },
+      { type: 'analysis-failed', imageId: 'a', error: 'analysis-failed' },
+    ];
+    const after = run(late, state);
+    expect(after).toBe(state);
+    const s = sessionOf(after);
+    expect(s.original.id).toBe('b');
+    expect(s.analysisStatus).toBe('running');
+    expect(s.paths).toEqual({});
+    // B's own result is accepted.
+    expect(sessionOf(run([{ type: 'analysis-succeeded', imageId: 'b', analysis: analysisFor('b') }], after)).analysisStatus).toBe('ready');
+  });
+});

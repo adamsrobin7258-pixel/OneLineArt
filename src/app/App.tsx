@@ -44,7 +44,8 @@ export function App() {
     setChoice((current) => choiceOf(sanitizeAnimationSettings({ ...current, ...patch }).value));
   };
 
-  const openProject = async (id: string) => {
+  /** Restores everything stored (image + edit, drawing, rendering, animation); `to` = the step to show. */
+  const openProject = async (id: string, to: FlowStepId = 'settings') => {
     const loaded = await projects.load(id);
     await controller.openProject(loaded.project);
     render.updateRenderSettings(loaded.project.render);
@@ -53,7 +54,7 @@ export function App() {
     setStartPointOwner(loaded.project.image.id);
     projects.link(loaded);
     if (loaded.outdated.length > 0) console.info('Project made with other algorithm versions:', loaded.outdated, loaded.project.versions);
-    setStep('settings');
+    setStep(to);
     setView('flow');
   };
 
@@ -66,17 +67,18 @@ export function App() {
   useEffect(() => {
     position.current = { view, current };
   }, [view, current]);
-  useEffect(
-    () =>
-      onSystemBack(() => {
-        if (backStack.handle()) return true;
-        const action = backAction(position.current.view, position.current.current);
-        if (action.type === 'view') setView(action.view);
-        else if (action.type === 'step') setStep(action.step);
-        return action.type !== 'exit';
-      }),
-    [],
-  );
+  useEffect(() => {
+    const handler = () => {
+      if (backStack.handle()) return true;
+      const action = backAction(position.current.view, position.current.current);
+      if (action.type === 'view') setView(action.view);
+      else if (action.type === 'step') setStep(action.step);
+      return action.type !== 'exit';
+    };
+    // Development/test builds only: lets browser tests press the Android back button.
+    if (import.meta.env.DEV) (window as unknown as { __systemBack?: () => boolean }).__systemBack = handler;
+    return onSystemBack(handler);
+  }, []);
 
   return (
     <main className="screen" data-view={view}>
@@ -121,6 +123,11 @@ export function App() {
           projects={projects}
           onOpen={(id) =>
             openProject(id).catch((error: unknown) => {
+              throw error instanceof StorageError ? error : new StorageError(storageErrorCode(error), undefined, { cause: error });
+            })
+          }
+          onExport={(id) =>
+            openProject(id, 'export').catch((error: unknown) => {
               throw error instanceof StorageError ? error : new StorageError(storageErrorCode(error), undefined, { cause: error });
             })
           }

@@ -124,7 +124,8 @@ p {
 
 .appbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  /* Sides never shrink below their content: the steps stay centred where there is room, never overlapped. */
+  grid-template-columns: minmax(max-content, 1fr) auto minmax(max-content, 1fr);
   grid-template-areas: 'brand steps actions';
   align-items: center;
   gap: var(--space-3);
@@ -179,7 +180,24 @@ p {
   color: var(--color-danger);
 }
 
+/* Tablets: the steps get their own row below brand and actions. */
+@media (max-width: 960px) {
+  .appbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'brand actions'
+      'steps steps';
+    row-gap: var(--space-2);
+  }
+  .steps {
+    justify-self: center;
+  }
+}
+
 @media (max-width: 760px) {
+  .steps {
+    justify-self: stretch;
+  }
   .appbar {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
@@ -950,6 +968,29 @@ button.steps__link:hover {
   }
 }
 
+/* Narrow phones: nothing of the editor may be cut off. */
+@media (max-width: 420px) {
+  .editor,
+  .editor__bar,
+  .editor__tools > * {
+    min-width: 0;
+  }
+  .editor .segmented__option {
+    padding: 0 2px;
+    font-size: 13px;
+  }
+  .editor__actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .editor__actions .button {
+    min-width: 0;
+    padding: 0 6px;
+    font-size: 14px;
+    white-space: nowrap;
+  }
+}
+
 /* ---------- Toolbar (image step) ---------- */
 
 .toolbar {
@@ -1002,12 +1043,19 @@ button.steps__link:hover {
 }
 
 @media (max-width: 560px) {
+  /* Phones: three secondary actions in one row, "Weiter" as a full-width row below. */
   .toolbar__actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     width: 100%;
   }
   .toolbar__actions .button {
-    flex: 1 1 auto;
-    padding-inline: 12px;
+    min-width: 0;
+    padding-inline: 8px;
+    white-space: nowrap;
+  }
+  .toolbar__actions > :last-child {
+    grid-column: 1 / -1;
   }
 }
 
@@ -1134,6 +1182,11 @@ button.steps__link:hover {
   align-items: start;
   gap: var(--space-3) var(--space-4);
   min-width: 0;
+}
+
+/* Colour controls need more room (colour field + hex, three backgrounds): fewer columns. */
+.adjust__group--color {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 
 .adjust__note {
@@ -1663,11 +1716,46 @@ button.steps__link:hover {
   }
 }
 
+/* Narrow phones: the four card actions stay in one row (still ≥ 36 px targets). */
+@media (max-width: 420px) {
+  .card__actions {
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    margin-inline: -6px;
+  }
+  .card__actions .icon-button {
+    width: 36px;
+  }
+}
+
 .card {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   min-width: 0;
+}
+
+/* Favourite toggle on the thumbnail's corner (44 px touch target). */
+.card__favorite {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-faint);
+  cursor: pointer;
+}
+
+.card__favorite:hover:not(:disabled),
+.card__favorite.is-on {
+  color: #b7791f;
 }
 
 .card__open {
@@ -1736,10 +1824,8 @@ button.steps__link:hover {
 }
 
 .card__meta {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-1);
+  display: grid;
+  gap: 2px;
 }
 
 .card__text {
@@ -1761,8 +1847,8 @@ button.steps__link:hover {
 
 .card__actions {
   display: flex;
-  flex: none;
-  margin: -6px -10px 0 0;
+  flex-wrap: wrap;
+  margin: 0 0 0 -10px;
 }
 
 .empty {
@@ -1864,6 +1950,12 @@ button.steps__link:hover {
   font: inherit;
   /* 16px avoids the automatic zoom on iOS. */
   font-size: 16px;
+}
+
+.field__hint {
+  margin: 6px 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-danger);
 }
 
 .field__input:focus-visible {

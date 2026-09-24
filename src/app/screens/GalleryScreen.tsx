@@ -12,6 +12,8 @@ interface GalleryScreenProps {
   projects: ProjectsController;
   /** Opens a stored project; rejects with a StorageError. */
   onOpen: (id: string) => Promise<void>;
+  /** Opens a stored project directly at the export step (its own stored settings). */
+  onExport: (id: string) => Promise<void>;
   onCreate: () => void;
   onBack: (() => void) | null;
 }
@@ -22,8 +24,17 @@ const DAY_FORMAT = new Intl.DateTimeFormat('de-DE', { dateStyle: 'long' });
 const titleOf = (item: ProjectSummary) =>
   item.name || (item.status === 'ok' && !Number.isNaN(Date.parse(item.createdAt)) ? DAY_FORMAT.format(new Date(item.createdAt)) : 'Unbenanntes Werk');
 
-/** "Meine Werke": the locally stored projects. Only lists, opens, renames and deletes. */
-export function GalleryScreen({ projects, onOpen, onCreate, onBack }: GalleryScreenProps) {
+/** Name of a copy: "<title> – Kopie" (within the name limit). */
+const copyName = (item: ProjectSummary) => {
+  const suffix = ' – Kopie';
+  return `${titleOf(item).slice(0, STORAGE_LIMITS.maxNameLength - suffix.length)}${suffix}`;
+};
+
+/**
+ * "Meine Werke": the locally stored projects — open, export again, duplicate,
+ * mark as favourite, rename, delete. Favourites are listed first.
+ */
+export function GalleryScreen({ projects, onOpen, onExport, onCreate, onBack }: GalleryScreenProps) {
   const [items, setItems] = useState<readonly ProjectSummary[] | null>(null);
   const [error, setError] = useState<StorageErrorCode | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -102,6 +113,9 @@ export function GalleryScreen({ projects, onOpen, onCreate, onBack }: GalleryScr
               item={item}
               busy={busyId === item.id}
               onOpen={() => void run(item.id, () => onOpen(item.id), false)}
+              onExport={() => void run(item.id, () => onExport(item.id), false)}
+              onDuplicate={() => void run(item.id, () => projects.duplicate(item.id, copyName(item)), true)}
+              onFavorite={() => void run(item.id, () => projects.setFavorite(item.id, !item.favorite), true)}
               onRename={(name) => void run(item.id, () => projects.rename(item.id, name), true)}
               onDelete={() => void run(item.id, () => projects.remove(item.id), true)}
             />
@@ -112,7 +126,18 @@ export function GalleryScreen({ projects, onOpen, onCreate, onBack }: GalleryScr
   );
 }
 
-function GalleryCard({ item, busy, onOpen, onRename, onDelete }: { item: ProjectSummary; busy: boolean; onOpen: () => void; onRename: (name: string) => void; onDelete: () => void }) {
+interface GalleryCardProps {
+  item: ProjectSummary;
+  busy: boolean;
+  onOpen: () => void;
+  onExport: () => void;
+  onDuplicate: () => void;
+  onFavorite: () => void;
+  onRename: (name: string) => void;
+  onDelete: () => void;
+}
+
+function GalleryCard({ item, busy, onOpen, onExport, onDuplicate, onFavorite, onRename, onDelete }: GalleryCardProps) {
   const img = useRef<HTMLImageElement>(null);
   const [dialog, setDialog] = useState<'rename' | 'delete' | null>(null);
   const [name, setName] = useState(item.name);
@@ -131,7 +156,13 @@ function GalleryCard({ item, busy, onOpen, onRename, onDelete }: { item: Project
   const title = titleOf(item);
   const problem = item.status === 'incompatible' ? 'Andere App-Version' : 'Beschädigt';
   return (
-    <li className={`card${ok ? '' : ' card--problem'}`} data-testid="gallery-item" data-project-id={item.id} data-status={item.status}>
+    <li
+      className={`card${ok ? '' : ' card--problem'}${item.favorite ? ' is-favorite' : ''}`}
+      data-testid="gallery-item"
+      data-project-id={item.id}
+      data-status={item.status}
+      data-favorite={item.favorite ? 'true' : 'false'}
+    >
       <button type="button" className="card__open" onClick={onOpen} disabled={!ok || busy} aria-label={ok ? `${title} öffnen` : `${title} öffnen – nicht möglich (${problem})`}>
         {ok && thumbnail ? (
           <img ref={img} className="card__image" width={thumbnail.width} height={thumbnail.height} alt="" />
@@ -141,8 +172,21 @@ function GalleryCard({ item, busy, onOpen, onRename, onDelete }: { item: Project
             {ok ? '' : problem}
           </span>
         )}
-        {busy && <span className="card__busy">Wird geöffnet …</span>}
+        {busy && <span className="card__busy">Einen Moment …</span>}
       </button>
+      {ok && (
+        <button
+          type="button"
+          className={`card__favorite${item.favorite ? ' is-on' : ''}`}
+          aria-pressed={item.favorite}
+          aria-label={`Favorit: ${title}`}
+          title={item.favorite ? 'Favorit entfernen' : 'Als Favorit markieren'}
+          disabled={busy}
+          onClick={onFavorite}
+        >
+          <Icon name="star" size={20} filled={item.favorite} />
+        </button>
+      )}
       <div className="card__meta">
         <div className="card__text">
           <p className="card__title">{title}</p>
@@ -156,6 +200,16 @@ function GalleryCard({ item, busy, onOpen, onRename, onDelete }: { item: Project
         </div>
         <div className="card__actions">
           {ok && (
+            <>
+              <button type="button" className="icon-button" aria-label="Erneut exportieren" title="Erneut exportieren" disabled={busy} onClick={onExport}>
+                <Icon name="download" size={18} />
+              </button>
+              <button type="button" className="icon-button" aria-label="Duplizieren" title="Duplizieren" disabled={busy} onClick={onDuplicate}>
+                <Icon name="copy" size={18} />
+              </button>
+            </>
+          )}
+          {ok && (
             <button
               type="button"
               className="icon-button"
@@ -163,7 +217,7 @@ function GalleryCard({ item, busy, onOpen, onRename, onDelete }: { item: Project
               title="Umbenennen"
               disabled={busy}
               onClick={() => {
-                setName(item.name);
+                setName(item.name || title);
                 setDialog('rename');
               }}
             >
@@ -209,7 +263,7 @@ function GalleryCard({ item, busy, onOpen, onRename, onDelete }: { item: Project
             <Button variant="quiet" onClick={() => setDialog(null)}>
               Abbrechen
             </Button>
-            <Button type="submit" form={`${inputId}-form`}>
+            <Button type="submit" form={`${inputId}-form`} disabled={name.trim() === ''}>
               Übernehmen
             </Button>
           </>
@@ -219,14 +273,17 @@ function GalleryCard({ item, busy, onOpen, onRename, onDelete }: { item: Project
           id={`${inputId}-form`}
           onSubmit={(e) => {
             e.preventDefault();
+            // Empty names are not stored; the dialog stays open.
+            if (name.trim() === '') return;
             setDialog(null);
             onRename(name);
           }}
         >
           <label className="field" htmlFor={inputId}>
             <span className="field__label">Name</span>
-            <input id={inputId} className="field__input" value={name} maxLength={STORAGE_LIMITS.maxNameLength} placeholder={formatDate(item.createdAt)} onChange={(e) => setName(e.target.value)} autoFocus />
+            <input id={inputId} className="field__input" value={name} maxLength={STORAGE_LIMITS.maxNameLength} placeholder={title} onChange={(e) => setName(e.target.value)} autoFocus />
           </label>
+          {name.trim() === '' && <p className="field__hint">Bitte einen Namen eingeben.</p>}
         </form>
       </Dialog>
     </li>

@@ -48,3 +48,20 @@ Stand: Teil 10. ✅ = automatisiert oder im Browser geprüft · ⚠️ = eingesc
 - [ ] Test auf Android + Chrome (H.264/MP4, Teilen, große Bilder)
 - [ ] Test auf iPhone/iPad + Safari (Canvas-Grenzen, HEIC, Video, Teilen)
 - [ ] Test in Firefox und Safari (Desktop)
+
+## Phase 12 – Stand nach 12.4
+- [x] ✅ Projekte: speichern, öffnen, umbenennen (keine leeren Namen), duplizieren, löschen (mit Bestätigung), Favorit, erneut exportieren
+- [x] ✅ Alle Einstellungen werden wiederhergestellt (Bild-Bearbeitung, Zeichnung, Farbe, Animation) — Browser-Test des Gesamtablaufs
+- [x] ✅ Keine unnötige Pfadberechnung, keine veralteten Ergebnisse (Worker-Zähler, Reducer-Tests)
+- [x] ✅ Android-Zurück mit allen Panels (per Test-Hook im Dev-Build geprüft)
+- [x] ✅ Responsive 360 / 390 / 430 / 768 / 1024 px (keine Überläufe, keine abgeschnittenen Knöpfe, keine Überlappungen im Kopf)
+- [x] ✅ Speicher: 10 Projektwechsel ohne Heap-Zuwachs, 30 Löschungen ohne verwaiste Daten
+- [ ] ⏳ Debug-APK (`cd android` → `.\gradlew.bat assembleDebug`) — in der Cloud-Umgebung gesperrt (dl.google.com)
+- [ ] ⏳ Manueller Test auf dem Xiaomi 15 Ultra:
+  - Bild: Import, Zuschneiden, Zoom, Verschieben, Drehen
+  - Zeichnung: Organisch, Geometrisch, Detail, Glättung, Linienbreite, Hintergrund
+  - Farbe: Einfarbig, Verlauf, Foto, eigene Farben, Palette, Hintergrundfarbe
+  - Animation: eigene Dauer, Geschwindigkeit, vorwärts/rückwärts, Startpunkt setzen/zurücksetzen
+  - Projekte: speichern, öffnen, umbenennen, duplizieren, löschen, Favorit, erneut exportieren
+  - Export: Bild, Video, Teilen, Speichern in der Galerie
+  - Zurück-Taste: Editor, Anpassen, Wiedergabe, Startpunkt-Auswahl, Dialog, laufender Export, jeder Schritt, „Meine Werke“
