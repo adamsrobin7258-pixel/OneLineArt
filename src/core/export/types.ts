@@ -42,4 +42,9 @@ export interface ExportFileActions<TData> {
   canShare(file: ExportFile<TData>): boolean;
   /** Resolves false if the user closed the share sheet without sharing (where the platform reports it). */
   share(file: ExportFile<TData>): Promise<boolean>;
+  /**
+   * Where available (Android app): the system "save as" dialog, the user picks place and name.
+   * Resolves false when the dialog was closed without saving (not an error).
+   */
+  saveAs?(file: ExportFile<TData>): Promise<boolean>;
 }

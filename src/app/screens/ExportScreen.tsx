@@ -336,8 +336,22 @@ function ExportReady({ file, media = true, testId = 'export-ready' }: { file: Ex
   const [location, setLocation] = useState<string | null>(null);
   const [shareFailed, setShareFailed] = useState(false);
   const gallery = actions.saveKind === 'gallery';
-  // The device gallery takes images and videos only: other files are passed on via "Teilen" (e.g. "In Dateien speichern").
+  // The device gallery takes images and videos only. Other files (the project file): on Android the
+  // system "save as" dialog ("Speichern"), in the browser the normal download.
+  const fileDialog = !media && gallery && actions.saveAs ? actions.saveAs.bind(actions) : null;
   const canSave = media || !gallery;
+  const [dialogSave, setDialogSave] = useState<'idle' | 'busy' | 'done' | 'failed'>('idle');
+  const saveWithDialog = async () => {
+    if (!fileDialog) return;
+    setDialogSave('busy');
+    try {
+      // Closing the dialog without saving is not an error: back to the start.
+      setDialogSave((await fileDialog(file)) ? 'done' : 'idle');
+    } catch (error) {
+      console.error('Saving the file failed', error);
+      setDialogSave('failed');
+    }
+  };
 
   const save = async () => {
     setSaving('busy');
@@ -370,6 +384,12 @@ function ExportReady({ file, media = true, testId = 'export-ready' }: { file: Ex
         </span>
       </p>
       <div className="export__ready-actions">
+        {fileDialog && (
+          <Button onClick={() => void saveWithDialog()} disabled={dialogSave === 'busy'} data-testid="save-file-dialog">
+            <Icon name={dialogSave === 'done' ? 'check' : 'download'} size={18} />
+            {dialogSave === 'busy' ? 'Wird gespeichert …' : 'Speichern'}
+          </Button>
+        )}
         {canSave && (
           <Button onClick={() => void save()} disabled={saving === 'busy' || (gallery && saving === 'done')}>
             <Icon name={gallery && saving === 'done' ? 'check' : 'download'} size={18} />
@@ -387,6 +407,22 @@ function ExportReady({ file, media = true, testId = 'export-ready' }: { file: Ex
         <p className="notice" role="status" data-testid="export-saved">
           <span>Gespeichert unter „{location ?? 'Galerie'}“ – in der Galerie-App sichtbar.</span>
         </p>
+      )}
+      {dialogSave === 'done' && (
+        <p className="notice" role="status" data-testid="file-saved">
+          <span>Gespeichert – die Datei liegt an dem Ort, den du gewählt hast.</span>
+        </p>
+      )}
+      {dialogSave === 'failed' && (
+        <div className="notice notice--error" role="alert" data-testid="file-save-failed">
+          <Icon name="alert" size={18} />
+          <span>
+            <strong>{EXPORT_ERROR_MESSAGES['save-failed'].title}.</strong> {EXPORT_ERROR_MESSAGES['save-failed'].detail}
+          </span>
+          <Button variant="quiet" onClick={() => void saveWithDialog()}>
+            Erneut versuchen
+          </Button>
+        </div>
       )}
       {(saving === 'failed' || shareFailed) && (
         <p className="notice notice--error" role="alert">

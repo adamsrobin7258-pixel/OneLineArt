@@ -1,6 +1,7 @@
 package com.onelineart.app;
 
 import android.Manifest;
+import android.app.Activity;
 import android.content.ClipData;
 import android.content.ContentResolver;
 import android.content.ContentValues;
@@ -12,6 +13,7 @@ import android.os.Build;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.util.Base64;
+import androidx.activity.result.ActivityResult;
 import androidx.annotation.RequiresApi;
 import androidx.core.content.FileProvider;
 import com.getcapacitor.JSObject;
@@ -19,6 +21,7 @@ import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
@@ -39,6 +42,10 @@ import java.util.UUID;
  * the FileProvider with the system share sheet. Android 10+ needs no
  * permission for this; Android 7–9 needs WRITE_EXTERNAL_STORAGE (declared
  * with maxSdkVersion 28).
+ *
+ * Other files (the ".onelineart" project file) can be saved where the user
+ * chooses: saveAs opens the system file dialog (ACTION_CREATE_DOCUMENT, no
+ * permission needed) and copies the same cached file there.
  */
 @CapacitorPlugin(
     name = "MediaExport",
@@ -245,6 +252,56 @@ public class MediaExportPlugin extends Plugin {
                 call.reject("No app to share with", e);
             }
         });
+    }
+
+    /** Opens the system "save as" dialog (place and name chosen by the user) for the cached file. */
+    @PluginMethod
+    public void saveAs(PluginCall call) {
+        File file = fileFor(call.getString("id"));
+        String mimeType = call.getString("mimeType");
+        if (file == null || mimeType == null) {
+            call.reject("Unknown export");
+            return;
+        }
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType(mimeType);
+        // Suggested name (the safe export name, with its extension).
+        intent.putExtra(Intent.EXTRA_TITLE, call.getString("fileName", file.getName()));
+        try {
+            startActivityForResult(call, intent, "saveAsResult");
+        } catch (RuntimeException e) {
+            call.reject("No file dialog available", e);
+        }
+    }
+
+    @ActivityCallback
+    private void saveAsResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        JSObject answer = new JSObject();
+        Intent data = result.getData();
+        Uri uri = data == null ? null : data.getData();
+        // Closed without choosing a place: not an error.
+        if (result.getResultCode() != Activity.RESULT_OK || uri == null) {
+            answer.put("saved", false);
+            call.resolve(answer);
+            return;
+        }
+        File file = fileFor(call.getString("id"));
+        if (file == null) {
+            call.reject("Unknown export");
+            return;
+        }
+        try (InputStream in = new FileInputStream(file); OutputStream out = getContext().getContentResolver().openOutputStream(uri, "w")) {
+            if (out == null) throw new IOException("No output stream");
+            copy(in, out);
+        } catch (IOException | RuntimeException e) {
+            call.reject("Saving the file failed", e);
+            return;
+        }
+        answer.put("saved", true);
+        answer.put("uri", uri.toString());
+        call.resolve(answer);
     }
 
     @PluginMethod

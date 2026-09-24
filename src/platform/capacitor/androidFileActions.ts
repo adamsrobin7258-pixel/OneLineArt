@@ -32,8 +32,10 @@ const kindOf = (mimeType: string): 'image' | 'video' => (mimeType.startsWith('vi
 
 /**
  * Android: "save" puts the file into the device's photo/video collection,
- * "share" opens the system share sheet. Each export is transferred to the
- * native side once, even if it is saved and shared.
+ * "saveAs" lets the user save any file (e.g. a ".onelineart" project) via the
+ * system file dialog, "share" opens the system share sheet. Each export is
+ * transferred to the native side once, even if it is saved and shared: all
+ * of them use the SAME cached bytes.
  */
 export function createAndroidFileActions(plugin: MediaExportPlugin): ExportFileActions<Blob> {
   const transferred = new WeakMap<Blob, Promise<string>>();
@@ -60,6 +62,15 @@ export function createAndroidFileActions(plugin: MediaExportPlugin): ExportFileA
       }
     },
     canShare: () => true,
+    async saveAs(file) {
+      try {
+        const id = await nativeId(file);
+        const { saved } = await plugin.saveAs({ id, mimeType: file.mimeType, fileName: file.fileName });
+        return saved;
+      } catch (error) {
+        throw new ExportError('save-failed', error instanceof Error ? error.message : String(error), { cause: error });
+      }
+    },
     async share(file) {
       try {
         const id = await nativeId(file);

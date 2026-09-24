@@ -12,6 +12,11 @@ export interface MediaExportPlugin {
   append(options: { id: string; data: string }): Promise<void>;
   /** Copies the file into Pictures/One Line Art or Movies/One Line Art (MediaStore). */
   saveToGallery(options: { id: string; mimeType: string; kind: 'image' | 'video' }): Promise<{ uri: string; location: string }>;
+  /**
+   * Opens the system "save as" dialog (place and name chosen by the user, `fileName` suggested)
+   * and copies the cached file there. `saved: false` = the dialog was closed without saving.
+   */
+  saveAs(options: { id: string; mimeType: string; fileName: string }): Promise<{ saved: boolean; uri?: string }>;
   /** Opens the Android share sheet for the file. */
   share(options: { id: string; mimeType: string; title: string }): Promise<void>;
   /** Removes the cached file. */
