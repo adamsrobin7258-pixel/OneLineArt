@@ -143,19 +143,61 @@ describe('video frame size', () => {
 
 describe('file names', () => {
   const date = new Date(2026, 8, 23, 14, 30, 59);
-  it('OneLine_<date>_<time>.<ext> by default', () => {
-    expect(exportFileName({ date, extension: 'png' })).toBe('OneLine_2026-09-23_1430.png');
-    expect(exportFileName({ date, extension: '.MP4' })).toBe('OneLine_2026-09-23_1430.mp4');
-    expect(exportFileName({ date: new Date(2026, 0, 5, 7, 4), extension: 'jpg' })).toBe('OneLine_2026-01-05_0704.jpg');
+  it('"OneLine <date> <time>.<ext>" by default', () => {
+    expect(exportFileName({ date, extension: 'png' })).toBe('OneLine 2026-09-23 1430.png');
+    expect(exportFileName({ date, extension: '.MP4' })).toBe('OneLine 2026-09-23 1430.mp4');
+    expect(exportFileName({ date: new Date(2026, 0, 5, 7, 4), extension: 'jpg' })).toBe('OneLine 2026-01-05 0704.jpg');
   });
 
   it('uses a cleaned project name', () => {
-    expect(exportFileName({ projectName: 'Oma am Meer', date, extension: 'webm' })).toBe('Oma_am_Meer_2026-09-23_1430.webm');
-    expect(sanitizeFileBaseName('  Größe: <1/2> ?  ')).toBe('Größe_12');
+    expect(exportFileName({ projectName: 'Oma am Meer', date, extension: 'webm' })).toBe('Oma am Meer 2026-09-23 1430.webm');
+    expect(sanitizeFileBaseName('  Größe: <1/2> ?  ')).toBe('Größe 1 2');
     expect(sanitizeFileBaseName('../../etc')).toBe('etc');
     expect(sanitizeFileBaseName('***')).toBe('OneLine');
     expect(sanitizeFileBaseName(null)).toBe('OneLine');
     expect(sanitizeFileBaseName('x'.repeat(100))).toHaveLength(40);
+  });
+
+  it('13.5: every character a file system rejects is removed; readable names stay readable', () => {
+    for (const bad of ['\\', '/', ':', '*', '?', '"', '<', '>', '|', '\u0000', '\n', '\t', '\u007f']) {
+      expect(sanitizeFileBaseName(`a${bad}b`)).toBe('a b');
+    }
+    expect(sanitizeFileBaseName("Paul's Hund (Sommer), Nr. 2 – schön!")).toBe("Paul's Hund (Sommer), Nr. 2 – schön!");
+    expect(sanitizeFileBaseName('Straße_über-alles')).toBe('Straße_über-alles');
+    // Decomposed umlauts are stored composed (one name, one file).
+    expect(sanitizeFileBaseName('Mo\u0308we')).toBe('Möwe');
+    expect(sanitizeFileBaseName('Katze 🐈')).toBe('Katze 🐈');
+  });
+
+  it('13.5: no hidden files, no trailing dots or spaces, no invisible tricks', () => {
+    expect(sanitizeFileBaseName('.bashrc')).toBe('bashrc');
+    expect(sanitizeFileBaseName('Bild...')).toBe('Bild');
+    expect(sanitizeFileBaseName(' . . ')).toBe('OneLine');
+    // A bidi override could make "…gnp.exe" look like "…exe.png".
+    expect(sanitizeFileBaseName('Bild\u202Egnp.exe')).toBe('Bildgnp.exe');
+    expect(sanitizeFileBaseName('zero\u200Bwidth\uFEFF')).toBe('zerowidth');
+    expect(sanitizeFileBaseName('viel    Platz\n\nhier')).toBe('viel Platz hier');
+  });
+
+  it('13.5: problematic or empty names fall back to "OneLine"', () => {
+    for (const name of ['', '   ', '///', '<>:"|?*', '\u200B', '...', undefined]) expect(sanitizeFileBaseName(name)).toBe('OneLine');
+    expect(exportFileName({ projectName: '   ', date, extension: 'png' })).toBe('OneLine 2026-09-23 1430.png');
+  });
+
+  it('13.5: the length limit never splits a character and never leaves a trailing space', () => {
+    const emoji = sanitizeFileBaseName('🐈'.repeat(60));
+    expect(Array.from(emoji)).toHaveLength(40);
+    expect(emoji).toBe('🐈'.repeat(40));
+    expect(sanitizeFileBaseName(`${'a'.repeat(39)} b`)).toBe('a'.repeat(39));
+  });
+
+  it('13.5: the whole file name is safe for any project name', () => {
+    const names = ['Oma am Meer', '../x', 'CON', 'a:b', '\u202Eevil', '🐈', '', 'x'.repeat(200)];
+    for (const projectName of names) {
+      const name = exportFileName({ projectName, date, extension: 'mp4' });
+      expect(name).toMatch(/^[^\\/:*?"<>|\p{Cc}\p{Cf}]+ \d{4}-\d{2}-\d{2} \d{4}\.mp4$/u);
+      expect(name.startsWith('.')).toBe(false);
+    }
   });
 
   it('rejects invalid dates and extensions', () => {

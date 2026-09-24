@@ -117,7 +117,7 @@ test('rename and delete with confirmation; deleting the open work unlinks it', a
   await expect(settingsScreen(page)).toHaveAttribute('data-path-status', 'ready', { timeout: 20_000 });
   await goToExport(page);
   const file = await exportAndDownload(page, 'Bild');
-  expect(file.fileName).toMatch(/^Am_Meer_\d{4}-\d{2}-\d{2}_\d{4}\.png$/);
+  expect(file.fileName).toMatch(/^Am Meer \d{4}-\d{2}-\d{2} \d{4}\.png$/);
 
   await openGallery(page);
   await items(page).first().getByRole('button', { name: 'Löschen' }).click();

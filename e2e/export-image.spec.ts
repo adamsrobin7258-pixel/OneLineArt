@@ -29,7 +29,7 @@ for (const [name, width, height, res, expected] of [
     await imagePanel(page).getByRole('radio', { name: res, exact: true }).click();
     await expect(page.getByTestId('image-export-size')).toHaveText(`${expected[0]} × ${expected[1]} px`);
     const file = await exportAndDownload(page, 'Bild');
-    expect(file.fileName).toMatch(/^OneLine_\d{4}-\d{2}-\d{2}_\d{4}\.png$/);
+    expect(file.fileName).toMatch(/^OneLine \d{4}-\d{2}-\d{2} \d{4}\.png$/);
     expect(file.buffer.length).toBeGreaterThan(1000);
     expect(imageDimensions(file.buffer)).toEqual({ format: 'png', width: expected[0], height: expected[1] });
     // Export = renderer on the existing path: no new analysis, no new path.
@@ -95,7 +95,7 @@ test('export status is shown while exporting 4096 px', async ({ page }) => {
   await expect(exportScreen(page)).toHaveAttribute('data-export-status', 'ready', { timeout: 60_000 });
   clearInterval(poll);
   expect([...statuses].some((s) => ['preparing', 'rendering', 'encoding'].includes(s))).toBe(true);
-  await expect(page.getByTestId('export-ready')).toContainText('Fertig: OneLine_');
+  await expect(page.getByTestId('export-ready')).toContainText('Fertig: OneLine ');
 });
 
 /**

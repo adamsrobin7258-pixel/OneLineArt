@@ -38,7 +38,7 @@ test('video export with progress: 1080p, 5 s, black, Balanced — no new analysi
   await expect(page.getByRole('button', { name: 'Abbrechen' })).toBeVisible();
   await expect(page.getByRole('progressbar', { name: 'Exportfortschritt' })).toBeVisible();
   const file = await exportAndDownload(page, 'Video');
-  expect(file.fileName).toMatch(/^OneLine_\d{4}-\d{2}-\d{2}_\d{4}\.(mp4|webm)$/);
+  expect(file.fileName).toMatch(/^OneLine \d{4}-\d{2}-\d{2} \d{4}\.(mp4|webm)$/);
   expect(file.buffer.length).toBeGreaterThan(10_000);
   const v = await expectVideo(file.buffer, [1388, 1080], 5);
   // The extension matches the real container.

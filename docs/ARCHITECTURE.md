@@ -449,7 +449,7 @@ analysieren oder berechnen Pfade.
 ### Bildexport
 - `core/export`: `sanitizeImageExportSettings` (PNG Standard, JPEG optional), `imageExportSize`
   (lange Kante: Original / 2048 / 4096; Seitenverhältnis über `renderSize`, „Original“ auf
-  `EXPORT_LIMITS` begrenzt und gemeldet), `exportFileName` (`OneLine_JJJJ-MM-TT_HHMM.ext` bzw.
+  `EXPORT_LIMITS` begrenzt und gemeldet), `exportFileName` (`OneLine JJJJ-MM-TT HHMM.ext` bzw.
   Projektname), `exportReducer` (idle → preparing → rendering → encoding → ready | failed | cancelled).
 - `platform/browser/export/imageExporter.ts`: `renderArtworkSurface` (derselbe Renderer wie die
   Vorschau, normalisierte Linienbreite) → `convertToBlob`. Der tatsächliche Dateityp wird geprüft
@@ -885,7 +885,7 @@ Eine Speicherung (`ProjectRepository` auf IndexedDB), keine zweite Datenhaltung:
   neuen Daten, eigener Pfad- und Thumbnail-Kopie; das Original-Foto wird über den Hash geteilt. Änderungen
   an der Kopie berühren das Original nicht (Unit- und Browser-Test).
 - **Favoriten** (`repository.setFavorite`): Feld `favorite` im Projekt-Datensatz (fehlt bei alten = nein),
-  bleibt beim erneuten Speichern erhalten, ändert das Änderungsdatum nicht; Favoriten stehen oben.
+  bleibt beim erneuten Speichern erhalten, ändert das Änderungsdatum nicht. Seit 13.4 filterbar statt immer oben.
 - **Löschen:** mit Bestätigung; entfernt Datensatz, Pfad, Thumbnail und das Foto, sobald es kein anderes
   Projekt mehr nutzt.
 - **Erneut exportieren:** öffnet das Werk direkt im Export-Schritt mit seinen gespeicherten Einstellungen
@@ -988,3 +988,37 @@ ab 960 px, darunter gestapelt.
 - Einzelne 180°-Umkehrungen bleiben, wo die Tour sie erzwingt (≈ 1–2 % der Ecken), ebenso ≈ 2 % Überlappung.
 - Der Seed wirkt im orthogonalen Stil nicht (Punktwahl ist deterministisch ohne Zufall); er ist nur in der
   Entwickleransicht sichtbar.
+
+## Galerie und Export (Phase 13.4–13.5)
+
+### 13.4 Suche, Sortierung, Favoritenfilter
+- `core/storage/projectQuery.ts`: `queryProjects(items, { text, sort, favoritesOnly }, titleOf)` — rein,
+  deterministisch, verändert nichts. Suche: jedes Wort muss im **angezeigten** Titel vorkommen (unbenannte
+  Werke zeigen ihr Datum), Groß-/Kleinschreibung egal, NFKC (zerlegte Umlaute, Vollbreite). Sortierung:
+  zuletzt geändert / zuletzt erstellt (neueste zuerst) / Name A–Z (`Intl.Collator('de')`, Zahlen numerisch);
+  Gleichstände über das andere Datum und die ID; ungültige Daten zuletzt. Die Sortierung gilt strikt —
+  Favoriten findet man über den Filter „Favoriten“ (Entscheidung Phase 13.4).
+- Oberfläche (`GalleryScreen`): Suchfeld (filtert beim Tippen; `useDeferredValue` hält die Eingabe flüssig),
+  „Sortierung: Geändert | Erstellt | A–Z“, „Anzeigen: Alle | Favoriten“; Zähler „3 von 12 Werken“; leeres
+  Ergebnis mit „Alle Werke anzeigen“. Die Karte zeigt das Datum der gewählten Sortierung.
+- Sortierung und Filter werden je Gerät gemerkt (`platform/browser/storage/galleryView.ts`, localStorage,
+  abgesichert); die Suche startet immer leer. **Kein** Feld im Projekt-Datensatz, keine Migration.
+- Viele Werke: Karten außerhalb der Ansicht werden per `content-visibility: auto` erst bei Bedarf
+  gezeichnet, Thumbnails `loading="lazy"`. Gemessen (Chromium, 150 Werke): Laden 0,3 s, Suche 0,2 s,
+  Sortieren + Filtern 0,15 s; 5000 Einträge filtern und sortieren im Core < 0,3 s (Unit-Test).
+
+### 13.5 Export
+- Dateinamen: `<Projektname> JJJJ-MM-TT HHMM.<ext>`, z. B. `Oma am Meer 2026-09-24 1430.png`.
+  `sanitizeFileBaseName`: für kein Dateisystem gültige Zeichen (`\ / : * ? " < > |`, Steuerzeichen) → Leerzeichen,
+  unsichtbare Formatzeichen (Zero-Width, Bidi-Overrides, BOM) entfernt, Leerraum zusammengefasst, keine
+  führenden/abschließenden Punkte, Leerzeichen, `_`/`-` (keine versteckten Dateien), höchstens 40 Zeichen
+  ohne ein Zeichen zu zerteilen; leer/unbrauchbar → `OneLine`. Der Zeitstempel hält mehrere Exporte eines
+  Werks auseinander.
+- Geprüft, unverändert gut: Bild und Video werden aus dem **aktuellen** Pfad und den **aktuellen**
+  Render-/Animationseinstellungen erzeugt (auch nicht gespeicherte Änderungen); „Erneut exportieren“ aus der
+  Galerie nutzt die gespeicherten Werte; Video mit Richtung, Geschwindigkeit/Dauer und gespeichertem
+  Startpunkt (Test des ersten Tintenpixels seit 13.2); kein Export berechnet einen Pfad oder eine Analyse
+  (Worker-Zähler). Teilen auf Android über das vorhandene native `MediaExport`-Plugin (Datei an das System-
+  Teilen-Menü), im Browser über die Web Share API. Fehler: verständliche Meldung + „Erneut versuchen“,
+  App bleibt bedienbar (vorhandene Tests für Encoder- und Canvas-Fehler).
+- Eine Loop-Einstellung gibt es nicht und wurde nicht eingeführt (Entscheidung Phase 13.5).

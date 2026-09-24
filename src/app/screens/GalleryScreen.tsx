@@ -1,8 +1,10 @@
-import { useEffect, useId, useRef, useState } from 'react';
-import { STORAGE_LIMITS, storageErrorCode, type ProjectSummary, type StorageErrorCode } from '../../core';
+import { useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { STORAGE_LIMITS, queryProjects, storageErrorCode, type ProjectSort, type ProjectSummary, type StorageErrorCode } from '../../core';
+import { loadGalleryView, saveGalleryView } from '../../platform/browser/storage/galleryView';
 import { Button } from '../../ui/components/Button';
 import { Dialog } from '../../ui/components/Dialog';
 import { Icon } from '../../ui/components/Icon';
+import { SegmentedControl } from '../../ui/components/SegmentedControl';
 import { StatusPanel } from '../../ui/components/StatusPanel';
 import { CUSTOM_DETAIL_LABEL, DETAIL_LEVEL_LABELS, DRAWING_STYLE_LABELS } from '../drawingLabels';
 import { STORAGE_ERROR_MESSAGES } from '../exportMessages';
@@ -24,6 +26,17 @@ const DAY_FORMAT = new Intl.DateTimeFormat('de-DE', { dateStyle: 'long' });
 const titleOf = (item: ProjectSummary) =>
   item.name || (item.status === 'ok' && !Number.isNaN(Date.parse(item.createdAt)) ? DAY_FORMAT.format(new Date(item.createdAt)) : 'Unbenanntes Werk');
 
+const SORT_OPTIONS: readonly { value: ProjectSort; label: string }[] = [
+  { value: 'updated', label: 'Geändert' },
+  { value: 'created', label: 'Erstellt' },
+  { value: 'name', label: 'A–Z' },
+];
+const FILTER_OPTIONS = [
+  { value: 'all', label: 'Alle' },
+  { value: 'favorites', label: 'Favoriten' },
+] as const;
+const works = (n: number) => (n === 1 ? '1 Werk' : `${n} Werke`);
+
 /** Name of a copy: "<title> – Kopie" (within the name limit). */
 const copyName = (item: ProjectSummary) => {
   const suffix = ' – Kopie';
@@ -31,8 +44,10 @@ const copyName = (item: ProjectSummary) => {
 };
 
 /**
- * "Meine Werke": the locally stored projects — open, export again, duplicate,
- * mark as favourite, rename, delete. Favourites are listed first.
+ * "Meine Werke": the locally stored projects — search by name, sort, show only
+ * favourites; open, export again, duplicate, mark as favourite, rename,
+ * delete. Order and favourites filter are remembered on the device; the
+ * search starts empty so no work ever seems to be missing.
  */
 export function GalleryScreen({ projects, onOpen, onExport, onCreate, onBack }: GalleryScreenProps) {
   const [items, setItems] = useState<readonly ProjectSummary[] | null>(null);
@@ -40,6 +55,18 @@ export function GalleryScreen({ projects, onOpen, onExport, onCreate, onBack }: 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [generation, setGeneration] = useState(0);
   const { list } = projects;
+  const [view, setView] = useState(loadGalleryView);
+  const [text, setText] = useState('');
+  // Typing stays instant; filtering follows right after (no fixed delay).
+  const deferredText = useDeferredValue(text);
+  const shown = useMemo(() => (items ? queryProjects(items, { ...view, text: deferredText }, titleOf) : null), [items, view, deferredText]);
+  const changeView = (patch: Partial<typeof view>) =>
+    setView((current) => {
+      const next = { ...current, ...patch };
+      saveGalleryView(next);
+      return next;
+    });
+  const favoritesHint = view.favoritesOnly && !deferredText.trim();
 
   useEffect(() => {
     let alive = true;
@@ -72,12 +99,17 @@ export function GalleryScreen({ projects, onOpen, onExport, onCreate, onBack }: 
   };
 
   const count = items?.length ?? 0;
+  const filtered = shown !== null && shown.length !== count;
   return (
     <section className="gallery" data-testid="gallery-screen" data-count={items?.length ?? ''}>
       <header className="gallery__header">
         <div>
           <h1 className="gallery__heading">Meine Werke</h1>
-          {count > 0 && <p className="gallery__count">{count === 1 ? '1 Werk' : `${count} Werke`} auf diesem Gerät</p>}
+          {count > 0 && (
+            <p className="gallery__count" data-testid="gallery-count">
+              {filtered ? `${shown.length} von ${count === 1 ? '1 Werk' : `${count} Werken`}` : `${works(count)} auf diesem Gerät`}
+            </p>
+          )}
         </div>
         {onBack && (
           <Button variant="quiet" onClick={onBack}>
@@ -106,21 +138,58 @@ export function GalleryScreen({ projects, onOpen, onExport, onCreate, onBack }: 
           <Button onClick={onCreate}>Erstes Werk erstellen</Button>
         </div>
       ) : (
-        <ul className="gallery__grid">
-          {items.map((item) => (
-            <GalleryCard
-              key={item.id}
-              item={item}
-              busy={busyId === item.id}
-              onOpen={() => void run(item.id, () => onOpen(item.id), false)}
-              onExport={() => void run(item.id, () => onExport(item.id), false)}
-              onDuplicate={() => void run(item.id, () => projects.duplicate(item.id, copyName(item)), true)}
-              onFavorite={() => void run(item.id, () => projects.setFavorite(item.id, !item.favorite), true)}
-              onRename={(name) => void run(item.id, () => projects.rename(item.id, name), true)}
-              onDelete={() => void run(item.id, () => projects.remove(item.id), true)}
-            />
-          ))}
-        </ul>
+        <>
+          <div className="gallery__tools" data-testid="gallery-tools">
+            <label className="gallery__search">
+              <Icon name="search" size={18} />
+              <input
+                type="search"
+                className="field__input"
+                aria-label="Werke durchsuchen"
+                placeholder="Nach Namen suchen"
+                enterKeyHint="search"
+                autoComplete="off"
+                spellCheck={false}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+              />
+            </label>
+            <SegmentedControl label="Sortierung" options={SORT_OPTIONS} value={view.sort} onChange={(sort) => changeView({ sort })} />
+            <SegmentedControl label="Anzeigen" options={FILTER_OPTIONS} value={view.favoritesOnly ? 'favorites' : 'all'} onChange={(v) => changeView({ favoritesOnly: v === 'favorites' })} />
+          </div>
+          {shown?.length === 0 ? (
+            <div className="empty empty--compact" data-testid="gallery-no-results">
+              <h2 className="empty__title">{favoritesHint ? 'Noch keine Favoriten' : 'Keine passenden Werke'}</h2>
+              <p className="empty__text">{favoritesHint ? 'Mit dem Stern auf einem Werk wird es zum Favoriten.' : 'Andere Suche versuchen oder alle Werke anzeigen.'}</p>
+              <Button
+                variant="quiet"
+                onClick={() => {
+                  setText('');
+                  changeView({ favoritesOnly: false });
+                }}
+              >
+                Alle Werke anzeigen
+              </Button>
+            </div>
+          ) : (
+            <ul className="gallery__grid">
+              {(shown ?? items).map((item) => (
+                <GalleryCard
+                  key={item.id}
+                  item={item}
+                  date={view.sort === 'created' ? item.createdAt : item.updatedAt}
+                  busy={busyId === item.id}
+                  onOpen={() => void run(item.id, () => onOpen(item.id), false)}
+                  onExport={() => void run(item.id, () => onExport(item.id), false)}
+                  onDuplicate={() => void run(item.id, () => projects.duplicate(item.id, copyName(item)), true)}
+                  onFavorite={() => void run(item.id, () => projects.setFavorite(item.id, !item.favorite), true)}
+                  onRename={(name) => void run(item.id, () => projects.rename(item.id, name), true)}
+                  onDelete={() => void run(item.id, () => projects.remove(item.id), true)}
+                />
+              ))}
+            </ul>
+          )}
+        </>
       )}
     </section>
   );
@@ -128,6 +197,8 @@ export function GalleryScreen({ projects, onOpen, onExport, onCreate, onBack }: 
 
 interface GalleryCardProps {
   item: ProjectSummary;
+  /** Date shown on the card (follows the chosen order: created or changed). */
+  date: string;
   busy: boolean;
   onOpen: () => void;
   onExport: () => void;
@@ -137,7 +208,7 @@ interface GalleryCardProps {
   onDelete: () => void;
 }
 
-function GalleryCard({ item, busy, onOpen, onExport, onDuplicate, onFavorite, onRename, onDelete }: GalleryCardProps) {
+function GalleryCard({ item, date, busy, onOpen, onExport, onDuplicate, onFavorite, onRename, onDelete }: GalleryCardProps) {
   const img = useRef<HTMLImageElement>(null);
   const [dialog, setDialog] = useState<'rename' | 'delete' | null>(null);
   const [name, setName] = useState(item.name);
@@ -165,7 +236,7 @@ function GalleryCard({ item, busy, onOpen, onExport, onDuplicate, onFavorite, on
     >
       <button type="button" className="card__open" onClick={onOpen} disabled={!ok || busy} aria-label={ok ? `${title} öffnen` : `${title} öffnen – nicht möglich (${problem})`}>
         {ok && thumbnail ? (
-          <img ref={img} className="card__image" width={thumbnail.width} height={thumbnail.height} alt="" />
+          <img ref={img} className="card__image" width={thumbnail.width} height={thumbnail.height} alt="" loading="lazy" decoding="async" />
         ) : (
           <span className="card__placeholder">
             {!ok && <Icon name="alert" size={22} />}
@@ -192,7 +263,7 @@ function GalleryCard({ item, busy, onOpen, onExport, onDuplicate, onFavorite, on
           <p className="card__title">{title}</p>
           <p className="card__detail">
             {ok
-              ? [item.style && DRAWING_STYLE_LABELS[item.style].label, item.custom ? CUSTOM_DETAIL_LABEL.label : item.detailLevel && DETAIL_LEVEL_LABELS[item.detailLevel].label, formatDate(item.updatedAt)].filter(Boolean).join(' · ')
+              ? [item.style && DRAWING_STYLE_LABELS[item.style].label, item.custom ? CUSTOM_DETAIL_LABEL.label : item.detailLevel && DETAIL_LEVEL_LABELS[item.detailLevel].label, formatDate(date)].filter(Boolean).join(' · ')
               : item.status === 'incompatible'
                 ? 'Mit einer anderen App-Version erstellt'
                 : 'Kann nicht geöffnet werden'}
