@@ -28,6 +28,11 @@ export interface AnimationSettings {
    * path's own start). Snapped to the nearest point of the path at playback.
    */
   readonly startPoint?: NormalizedPoint | null;
+  /**
+   * Preview only (phase 13.7): after the final hold the drawing starts again
+   * from the start point. Default false; exported videos contain the drawing once.
+   */
+  readonly loop?: boolean;
   /** Frame rate for rendered videos (the live preview is time-based and ignores it). */
   readonly fps: number;
   readonly pacing: AnimationPacing;
@@ -43,4 +48,5 @@ export const DEFAULT_ANIMATION_SETTINGS: AnimationSettings = {
   speed: 1,
   direction: 'forward',
   startPoint: null,
+  loop: false,
 };

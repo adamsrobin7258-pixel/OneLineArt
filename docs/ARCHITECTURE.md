@@ -1022,3 +1022,49 @@ ab 960 px, darunter gestapelt.
   Teilen-Menü), im Browser über die Web Share API. Fehler: verständliche Meldung + „Erneut versuchen“,
   App bleibt bedienbar (vorhandene Tests für Encoder- und Canvas-Fehler).
 - Eine Loop-Einstellung gibt es nicht und wurde nicht eingeführt (Entscheidung Phase 13.5).
+
+## Projektdatei, Loop, Einstellungen (Phase 13.6–13.8)
+
+### 13.6 Projektdatei „.onelineart“
+Zusätzliches Austauschformat; die interne Speicherung (IndexedDB) bleibt unverändert.
+```
+"ONELINEART" | Version (1 Byte) | 0 | Manifest-Länge (uint32 LE) | Manifest (UTF-8-JSON)
+| Originalbild (unverändert, genau einmal) | Pfad (float32 x/y, LE) | Thumbnail (optional)
+```
+- Manifest: `{ kind, formatVersion, project, sections }`; `project` hat die Form des gespeicherten
+  Projekt-Datensatzes (Name, Datum, Bild-Metadaten + Inhalts-Hash, Bearbeitung, Stil/Detail/Parameter,
+  Darstellung, Animation inkl. Startpunkt/Richtung/Loop, Pfad-Infos, Versionen). Kein Favorit (gehört zur
+  eigenen Galerie).
+- Das Original ist eingebettet, weil ein Projekt ohne es nicht geöffnet werden kann (Vorschau,
+  Foto-Farben, Bearbeitung, neue Zeichnungen). Der fertige Pfad reist mit → keine Neuberechnung.
+- Import (`decodeProjectFile` + `repository.importProject`): Kennung, Version (neuer →
+  `incompatible-version`), exakte Größen (nichts fehlt, nichts angehängt), Manifest über die **gleiche
+  strenge Prüfung** wie gespeicherte Projekte (`parseProjectRecord`, nur bekannte Felder), Inhalts-Hash des
+  Originals, Pfadwerte endlich; Zeichen-Einstellungen werden neu abgeleitet bzw. ihre Engine-Parameter
+  müssen die Sicherheitsgrenzen unverändert erfüllen. Neue Projekt- und Bild-ID, eindeutiger Name
+  („Name – Import“, „– Import 2“ …), Erstelldatum bleibt, Änderungsdatum = jetzt, nie überschrieben.
+  Ein gleiches Foto wird über den Hash geteilt, nicht doppelt gespeichert.
+- UI: Export-Schritt → Abschnitt „Projektdatei“ (aktueller Stand, wie Bild/Video); „Meine Werke“ →
+  „Importieren“. Android: Weitergabe über „Teilen“ (u. a. „In Dateien speichern“), da die Galerie nur
+  Bilder/Videos aufnimmt; im Browser Download. Messung: 20-MB-Foto + 200 000 Punkte → 21,5 MB, Export
+  49 ms, Import inkl. Prüfung 100 ms.
+
+### 13.7 Animation: Loop
+Play/Pause, Von vorn, Richtung, Geschwindigkeit und Dauer bestanden schon. Neu: `AnimationSettings.loop`
+(optional, alte Projekte = aus). `tick` lässt die Zeitachse nach dem Standbild umlaufen (Modulo, ohne
+Drift); die Zeichnung beginnt wieder am Startpunkt in der gewählten Richtung. Nur Vorschau — exportierte
+Videos enthalten die Zeichnung einmal (Entscheidung 13.7). Keine Pfadberechnung. Während der
+Startpunkt-Wahl zeigt „Wiedergabe“ nur die Startpunkt-Gruppe (mehr Platz für das Bild auf Telefonen).
+
+### 13.8 Einstellungen (Standardwerte für neue Werke)
+- `core/preferences/workDefaults.ts`: `WorkDefaults` (Stil, Detailgrad, Hintergrund Weiß/Schwarz,
+  Linienbreite, Dauer, Geschwindigkeit, Richtung, Loop), `parseWorkDefaults` (robust, nie ein Fehler),
+  `drawingForNewWork` / `renderForNewWork` / `animationForNewWork`. Werkseinstellungen = das bisherige
+  Verhalten (Test).
+- Gespeichert je Gerät (`platform/browser/storage/workDefaults.ts`, localStorage).
+- Regel: **jedes neu importierte Foto** startet mit den Standardwerten (auch Darstellung und Animation);
+  ein geöffnetes Werk bringt immer seine gespeicherten Werte mit — die Standards werden dort nie
+  angewandt. Ein Startpunkt wird nie übernommen (gehört zu einem Bild).
+- Globale Export-Voreinstellungen gab es nicht; sie wurden nicht eingeführt.
+- UI: Zahnrad in der Kopfzeile → „Einstellungen“ (Android-Zurück führt zurück).
+

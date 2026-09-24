@@ -1,4 +1,5 @@
 import type { ArtworkProject, BinarySource, ProjectVersions, Size } from '../models';
+import type { ProjectFileContents } from './projectFile';
 import type { DrawingStyle, OneLineDetailLevel } from '../drawing';
 import type { RenderColorMode } from '../rendering';
 import { DEFAULT_IMPORT_OPTIONS } from '../imageImport/options';
@@ -93,6 +94,20 @@ export interface ProjectRepository {
   duplicate(id: string, newId: string, name: string): Promise<void>;
   /** Removes the project and every piece of local data only it used. */
   remove(id: string): Promise<void>;
+  /**
+   * Stores a checked project file as a NEW project `id` (never replaces one):
+   * new image id, name made unique ("… – Import"), created date kept, changed
+   * date = now, not a favourite. A photo already stored (same content) is
+   * shared, not stored twice. Returns the stored name.
+   */
+  importProject(file: ProjectFileContents, options: ProjectImportOptions): Promise<{ readonly id: string; readonly name: string }>;
+}
+
+export interface ProjectImportOptions {
+  readonly id: string;
+  readonly imageId: string;
+  /** Wraps file bytes as storable binary data (a Blob in the browser). */
+  readonly toBinary: (bytes: Uint8Array, mimeType: string) => BinarySource;
 }
 
 export const STORE_NAMES = ['projects', 'paths', 'images', 'thumbnails'] as const;

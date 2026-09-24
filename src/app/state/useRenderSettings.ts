@@ -8,8 +8,8 @@ export interface RenderSettingsController {
 }
 
 /** App-level rendering choices (kept when the image changes). */
-export function useRenderSettings(): RenderSettingsController {
-  const [renderSettings, setRenderSettings] = useState<RenderSettings>(DEFAULT_RENDER_SETTINGS);
+export function useRenderSettings(initial: () => RenderSettings = () => DEFAULT_RENDER_SETTINGS): RenderSettingsController {
+  const [renderSettings, setRenderSettings] = useState<RenderSettings>(initial);
   const updateRenderSettings = useCallback((patch: Partial<RenderSettings>) => {
     setRenderSettings((current) => sanitizeRenderSettings({ ...current, ...patch }).value);
   }, []);

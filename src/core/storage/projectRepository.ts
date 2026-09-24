@@ -1,5 +1,6 @@
 import { isCustomDrawing } from '../drawing';
 import type { ArtworkProject } from '../models';
+import { importedName } from './projectFile';
 import {
   outdatedParts,
   parseImageRecord,
@@ -184,6 +185,34 @@ export function createProjectRepository(backend: StorageBackend, options: Projec
       ];
       if (thumb?.data) ops.push({ type: 'put', store: 'thumbnails', key: newId, value: { data: thumb.data } satisfies ThumbnailRecord });
       await backend.commit(ops);
+    },
+
+    async importProject(file, { id, imageId, toBinary }) {
+      if (!id || (await backend.get('projects', id)) !== undefined) throw new StorageError('invalid-project', `Project ${id} exists`);
+      const names: string[] = [];
+      for (const [, raw] of await backend.entries('projects')) {
+        const name = (raw as { name?: unknown } | null)?.name;
+        if (typeof name === 'string') names.push(name);
+      }
+      const { record } = file;
+      const name = importedName(record.name, names);
+      const project: ArtworkProject = {
+        schemaVersion: 1,
+        id,
+        name,
+        createdAt: record.createdAt,
+        updatedAt: now().toISOString(),
+        image: { id: imageId, fileName: record.image.fileName, source: toBinary(file.image.bytes, file.image.mimeType), metadata: record.image.metadata, contentHash: record.image.contentHash },
+        edit: record.edit,
+        oneLine: record.oneLine,
+        render: record.render,
+        animation: record.animation,
+        path: { coords: file.coords, bounds: record.path.bounds, meta: { ...record.path.meta, sourceImageId: imageId } },
+        versions: record.versions,
+      };
+      const thumbnail = file.thumbnail ? { data: toBinary(file.thumbnail.bytes, file.thumbnail.mimeType), mimeType: file.thumbnail.mimeType, width: file.thumbnail.width, height: file.thumbnail.height } : null;
+      await this.save(project, thumbnail);
+      return { id, name };
     },
 
     async remove(id: string) {

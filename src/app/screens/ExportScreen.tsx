@@ -40,6 +40,8 @@ interface ExportScreenProps {
   animation: Required<AnimationChoice>;
   onAnimationChange: (patch: Partial<AnimationChoice>) => void;
   projectName: string | null;
+  /** The current work as a portable project file (13.6). */
+  onProjectFile: () => Promise<ExportFile<Blob>>;
   onBack: () => void;
 }
 
@@ -68,7 +70,7 @@ const loadVideoModule = () => Promise.all([import('../../platform/browser/export
  * Step 4: export the finished artwork as image or creation video. Both are
  * rendered anew from the SAME path and settings as preview and animation.
  */
-export function ExportScreen({ session, render, animation, onAnimationChange, projectName, onBack }: ExportScreenProps) {
+export function ExportScreen({ session, render, animation, onAnimationChange, projectName, onProjectFile, onBack }: ExportScreenProps) {
   // The video shows the same drawing process as the preview: drawing time, direction, start point.
   const durationMs = drawingDurationMs(animation);
   const { renderSettings } = render;
@@ -264,6 +266,8 @@ export function ExportScreen({ session, render, animation, onAnimationChange, pr
           </Button>
         </fieldset>
         {state.kind === 'video' && statusBlock}
+
+        <ProjectFileSection create={onProjectFile} disabled={running || !path} />
         <p className="sr-only" aria-live="polite">
           {liveText}
         </p>
@@ -279,13 +283,61 @@ export function ExportScreen({ session, render, animation, onAnimationChange, pr
   );
 }
 
-function ExportReady({ file }: { file: ExportFile<Blob> }) {
+/**
+ * "Projektdatei" (13.6): the current work — photo, drawing and every setting —
+ * as one ".onelineart" file to keep or pass on; importable in "Meine Werke".
+ */
+function ProjectFileSection({ create, disabled }: { create: () => Promise<ExportFile<Blob>>; disabled: boolean }) {
+  const [status, setStatus] = useState<'idle' | 'busy' | 'ready' | 'failed'>('idle');
+  const [file, setFile] = useState<ExportFile<Blob> | null>(null);
+  const run = async () => {
+    setStatus('busy');
+    setFile(null);
+    try {
+      setFile(await create());
+      setStatus('ready');
+    } catch (error) {
+      console.error('Project file export failed', error);
+      setStatus('failed');
+    }
+  };
+  return (
+    <>
+      <fieldset className="export__section" disabled={disabled || status === 'busy'} data-testid="project-file-section" data-status={status}>
+        <legend className="export__title">Projektdatei</legend>
+        <p className="export__info">Foto, Zeichnung und alle Einstellungen in einer Datei – zum Sichern oder für ein anderes Gerät. In „Meine Werke“ wieder importierbar.</p>
+        <Button className="export__action" variant="quiet" onClick={() => void run()}>
+          <Icon name="download" size={18} />
+          {status === 'busy' ? 'Wird erstellt …' : 'Projektdatei exportieren'}
+        </Button>
+      </fieldset>
+      {status === 'ready' && file && (
+        <div className="export__status is-ready">
+          <ExportReady file={file} media={false} testId="project-file-ready" />
+        </div>
+      )}
+      {status === 'failed' && (
+        <div className="notice notice--error" role="alert">
+          <Icon name="alert" size={18} />
+          <span>
+            <strong>Die Projektdatei konnte nicht erstellt werden.</strong> Bitte erneut versuchen.
+          </span>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** `media`: an image or video (may go into the device gallery); a project file is only downloaded or shared. */
+function ExportReady({ file, media = true, testId = 'export-ready' }: { file: ExportFile<Blob>; media?: boolean; testId?: string }) {
   const actions = useMemo(() => exportFileActions(), []);
   const shareable = useMemo(() => actions.canShare(file), [actions, file]);
   const [saving, setSaving] = useState<'idle' | 'busy' | 'done' | 'failed'>('idle');
   const [location, setLocation] = useState<string | null>(null);
   const [shareFailed, setShareFailed] = useState(false);
   const gallery = actions.saveKind === 'gallery';
+  // The device gallery takes images and videos only: other files are passed on via "Teilen" (e.g. "In Dateien speichern").
+  const canSave = media || !gallery;
 
   const save = async () => {
     setSaving('busy');
@@ -308,7 +360,7 @@ function ExportReady({ file }: { file: ExportFile<Blob> }) {
   };
 
   return (
-    <div className="export__ready" data-testid="export-ready" data-file-name={file.fileName} data-file-size={file.sizeBytes} data-mime-type={file.mimeType}>
+    <div className="export__ready" data-testid={testId} data-file-name={file.fileName} data-file-size={file.sizeBytes} data-mime-type={file.mimeType}>
       <p className="export__status-title">
         <span className="export__done-icon">
           <Icon name="check" size={16} />
@@ -318,10 +370,12 @@ function ExportReady({ file }: { file: ExportFile<Blob> }) {
         </span>
       </p>
       <div className="export__ready-actions">
-        <Button onClick={() => void save()} disabled={saving === 'busy' || (gallery && saving === 'done')}>
-          <Icon name={gallery && saving === 'done' ? 'check' : 'download'} size={18} />
-          {gallery ? (saving === 'busy' ? 'Wird gespeichert …' : saving === 'done' ? 'Gespeichert' : 'In Galerie speichern') : 'Herunterladen'}
-        </Button>
+        {canSave && (
+          <Button onClick={() => void save()} disabled={saving === 'busy' || (gallery && saving === 'done')}>
+            <Icon name={gallery && saving === 'done' ? 'check' : 'download'} size={18} />
+            {gallery ? (saving === 'busy' ? 'Wird gespeichert …' : saving === 'done' ? 'Gespeichert' : 'In Galerie speichern') : 'Herunterladen'}
+          </Button>
+        )}
         {shareable && (
           <Button variant="quiet" onClick={() => void share()}>
             <Icon name="share" size={18} />

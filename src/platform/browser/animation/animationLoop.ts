@@ -41,8 +41,10 @@ export function createAnimationLoop(
   onFrame: (state: PlaybackState, frame: FrameResult, stats: AnimationStats) => void,
   /** Where to start on the timeline (ms incl. the final hold), e.g. to keep the position after a settings change. */
   initialPositionMs = 0,
+  /** Preview loop: after the final hold the drawing starts again. */
+  loop = false,
 ): AnimationLoop {
-  const initial = createPlayback(durationMs, 1, FINAL_HOLD_MS);
+  const initial = createPlayback(durationMs, 1, FINAL_HOLD_MS, loop);
   let state = initialPositionMs > 0 ? seekPosition(initial, initialPositionMs, performance.now()) : initial;
   let raf = 0;
   let last: FrameResult | null = null;

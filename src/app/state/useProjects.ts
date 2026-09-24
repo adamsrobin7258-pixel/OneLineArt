@@ -1,8 +1,17 @@
 import { useCallback, useMemo, useState } from 'react';
 import {
+  MAX_PROJECT_FILE_BYTES,
+  PROJECT_FILE_EXTENSION,
+  PROJECT_FILE_MIME_TYPE,
+  StorageError,
   assembleProject,
   createProjectRepository,
+  decodeProjectFile,
+  encodeProjectFile,
+  exportFileName,
   storageErrorCode,
+  type ArtworkProject,
+  type ExportFile,
   type ImageSession,
   type LoadedProject,
   type ProjectRepository,
@@ -41,9 +50,9 @@ interface SavedState {
 const renderKey = (render: RenderSettings) => JSON.stringify(render);
 
 /** What the user chooses for the drawing process (saved with the project). */
-export type AnimationChoice = Pick<AnimationSettings, 'durationMs' | 'speed' | 'direction' | 'startPoint'>;
+export type AnimationChoice = Pick<AnimationSettings, 'durationMs' | 'speed' | 'direction' | 'startPoint' | 'loop'>;
 const animationKey = (a: AnimationChoice) =>
-  JSON.stringify([a.durationMs, a.speed ?? 1, a.direction ?? 'forward', a.startPoint ? [a.startPoint.x, a.startPoint.y] : null]);
+  JSON.stringify([a.durationMs, a.speed ?? 1, a.direction ?? 'forward', a.startPoint ? [a.startPoint.x, a.startPoint.y] : null, a.loop === true]);
 
 export interface ProjectsController {
   readonly linked: LinkedProject | null;
@@ -61,6 +70,10 @@ export interface ProjectsController {
   readonly rename: (id: string, name: string) => Promise<void>;
   /** Marks the opened project as the current one. */
   readonly link: (loaded: LoadedProject) => void;
+  /** The CURRENT work (as it would be saved) as a portable ".onelineart" file (13.6). */
+  readonly projectFile: (session: ImageSession<ImageBitmap>, render: RenderSettings, animation: AnimationChoice) => Promise<ExportFile<Blob>>;
+  /** Imports a ".onelineart" file as a new project; rejects with a StorageError (damaged / incompatible-version / …). */
+  readonly importFile: (file: Blob) => Promise<{ readonly id: string; readonly name: string }>;
 }
 
 /**
@@ -84,26 +97,36 @@ export function useProjects(): ProjectsController {
     [linkedFor, saved],
   );
 
+  /** The current work as a project (same for saving and for the project file). */
+  const assemble = useCallback(
+    (session: ImageSession<ImageBitmap>, render: RenderSettings, animation: AnimationChoice): ArtworkProject | null => {
+      const path = session.path;
+      if (!path) return null;
+      const current = linkedFor(session);
+      return assembleProject({
+        id: current?.id ?? createId(),
+        name: current?.name ?? '',
+        createdAt: current?.createdAt ?? null,
+        now: new Date(),
+        image: session.original,
+        edit: session.edit,
+        oneLine: session.oneLine,
+        path,
+        render,
+        animation: { ...animation, fps: 30, pacing: 'constant-speed', easing: 'linear' },
+      });
+    },
+    [linkedFor],
+  );
+
   const save = useCallback(
     async (session: ImageSession<ImageBitmap>, render: RenderSettings, animation: AnimationChoice) => {
       const path = session.path;
       if (!path) return;
-      const current = linkedFor(session);
       setSaveStatus('saving');
       setSaveError(null);
       try {
-        const project = assembleProject({
-          id: current?.id ?? createId(),
-          name: current?.name ?? '',
-          createdAt: current?.createdAt ?? null,
-          now: new Date(),
-          image: session.original,
-          edit: session.edit,
-          oneLine: session.oneLine,
-          path,
-          render,
-          animation: { ...animation, fps: 30, pacing: 'constant-speed', easing: 'linear' },
-        });
+        const project = assemble(session, render, animation)!;
         const thumbnail = await createThumbnail({ path, render, image: session.processed.pixels, backgroundImage: session.preview });
         await repository.save(project, thumbnail);
         setLinked({ imageId: session.original.id, id: project.id, name: project.name, createdAt: project.createdAt });
@@ -115,7 +138,34 @@ export function useProjects(): ProjectsController {
         setSaveStatus('failed');
       }
     },
-    [linkedFor, repository],
+    [assemble, repository],
+  );
+
+  const projectFile = useCallback(
+    async (session: ImageSession<ImageBitmap>, render: RenderSettings, animation: AnimationChoice): Promise<ExportFile<Blob>> => {
+      const project = assemble(session, render, animation);
+      if (!project || !session.path) throw new StorageError('invalid-project', 'No drawing');
+      const thumbnail = await createThumbnail({ path: session.path, render, image: session.processed.pixels, backgroundImage: session.preview });
+      const bytes = await encodeProjectFile(project, thumbnail);
+      const data = new Blob([bytes], { type: PROJECT_FILE_MIME_TYPE });
+      return { fileName: exportFileName({ projectName: project.name, date: new Date(), extension: PROJECT_FILE_EXTENSION }), mimeType: PROJECT_FILE_MIME_TYPE, sizeBytes: data.size, data };
+    },
+    [assemble],
+  );
+
+  const importFile = useCallback(
+    async (file: Blob) => {
+      if (file.size > MAX_PROJECT_FILE_BYTES) throw new StorageError('damaged', 'Project file too large');
+      let bytes: Uint8Array;
+      try {
+        bytes = new Uint8Array(await file.arrayBuffer());
+      } catch (error) {
+        throw new StorageError('read-failed', 'Project file could not be read', { cause: error });
+      }
+      const contents = decodeProjectFile(bytes);
+      return repository.importProject(contents, { id: createId(), imageId: createId(), toBinary: (b, type) => new Blob([b.slice()], { type }) });
+    },
+    [repository],
   );
 
   const remove = useCallback(
@@ -156,5 +206,7 @@ export function useProjects(): ProjectsController {
     remove,
     rename,
     link,
+    projectFile,
+    importFile,
   };
 }

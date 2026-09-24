@@ -156,3 +156,32 @@ describe('final hold (finished artwork stays visible)', () => {
   });
 });
 
+
+describe('13.7 loop (preview)', () => {
+  it('without loop the timeline ends as finished (unchanged)', () => {
+    const s = play(createPlayback(1000, 1, 500), 0);
+    expect(tick(s, 1600)).toMatchObject({ status: 'finished', progress: 1, positionMs: 1500 });
+  });
+
+  it('with loop it wraps after the final hold and keeps playing from the start', () => {
+    const s = play(createPlayback(1000, 1, 500, true), 0);
+    expect(tick(s, 1400)).toMatchObject({ status: 'playing', progress: 1 });
+    const again = tick(s, 1750);
+    expect(again.status).toBe('playing');
+    expect(again.positionMs).toBeCloseTo(250, 9);
+    expect(again.progress).toBeCloseTo(0.25, 9);
+    // Many rounds later still exact (no drift).
+    expect(tick(s, 1500 * 7 + 600).positionMs).toBeCloseTo(600, 6);
+  });
+
+  it('loop respects the speed; pause, resume and replay keep working', () => {
+    const s = play(createPlayback(1000, 2, 500, true), 0);
+    expect(tick(s, 900).positionMs).toBeCloseTo(300, 9); // 1800 ms of timeline at 2× → wrapped by 1500
+    const paused = pause(s, 900);
+    expect(paused.status).toBe('paused');
+    expect(tick(paused, 5000)).toBe(paused);
+    const resumed = play(paused, 10_000);
+    expect(tick(resumed, 10_100).positionMs).toBeCloseTo(500, 9);
+    expect(replay(resumed, 20_000)).toMatchObject({ status: 'playing', positionMs: 0, progress: 0, loop: true });
+  });
+});

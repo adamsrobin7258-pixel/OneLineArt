@@ -1,13 +1,14 @@
 import { useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { STORAGE_LIMITS, queryProjects, storageErrorCode, type ProjectSort, type ProjectSummary, type StorageErrorCode } from '../../core';
 import { loadGalleryView, saveGalleryView } from '../../platform/browser/storage/galleryView';
+import { isAndroidApp } from '../../platform/capacitor/runtime';
 import { Button } from '../../ui/components/Button';
 import { Dialog } from '../../ui/components/Dialog';
 import { Icon } from '../../ui/components/Icon';
 import { SegmentedControl } from '../../ui/components/SegmentedControl';
 import { StatusPanel } from '../../ui/components/StatusPanel';
 import { CUSTOM_DETAIL_LABEL, DETAIL_LEVEL_LABELS, DRAWING_STYLE_LABELS } from '../drawingLabels';
-import { STORAGE_ERROR_MESSAGES } from '../exportMessages';
+import { STORAGE_ERROR_MESSAGES, projectImportMessage } from '../exportMessages';
 import type { ProjectsController } from '../state/useProjects';
 
 interface GalleryScreenProps {
@@ -68,6 +69,38 @@ export function GalleryScreen({ projects, onOpen, onExport, onCreate, onBack }: 
     });
   const favoritesHint = view.favoritesOnly && !deferredText.trim();
 
+  // 13.6: import a ".onelineart" project file as a new work (never replaces one).
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+  const [imported, setImported] = useState<string | null>(null);
+  const [importError, setImportError] = useState<StorageErrorCode | null>(null);
+  const importFile = async (file: File | undefined) => {
+    if (!file) return;
+    setImporting(true);
+    setImported(null);
+    setImportError(null);
+    try {
+      const { name } = await projects.importFile(file);
+      // Make sure the new work is visible: no search, all works (it is not a favourite).
+      setText('');
+      if (view.favoritesOnly) changeView({ favoritesOnly: false });
+      setImported(name || 'Das Werk');
+      setGeneration((g) => g + 1);
+    } catch (e) {
+      console.error('Project import failed', e);
+      setImportError(storageErrorCode(e));
+    } finally {
+      setImporting(false);
+      if (fileInput.current) fileInput.current.value = '';
+    }
+  };
+  const importButton = (label: string, className?: string) => (
+    <Button variant="quiet" className={className} aria-label="Werk importieren" disabled={importing} onClick={() => fileInput.current?.click()}>
+      <Icon name="upload" size={18} />
+      <span className="button__text">{importing ? 'Wird importiert …' : label}</span>
+    </Button>
+  );
+
   useEffect(() => {
     let alive = true;
     list().then(
@@ -111,13 +144,39 @@ export function GalleryScreen({ projects, onOpen, onExport, onCreate, onBack }: 
             </p>
           )}
         </div>
-        {onBack && (
-          <Button variant="quiet" onClick={onBack}>
-            <Icon name="arrowLeft" size={18} />
-            Zurück
-          </Button>
-        )}
+        <div className="gallery__header-actions">
+          {importButton('Importieren', 'button--icon-mobile')}
+          {onBack && (
+            <Button variant="quiet" onClick={onBack}>
+              <Icon name="arrowLeft" size={18} />
+              Zurück
+            </Button>
+          )}
+        </div>
+        <input
+          ref={fileInput}
+          type="file"
+          hidden
+          data-testid="project-import-input"
+          // Android apps cannot filter by an unknown extension: the file is checked on import instead.
+          accept={isAndroidApp() ? undefined : '.onelineart'}
+          onChange={(e) => void importFile(e.target.files?.[0])}
+        />
       </header>
+      {imported && (
+        <p className="notice" role="status" data-testid="project-import-done">
+          <Icon name="check" size={18} />
+          <span>„{imported}“ wurde importiert.</span>
+        </p>
+      )}
+      {importError && (
+        <p className="notice notice--error" role="alert" data-testid="project-import-error">
+          <Icon name="alert" size={18} />
+          <span>
+            <strong>{projectImportMessage(importError).title}.</strong> {projectImportMessage(importError).detail}
+          </span>
+        </p>
+      )}
       {error && (
         <p className="notice notice--error" role="alert" data-testid="gallery-error">
           <Icon name="alert" size={18} />
@@ -136,6 +195,7 @@ export function GalleryScreen({ projects, onOpen, onExport, onCreate, onBack }: 
           <h2 className="empty__title">Noch keine Werke</h2>
           <p className="empty__text">Gespeicherte Zeichnungen erscheinen hier – jederzeit wieder zu öffnen, zu animieren und zu exportieren.</p>
           <Button onClick={onCreate}>Erstes Werk erstellen</Button>
+          {importButton('Werk importieren')}
         </div>
       ) : (
         <>

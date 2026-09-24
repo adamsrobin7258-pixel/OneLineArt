@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { DEFAULT_ANIMATION_SETTINGS, sanitizeAnimationSettings, sessionKeyOf, storageErrorCode, StorageError } from '../core';
+import { animationForNewWork, drawingForNewWork, renderForNewWork, sanitizeAnimationSettings, sessionKeyOf, storageErrorCode, StorageError, type WorkDefaults } from '../core';
+import { loadWorkDefaults, saveWorkDefaults } from '../platform/browser/storage/workDefaults';
 import { onSystemBack } from '../platform/capacitor/backButton';
 import { backStack } from '../ui/backStack';
 import { Button } from '../ui/components/Button';
@@ -12,6 +13,7 @@ import { AnimationScreen } from './screens/AnimationScreen';
 import { ExportScreen } from './screens/ExportScreen';
 import { GalleryScreen } from './screens/GalleryScreen';
 import { ImportScreen } from './screens/ImportScreen';
+import { PreferencesScreen } from './screens/PreferencesScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { useImageImport } from './state/useImageImport';
 import { useProjects, type AnimationChoice } from './state/useProjects';
@@ -19,12 +21,18 @@ import { useRenderSettings } from './state/useRenderSettings';
 
 /** App shell: one image session shared by all steps; the gallery works on the same projects. */
 export function App() {
-  const controller = useImageImport();
-  const render = useRenderSettings();
+  // Starting values for NEW works (13.8); a reopened work always brings its own.
+  const [defaults, setDefaults] = useState<WorkDefaults>(loadWorkDefaults);
+  const defaultsRef = useRef(defaults);
+  useEffect(() => {
+    defaultsRef.current = defaults;
+  }, [defaults]);
+  const controller = useImageImport({ newWorkDrawing: () => drawingForNewWork(defaultsRef.current) });
+  const render = useRenderSettings(() => renderForNewWork(defaults));
   const projects = useProjects();
   const [step, setStep] = useState<FlowStepId>('image');
-  const [view, setView] = useState<'flow' | 'gallery'>('flow');
-  const [choice, setChoice] = useState<Required<AnimationChoice>>(choiceOf(DEFAULT_ANIMATION_SETTINGS));
+  const [view, setView] = useState<'flow' | 'gallery' | 'preferences'>('flow');
+  const [choice, setChoice] = useState<Required<AnimationChoice>>(() => choiceOf(animationForNewWork(defaults)));
   /**
    * The start point belongs to the image AND edit it was chosen on (sessionKeyOf):
    * after an edit or with another image it is simply not used — never mapped blindly.
@@ -44,9 +52,30 @@ export function App() {
     setChoice((current) => choiceOf(sanitizeAnimationSettings({ ...current, ...patch }).value));
   };
 
+  // A NEW photo (not a reopened work) starts with the defaults: rendering and animation too.
+  const openedImage = useRef<string | null>(null);
+  const seenImage = useRef<string | null>(null);
+  const imageId = session?.original.id ?? null;
+  useEffect(() => {
+    if (!imageId || imageId === seenImage.current) return;
+    seenImage.current = imageId;
+    if (imageId === openedImage.current) return;
+    const d = defaultsRef.current;
+    render.updateRenderSettings(renderForNewWork(d));
+    setChoice(choiceOf(animationForNewWork(d)));
+    setStartPointOwner(null);
+  }, [imageId, render]);
+
+  const changeDefaults = (next: WorkDefaults) => {
+    setDefaults(next);
+    saveWorkDefaults(next);
+  };
+
   /** Restores everything stored (image + edit, drawing, rendering, animation); `to` = the step to show. */
   const openProject = async (id: string, to: FlowStepId = 'settings') => {
     const loaded = await projects.load(id);
+    // Its own saved values, never the defaults.
+    openedImage.current = loaded.project.image.id;
     await controller.openProject(loaded.project);
     render.updateRenderSettings(loaded.project.render);
     // Older projects have only a duration: speed 1, forward, the path's own start.
@@ -116,9 +145,16 @@ export function App() {
               <span className="button__text">Meine Werke</span>
             </Button>
           )}
+          {view === 'flow' && (
+            <Button variant="quiet" className="button--icon" aria-label="Einstellungen" title="Einstellungen" onClick={() => setView('preferences')}>
+              <Icon name="settings" size={18} />
+            </Button>
+          )}
         </div>
       </header>
-      {view === 'gallery' ? (
+      {view === 'preferences' ? (
+        <PreferencesScreen defaults={defaults} onChange={changeDefaults} onBack={() => setView('flow')} />
+      ) : view === 'gallery' ? (
         <GalleryScreen
           projects={projects}
           onOpen={(id) =>
@@ -144,6 +180,7 @@ export function App() {
           animation={animation}
           onAnimationChange={changeAnimation}
           projectName={projects.linked?.imageId === session.original.id ? projects.linked.name : null}
+          onProjectFile={() => projects.projectFile(session, render.renderSettings, animation)}
           onBack={() => setStep('preview')}
         />
       ) : current === 'preview' && session ? (
@@ -169,4 +206,5 @@ const choiceOf = (a: AnimationChoice): Required<AnimationChoice> => ({
   speed: a.speed ?? 1,
   direction: a.direction ?? 'forward',
   startPoint: a.startPoint ?? null,
+  loop: a.loop ?? false,
 });

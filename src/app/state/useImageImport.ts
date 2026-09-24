@@ -67,7 +67,12 @@ export type PathRun = Omit<PathOutcome, 'path'> & { readonly effective: Effectiv
  * at a time; its preview is released as soon as it is replaced or removed,
  * and results of superseded imports are discarded.
  */
-export function useImageImport(): ImageImportController {
+export function useImageImport(options: { readonly newWorkDrawing?: () => DrawingSettings } = {}): ImageImportController {
+  // Read at import time: always the current defaults.
+  const newWorkDrawing = useRef(options.newWorkDrawing);
+  useEffect(() => {
+    newWorkDrawing.current = options.newWorkDrawing;
+  });
   const [state, dispatch] = useReducer(importReducer<ImageBitmap>, EMPTY_IMPORT_STATE);
   const currentRequest = useRef(0);
   const currentPreview = useRef<ImageBitmap | null>(null);
@@ -106,7 +111,8 @@ export function useImageImport(): ImageImportController {
             return;
           }
           currentPreview.current = image.preview;
-          dispatch({ type: 'import-succeeded', requestId, image });
+          const drawing = newWorkDrawing.current?.();
+          dispatch({ type: 'import-succeeded', requestId, image, ...(drawing ? { drawing } : {}) });
         },
         (error: unknown) => {
           if (!isCurrent()) return;

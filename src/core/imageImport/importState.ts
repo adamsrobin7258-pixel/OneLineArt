@@ -88,6 +88,8 @@ export type ImportAction<TPreview> =
       readonly restore?: RestoredDrawing;
       /** Stored edit of a reopened project, already applied to the image. */
       readonly edited?: EditedImageData<TPreview>;
+      /** Drawing choices of a NEW work (the user's defaults, 13.8); ignored when a drawing is restored. */
+      readonly drawing?: DrawingSettings;
     }
   | ({ readonly type: 'edit-applied'; readonly imageId: string } & EditedImageData<TPreview>)
   | { readonly type: 'import-failed'; readonly requestId: number; readonly error: ImageImportErrorCode }
@@ -142,7 +144,7 @@ export function importReducer<TPreview>(state: ImportState<TPreview>, action: Im
           analysisStatus: restore ? 'deferred' : 'pending',
           analysis: null,
           analysisError: null,
-          oneLine: restore?.oneLine ?? resolveOneLineSettings(DEFAULT_DRAWING_SETTINGS),
+          oneLine: restore?.oneLine ?? resolveOneLineSettings(action.drawing ?? DEFAULT_DRAWING_SETTINGS),
           pathStatus: restore ? 'ready' : 'idle',
           path: restore?.path ?? null,
           pathError: null,

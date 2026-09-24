@@ -48,8 +48,8 @@ describe('project repository', () => {
     const { project: loaded, thumbnail, outdated } = await repo.load('a');
     expect(loaded.oneLine).toEqual(p.oneLine);
     expect(loaded.render).toEqual(p.render);
-    // Stored without the phase 12.3 choices: they come back as defaults (speed 1, forward, path start).
-    expect(loaded.animation).toEqual({ ...p.animation, speed: 1, direction: 'forward', startPoint: null });
+    // Stored without the phase 12.3 / 13.7 choices: they come back as defaults (speed 1, forward, path start, no loop).
+    expect(loaded.animation).toEqual({ ...p.animation, speed: 1, direction: 'forward', startPoint: null, loop: false });
     expect(loaded.versions).toEqual(CURRENT_VERSIONS);
     expect(loaded.image).toMatchObject({ id: 'img-a', fileName: 'foto.jpg', contentHash: 'hash-a', metadata: p.image.metadata });
     expect(await blobBytes(loaded.image.source)).toEqual(bytes(64));
@@ -199,11 +199,14 @@ describe('damaged and incompatible data', () => {
     const repo = createProjectRepository(createMemoryStorageBackend());
     const animation = { durationMs: 7_500, fps: 30, pacing: 'constant-speed' as const, easing: 'linear' as const, speed: 2, direction: 'reverse' as const, startPoint: { x: 0.25, y: 0.6 } };
     await repo.save({ ...project('m'), animation }, null);
-    expect((await repo.load('m')).project.animation).toEqual(animation);
+    expect((await repo.load('m')).project.animation).toEqual({ ...animation, loop: false });
+    // 13.7: the loop choice is stored too.
+    await repo.save({ ...project('l'), animation: { ...animation, loop: true } }, null);
+    expect((await repo.load('l')).project.animation).toEqual({ ...animation, loop: true });
 
     const { backend, repo: repo2, record } = await stored();
     backend.stores.get('projects')!.set('a', { ...record, animation: { durationMs: 15_000, fps: 30, pacing: 'constant-speed' } });
-    expect((await repo2.load('a')).project.animation).toMatchObject({ durationMs: 15_000, speed: 1, direction: 'forward', startPoint: null });
+    expect((await repo2.load('a')).project.animation).toMatchObject({ durationMs: 15_000, speed: 1, direction: 'forward', startPoint: null, loop: false });
   });
 
   it('duplicate: an independent copy with its own id, name, dates and data; the photo is shared once', async () => {

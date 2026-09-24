@@ -14,12 +14,12 @@ const PREVIOUS: Readonly<Record<FlowStepId, FlowStepId | null>> = {
 };
 
 /**
- * What the system back action does on the current screen: "Meine Werke" →
- * back to the flow; a flow step → the previous step; "Bild" is the root.
+ * What the system back action does on the current screen: "Meine Werke" and
+ * "Einstellungen" → back to the flow; a flow step → the previous step; "Bild" is the root.
  * (Open dialogs and a running export are handled before, via the back stack.)
  */
-export function backAction(view: 'flow' | 'gallery', step: FlowStepId): BackAction {
-  if (view === 'gallery') return { type: 'view', view: 'flow' };
+export function backAction(view: 'flow' | 'gallery' | 'preferences', step: FlowStepId): BackAction {
+  if (view !== 'flow') return { type: 'view', view: 'flow' };
   const previous = PREVIOUS[step];
   return previous ? { type: 'step', step: previous } : { type: 'exit' };
 }

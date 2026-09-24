@@ -515,3 +515,33 @@ describe('stale results across edits and images', () => {
     expect(sessionOf(run([{ type: 'analysis-succeeded', imageId: 'b', analysis: analysisFor('b') }], after)).analysisStatus).toBe('ready');
   });
 });
+
+describe('13.8 defaults for a new image', () => {
+  it('a new image starts with the given drawing defaults (style, detail)', () => {
+    const state = run([
+      { type: 'import-started', requestId: 1, fileName: 'a.jpg' },
+      { type: 'import-succeeded', requestId: 1, image: imported('a'), drawing: { ...resolveOneLineSettings().drawing, style: 'orthogonal', detailLevel: 'detail' } },
+    ]);
+    if (state.status !== 'ready') throw new Error('not ready');
+    expect(state.session.oneLine.drawing).toMatchObject({ style: 'orthogonal', detailLevel: 'detail' });
+    expect(state.session.oneLine.key).toBe(resolveOneLineSettings({ style: 'orthogonal', detailLevel: 'detail' }).key);
+  });
+
+  it('without defaults: exactly as before (Organic, Balanced)', () => {
+    const state = run(loadImage(1, 'a'));
+    if (state.status !== 'ready') throw new Error('not ready');
+    expect(state.session.oneLine.key).toBe(resolveOneLineSettings().key);
+  });
+
+  it('a restored drawing (reopened work) always wins over the defaults', () => {
+    const stored = resolveOneLineSettings({ style: 'geometric', detailLevel: 'minimal' });
+    const path = { coords: new Float32Array([0, 0, 4, 3]), bounds: { width: 4, height: 3 }, meta: { generatorId: 'g', generatorVersion: '1', seed: 1, sourceImageId: 'a' } };
+    const state = run([
+      { type: 'import-started', requestId: 1, fileName: 'a.jpg' },
+      { type: 'import-succeeded', requestId: 1, image: imported('a'), restore: { oneLine: stored, path }, drawing: { ...resolveOneLineSettings().drawing, style: 'orthogonal' } },
+    ]);
+    if (state.status !== 'ready') throw new Error('not ready');
+    expect(state.session.oneLine).toBe(stored);
+    expect(state.session.path).toBe(path);
+  });
+});

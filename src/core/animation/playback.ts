@@ -21,6 +21,8 @@ export interface PlaybackState {
   /** Position on the whole timeline, 0 … durationMs + holdMs. */
   readonly positionMs: number;
   readonly speed: number;
+  /** Start again after the final hold instead of finishing (preview loop, 13.7). */
+  readonly loop: boolean;
   /** Clock time and timeline position when playing (re)started. */
   readonly anchorTimeMs: number;
   readonly anchorPositionMs: number;
@@ -37,7 +39,7 @@ const at = (s: PlaybackState, positionMs: number): PlaybackState => {
   return { ...s, positionMs: position, progress: Math.min(1, position / s.durationMs) };
 };
 
-export function createPlayback(durationMs: number, speed = 1, holdMs = 0): PlaybackState {
+export function createPlayback(durationMs: number, speed = 1, holdMs = 0, loop = false): PlaybackState {
   return {
     status: 'ready',
     progress: 0,
@@ -45,16 +47,23 @@ export function createPlayback(durationMs: number, speed = 1, holdMs = 0): Playb
     holdMs: Math.max(0, check('holdMs', holdMs)),
     positionMs: 0,
     speed: Math.min(ANIMATION_LIMITS.speed.max, Math.max(ANIMATION_LIMITS.speed.min, check('speed', speed))),
+    loop,
     anchorTimeMs: 0,
     anchorPositionMs: 0,
   };
 }
 
-/** Advances a playing state to `nowMs`; other states are returned unchanged. */
+/**
+ * Advances a playing state to `nowMs`; other states are returned unchanged.
+ * With `loop` the timeline wraps around after the final hold (drawing starts
+ * again at the beginning); without it, the end is 'finished'.
+ */
 export function tick(state: PlaybackState, nowMs: number): PlaybackState {
   if (state.status !== 'playing') return state;
   const elapsed = Math.max(0, check('nowMs', nowMs) - state.anchorTimeMs);
-  const next = at(state, state.anchorPositionMs + elapsed * state.speed);
+  const raw = state.anchorPositionMs + elapsed * state.speed;
+  if (state.loop && raw >= totalMs(state)) return at(state, raw % totalMs(state));
+  const next = at(state, raw);
   return next.positionMs >= totalMs(state) ? { ...next, status: 'finished' } : next;
 }
 

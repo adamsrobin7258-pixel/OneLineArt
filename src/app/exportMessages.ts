@@ -24,3 +24,11 @@ export const STORAGE_ERROR_MESSAGES: Record<StorageErrorCode, UserMessage> = {
   'write-failed': { title: 'Speichern fehlgeschlagen', detail: 'Bitte erneut versuchen.' },
   'read-failed': { title: 'Laden fehlgeschlagen', detail: 'Bitte erneut versuchen.' },
 };
+
+/** Importing a ".onelineart" project file (13.6): file problems first, storage problems as usual. */
+export function projectImportMessage(code: StorageErrorCode): UserMessage {
+  if (code === 'damaged') return { title: 'Keine gültige Projektdatei', detail: 'Die Datei ist beschädigt oder keine One-Line-Projektdatei (.onelineart). Es wurde nichts verändert.' };
+  if (code === 'incompatible-version') return { title: 'Projektdatei aus einer neueren App-Version', detail: 'Bitte die App aktualisieren und die Datei erneut importieren.' };
+  if (code === 'read-failed') return { title: 'Die Datei konnte nicht gelesen werden', detail: 'Bitte erneut versuchen.' };
+  return STORAGE_ERROR_MESSAGES[code];
+}

@@ -89,9 +89,16 @@ export function sanitizeAnimationSettings(input: Partial<AnimationSettings> = {}
       speed: clampTo('speed', s.speed ?? 1, ANIMATION_LIMITS.speed),
       direction: pick<AnimationDirection>('direction', s.direction ?? 'forward', ANIMATION_DIRECTIONS, 'forward'),
       startPoint: startPointOf(s.startPoint ?? null, issues),
+      loop: loopOf(s.loop, issues),
     },
     issues,
   };
+}
+
+function loopOf(value: unknown, issues: AnimationSettingsIssue[]): boolean {
+  if (value === undefined || typeof value === 'boolean') return value === true;
+  issues.push({ name: 'loop', value, message: 'loop must be true or false; using false' });
+  return false;
 }
 
 function startPointOf(value: unknown, issues: AnimationSettingsIssue[]): NormalizedPoint | null {

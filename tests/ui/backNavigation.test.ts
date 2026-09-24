@@ -15,6 +15,11 @@ describe('system back', () => {
     expect(backAction('gallery', 'image')).toEqual({ type: 'view', view: 'flow' });
   });
 
+  it('13.8: "Einstellungen" goes back to the flow too', () => {
+    expect(backAction('preferences', 'preview')).toEqual({ type: 'view', view: 'flow' });
+    expect(backAction('preferences', 'image')).toEqual({ type: 'view', view: 'flow' });
+  });
+
   it('back stack: the most recent overlay closes first; removed handlers are skipped', () => {
     const stack = createBackStack();
     const log: string[] = [];

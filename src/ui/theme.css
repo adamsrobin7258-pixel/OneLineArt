@@ -1721,6 +1721,53 @@ button.steps__link:hover {
   padding-top: var(--space-2);
 }
 
+/* Icon-only button (the name is its aria-label). */
+.button--icon {
+  width: var(--control-h);
+  padding: 0;
+}
+
+/* ---------- Einstellungen (13.8) ---------- */
+
+.preferences {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: var(--space-5) !important;
+}
+
+.preferences__groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.preferences__group {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-faint);
+  border-radius: 16px;
+  background: var(--color-surface);
+}
+
+.preferences__footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.gallery__header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
 .gallery__heading {
   font-size: var(--text-2xl);
   font-weight: 600;

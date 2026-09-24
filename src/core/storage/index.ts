@@ -4,3 +4,4 @@ export * from './projectRecord';
 export * from './projectRepository';
 export * from './assembleProject';
 export * from './projectQuery';
+export * from './projectFile';

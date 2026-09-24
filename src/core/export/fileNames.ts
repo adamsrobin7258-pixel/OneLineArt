@@ -33,7 +33,7 @@ export function exportFileName(params: { readonly projectName?: string | null | 
   const { date } = params;
   if (Number.isNaN(date.getTime())) throw new RangeError('Invalid date');
   const extension = params.extension.replace(/^\./, '').toLowerCase();
-  if (!/^[a-z0-9]{1,5}$/.test(extension)) throw new RangeError(`Invalid extension "${params.extension}"`);
+  if (!/^[a-z0-9]{1,10}$/.test(extension)) throw new RangeError(`Invalid extension "${params.extension}"`);
   const stamp = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}${pad(date.getMinutes())}`;
   return `${sanitizeFileBaseName(params.projectName)} ${stamp}.${extension}`;
 }

@@ -14,3 +14,4 @@ export * from './rendering';
 export * from './animation';
 export * from './export';
 export * from './storage';
+export * from './preferences';

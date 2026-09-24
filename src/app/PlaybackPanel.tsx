@@ -9,6 +9,10 @@ const DIRECTION_OPTIONS: readonly { value: AnimationDirection; label: string }[]
   { value: 'forward', label: 'Vorwärts' },
   { value: 'reverse', label: 'Rückwärts' },
 ];
+const LOOP_OPTIONS = [
+  { value: 'once', label: 'Einmal' },
+  { value: 'loop', label: 'Endlos' },
+] as const;
 const DIRECTION_HINTS: Record<AnimationDirection, string> = {
   forward: 'In der Reihenfolge der Linie',
   reverse: 'Vom Ende der Linie zum Anfang',
@@ -26,7 +30,7 @@ interface PlaybackPanelProps {
 }
 
 /**
- * "Wiedergabe": speed, direction and start point of the drawing process.
+ * "Wiedergabe": speed, direction, repetition and start point of the drawing process.
  * All of it only changes how the SAME line is played back — never the line.
  */
 export function PlaybackPanel({ id, animation, onChange, picking, onPick, startDistance }: PlaybackPanelProps) {
@@ -34,12 +38,20 @@ export function PlaybackPanel({ id, animation, onChange, picking, onPick, startD
   return (
     <section id={id} className="adjust playback" aria-label="Wiedergabe" data-testid="playback-panel">
       <div className="adjust__group">
-        <OptionGroup label="Geschwindigkeit" caption={animation.speed === 1 ? 'Normal' : animation.speed < 1 ? 'Langsamer' : 'Schneller'}>
-          <SegmentedControl label="Geschwindigkeit" options={SPEED_OPTIONS} value={String(animation.speed)} onChange={(v) => onChange({ speed: Number(v) })} fill />
-        </OptionGroup>
-        <OptionGroup label="Richtung" caption={DIRECTION_HINTS[animation.direction]}>
-          <SegmentedControl label="Richtung" options={DIRECTION_OPTIONS} value={animation.direction} onChange={(direction) => onChange({ direction })} fill />
-        </OptionGroup>
+        {/* While choosing the start point only that choice is shown: the image gets the room (phones). */}
+        {!picking && (
+          <>
+            <OptionGroup label="Geschwindigkeit" caption={animation.speed === 1 ? 'Normal' : animation.speed < 1 ? 'Langsamer' : 'Schneller'}>
+              <SegmentedControl label="Geschwindigkeit" options={SPEED_OPTIONS} value={String(animation.speed)} onChange={(v) => onChange({ speed: Number(v) })} fill />
+            </OptionGroup>
+            <OptionGroup label="Richtung" caption={DIRECTION_HINTS[animation.direction]}>
+              <SegmentedControl label="Richtung" options={DIRECTION_OPTIONS} value={animation.direction} onChange={(direction) => onChange({ direction })} fill />
+            </OptionGroup>
+            <OptionGroup label="Wiederholen" caption={animation.loop ? 'Beginnt nach dem Standbild von vorn (nur Vorschau)' : 'Endet mit dem fertigen Bild'}>
+              <SegmentedControl label="Wiederholen" options={LOOP_OPTIONS} value={animation.loop ? 'loop' : 'once'} onChange={(v) => onChange({ loop: v === 'loop' })} fill />
+            </OptionGroup>
+          </>
+        )}
         <OptionGroup
           label="Startpunkt"
           caption={

@@ -54,7 +54,7 @@ export function AnimationScreen({ session, render, animation, onAnimationChange,
   const { path } = session;
   // The line is drawn in duration ÷ speed; the final hold comes on top.
   const durationMs = drawingDurationMs(animation);
-  const { direction, startPoint } = animation;
+  const { direction, startPoint, loop: repeat } = animation;
   const [panelOpen, setPanelOpen] = useState(false);
   const [picking, setPickingState] = useState(false);
   // While choosing: where the start would snap to under the finger / pointer (touch: the finger covers the spot).
@@ -125,11 +125,12 @@ export function AnimationScreen({ session, render, animation, onAnimationChange,
       },
       // Same drawing progress after a change of duration; same timeline position otherwise.
       previous ? (previous.durationMs === durationMs ? previous.positionMs : previous.progress * durationMs) : 0,
+      repeat,
     );
     loopRef.current = loop;
     if (previous?.status === 'playing') loop.play();
     return () => loop.dispose();
-  }, [path, renderSettings, durationMs, direction, startPoint, session.processed.pixels, session.preview, showDebug]);
+  }, [path, renderSettings, durationMs, direction, startPoint, repeat, session.processed.pixels, session.preview, showDebug]);
 
   // App/tab in the background: pause instead of letting the timeline run out unseen (resume stays manual).
   useEffect(() => {
