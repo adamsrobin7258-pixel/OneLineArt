@@ -65,3 +65,25 @@ Stand: Teil 10. ✅ = automatisiert oder im Browser geprüft · ⚠️ = eingesc
   - Projekte: speichern, öffnen, umbenennen, duplizieren, löschen, Favorit, erneut exportieren
   - Export: Bild, Video, Teilen, Speichern in der Galerie
   - Zurück-Taste: Editor, Anpassen, Wiedergabe, Startpunkt-Auswahl, Dialog, laufender Export, jeder Schritt, „Meine Werke“
+
+## Phase 13 – Stand nach 13.3 (Commit e5c3cde)
+- [x] ✅ Detail in hellen, kontrastarmen Bereichen (nur Stufe Detail; Minimal/Balanced unverändert) — `lightDetail.test`, Organic-Golden
+- [x] ✅ Stil „Orthogonal“: nur waagerechte und senkrechte Strecken (exakter Geometrietest, 8 Motive × 3 Stufen), gespeicherter Pfad per Browser-Test geprüft
+- [x] ✅ Startpunkt: Auswahl auf dem Kunstwerk, Touch-Ziehen mit Vorschau-Marker, zyklische Reihenfolge, Video und erneuter Export beginnen am gespeicherten Punkt
+- [x] ✅ Responsive 360 / 390 / 430 / 768 / 1024 / 1280 px mit drei Stil-Optionen
+- [ ] ⏳ Debug-APK über GitHub Actions („Android debug APK“) für Commit e5c3cde
+- [ ] ⏳ Manueller Test auf dem Xiaomi 15 Ultra (Orthogonal und Startpunkt):
+  - [ ] Bild importieren
+  - [ ] Orthogonal als Stil auswählen (Hinweis „Nur waagerechte und senkrechte Linien, rechte Winkel“)
+  - [ ] Detailgrade Minimal, Balanced, Detail und „Eigene“ (Regler) — jeweils nur gerade Linien, sichtbar unterschiedlich dicht
+  - [ ] Vorschau prüfen (Zoom: keine schrägen Linien, keine Streifenmuster)
+  - [ ] Animation prüfen (Abspielen, Pause, Von vorn, Ende = fertiges Bild)
+  - [ ] Manuellen Startpunkt setzen („Wiedergabe“ → „Startpunkt setzen“; die fertige Linie ist über dem Foto sichtbar)
+  - [ ] Startpunkt per Touch verschieben (Finger gedrückt halten und ziehen: Marker folgt auf der Linie, Seite scrollt nicht, Loslassen setzt ihn)
+  - [ ] Animation beginnt am gewählten Punkt
+  - [ ] Startpunkt speichern (Projekt speichern)
+  - [ ] Projekt schließen, App beenden, erneut öffnen: Stil Orthogonal und Startpunkt-Marker unverändert, keine Neuberechnung
+  - [ ] Erneut exportieren („Meine Werke“ → „Erneut exportieren“)
+  - [ ] Prüfen, dass der gespeicherte Startpunkt verwendet wird (Video beginnt dort)
+  - [ ] Android-Zurück: Startpunkt-Auswahl → „Wiedergabe“ → Schritt zurück → „Meine Werke“
+  - [ ] Export des Orthogonal-Stils: Bild und Video, Speichern in der Galerie, Teilen
