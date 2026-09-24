@@ -100,8 +100,8 @@ describe('line smoothing', () => {
 });
 
 describe('drawing styles', () => {
-  it('exactly two styles; Organic is the default and uses the original engine', () => {
-    expect(DRAWING_STYLES).toEqual(['organic', 'geometric']);
+  it('exactly three styles; Organic is the default and uses the original engine', () => {
+    expect(DRAWING_STYLES).toEqual(['organic', 'geometric', 'orthogonal']);
     const organic = resolveOneLineSettings();
     expect(organic.drawing.style).toBe('organic');
     expect(organic.engineId).toBe(ONE_LINE_ENGINE_ID);

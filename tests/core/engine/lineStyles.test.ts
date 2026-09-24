@@ -3,6 +3,7 @@ import {
   GEOMETRIC_ENGINE_ID,
   ONE_LINE_ENGINES,
   ONE_LINE_ENGINE_ID,
+  ORTHOGONAL_ENGINE_ID,
   analyzeImage,
   computePathMetrics,
   createRandom,
@@ -79,8 +80,8 @@ describe('octilinear routing (geometric line shape)', () => {
 });
 
 describe('engine registry', () => {
-  it('has exactly the organic and the geometric engine; unknown ids are a controlled error', () => {
-    expect(Object.keys(ONE_LINE_ENGINES).sort()).toEqual([GEOMETRIC_ENGINE_ID, ONE_LINE_ENGINE_ID].sort());
+  it('has exactly the organic, the geometric and the orthogonal engine; unknown ids are a controlled error', () => {
+    expect(Object.keys(ONE_LINE_ENGINES).sort()).toEqual([GEOMETRIC_ENGINE_ID, ONE_LINE_ENGINE_ID, ORTHOGONAL_ENGINE_ID].sort());
     expect(() => oneLineEngine('nope')).toThrow(expect.objectContaining({ code: 'invalid-parameters' }));
     expect(() => oneLineEngine('toString')).toThrow(expect.objectContaining({ code: 'invalid-parameters' }));
   });

@@ -704,7 +704,7 @@ Im Browser bleibt alles unverändert.
 ### Pfad-Parameter vs. Render-Parameter
 | Regler | wirkt auf | Umsetzung | Neuberechnung |
 |---|---|---|---|
-| Stil (Organisch/Geometrisch) | Pfad | `DrawingSettings.style` → Engine-ID | neuer Pfad (einmal je Konfiguration, danach Cache) |
+| Stil (Organisch/Geometrisch/Orthogonal) | Pfad | `DrawingSettings.style` → Engine-ID | neuer Pfad (einmal je Konfiguration, danach Cache) |
 | Detailgrad (stufenlos) | Pfad | `DrawingSettings.detail` → `settings.detail` + interpolierte Profile | neuer Pfad beim Loslassen |
 | Linienglättung | Pfad | `DrawingSettings.smoothing` → vorhandenes `smoothingIterations` (Chaikin) | neuer Pfad beim Loslassen |
 | Linienbreite | Rendering | `RenderSettings.lineWidth` | nur Neuzeichnen |
@@ -731,8 +731,10 @@ DrawingStyle ──DRAWING_STYLE_PROFILES──▶ engineId ──oneLineEngine(
                                                         │
                                    LineShape (Schritt 6): prepare + finish
                                      ├─ ORGANIC_LINE_SHAPE:   Chaikin → Douglas–Peucker   (unverändert)
-                                     └─ GEOMETRIC_LINE_SHAPE: Douglas–Peucker → oktilineares Routing
-                                                              (0°/45°/90°) → gerade Läufe zusammenfassen
+                                     ├─ GEOMETRIC_LINE_SHAPE: Douglas–Peucker → oktilineares Routing
+                                     │                        (0°/45°/90°) → gerade Läufe zusammenfassen
+                                     └─ ORTHOGONAL_LINE_SHAPE: eigene Punktwahl + Tour-Kosten + L-Routing
+                                                               (Phase 13.3, s. unten)
 ```
 - Alle Engines liefern denselben `OneLinePath`; Rendering, Animation, Export, Galerie und Projekte
   bleiben unverändert. `path.meta.generatorId` nennt die Engine.
@@ -919,3 +921,70 @@ Dev-Build `window.__systemBack` bereit (nicht im Produktions-/Android-Bundle).
 | Werk öffnen (48-MP-Original dekodieren, keine Berechnung) | 1,4–1,6 s |
 | Videoexport 1080p, 5 s + 2 s | 3,3 s |
 | JS-Heap nach GC: Start / nach 10 Öffnungen / nach 30 Löschungen | 9 / 11 / 10 MB |
+
+## Kernfunktion erweitern (Phase 13)
+
+### 13.1 Detail in hellen, kontrastarmen Bereichen
+Ursache (gemessen): Die Nachfrage `s = (1 − toneWeight)·importance/ref + toneWeight·(1 − L)` ist für feine
+helle Strukturen klein (≈ 0,1–0,15), weil die Importance auf die stärksten Kanten des Bildes normiert ist
+und der Tonwert helle Flächen abwertet. `demandGamma` 3 der Detailstufe drückt das auf ≈ 0,002, also unter
+den Boden von 0,01 — die Struktur verschwindet. Die Kantenschicht hilft nicht: dünne Kanten werden beim
+Mitteln auf das Arbeitsraster verdünnt.
+
+Lösung: optionaler Parameter `lightDetail` (0..1, fehlt = aus = bisheriges Verhalten), **nur** im Preset
+Detail (0,8; stufenlos zwischen Balanced und Detail eingeblendet). In `buildDemandField`:
+`s = max(s, lightDetail · light(L) · structure)` mit
+- `light(L)`: smoothstep über `LIGHT_AREA_LUMINANCE` (0,55–0,85) — nur helle Bereiche,
+- `structure`: smoothstep über den **absoluten** lokalen Kontrast (Rohwert der `contrast`-Schicht,
+  `LIGHT_STRUCTURE_CONTRAST` 0,008–0,035) — unabhängig von den stärksten Kanten, auf glatten Flächen
+  (auch mit Sensorrauschen) 0, nicht verdünnt.
+Das max() hebt nur helle strukturierte Pixel an; dunkle und glatte Bereiche behalten ihre Nachfrage.
+Minimal und Balanced sind unverändert (gleiche Schlüssel und Pfade). Organic-Golden: die Detail-Zeilen sind
+neu eingefroren (`GOLDEN_13_1`); ein Test beweist, dass Detail **ohne** `lightDetail` exakt den Phase-12-Pfad
+liefert. Tests: `tests/core/engine/lightDetail.test.ts` (deterministische Szene: helle Streifen ≈ 5 %,
+verrauschtes Papier, dunkle Scheibe).
+
+### 13.2 Animationsstart auf dem Kunstwerk
+Vorhanden seit 12.3/12.4 (nicht dupliziert): zyklische Route (`createAnimationRoute`), Marker, Speicherung,
+Wiederöffnen, Re-Export. Für „A→…→F, Start D“ ergibt sich D→E→F, A→B→C→D; die Verbindung F→A wird nicht
+gezeichnet (sie ist nicht Teil des Kunstwerks; gemessen 0,3–2,8 % der Bilddiagonale). Repariert/erweitert:
+- **Auswahl auf dem Kunstwerk:** der Picker zeigt die fertige Linie über dem aufgehellten Foto.
+- **Touch:** `touch-action: none` auf dem Picker — vorher brach ein leichtes Wischen die Auswahl per
+  `pointercancel` ab (per Test reproduziert). Pointer-Capture, Vorschau-Marker am **eingerasteten**
+  Linienpunkt während des Ziehens (Finger verdeckt die Stelle), gesetzt beim Loslassen.
+- Tests: Reihenfolge A…F mit Start D (vorwärts/rückwärts, Pfad unverändert), Touch-Ziehen per CDP,
+  erstes Tintenpixel des exportierten **und** des aus der Galerie erneut exportierten Videos liegt am
+  Startpunkt (Decodierung per WebCodecs).
+
+### 13.3 Stil „Orthogonal“
+Eigene Pfadberechnung über zwei neue, optionale `LineShape`-Haken (Organic/Geometric nutzen sie nicht und
+sind bitgenau unverändert):
+1. `placePoints` → `latticePoints`: Nachfragepunkte **auf einem Raster**, gewählt per Fehlerdiffusion
+   (Floyd–Steinberg, Serpentine). Rasterabstand = Punktabstand im dichtesten Bereich (dort jeder Knoten
+   belegt → saubere Parallelen, nie enger als ein Rasterabstand). Gegen Artefakte: bilineare Abtastung,
+   Randanteile zurückgefaltet, Vorlaufzeilen, Schwellenrauschen und leicht unregelmäßige Rasterzeilen
+   (Integer-Hash, deterministisch, kein Seed) — sonst Moiré-Bänder in skalierten Ansichten.
+2. `connectionLength`: Tour-Kosten ½ Manhattan + ½ gerade Distanz. Reines Manhattan hält Kreuzungen, weil
+   eine Kreuzung und ihre 2-opt-Alternative dort oft exakt gleich lang sind (gemessen: 32 → 20 Kreuzungen
+   je 1000 Punkte).
+3. `finish`: `orthogonalRoute` (jede Verbindung als „L“, Ecken global per Viterbi: wenigste Wendungen,
+   180°-Umkehr vermieden) → `removeOrthogonalJogs` (Stufen unter der Toleranz) → Läufe zusammenfassen,
+   aber nie über `maxSegmentLength` hinaus (lange gerade Züge sind kein Sprung). Koordinaten werden nur
+   kopiert, nie neu berechnet → jede Strecke exakt waagerecht oder senkrecht (auch als float32).
+Der Motor übergibt dafür die Validierungsgrenze an `finish` (dritter Parameter).
+
+Integration ohne Sonderfälle: Eintrag in `DRAWING_STYLE_PROFILES` (`smoothing: false`) und im Registry.
+Stilwechsel → neuer Schlüssel → neuer Pfad; Wiedergabe-Änderungen berechnen nichts. Projekte speichern
+`style: 'orthogonal'` im vorhandenen Format. Tests: exakter Geometrietest (keine Strecke mit dx ≠ 0 und
+dy ≠ 0) auf 8 Motiven × 3 Stufen, Routing-/Raster-Einheitstests, E2E vom bearbeiteten Bild bis zum
+gespeicherten Pfad in IndexedDB.
+
+Oberfläche: drei Stil-Optionen. Die Leiste im Schritt „Zeichnung“ steht zwischen 1101 und 1535 px wie auf
+Tablets über der Navigation (vorher überdeckten sich Stil und Detailgrad dort); drei Spalten nebeneinander
+ab 960 px, darunter gestapelt.
+
+### Bekannte Grenzen
+- Orthogonal ist stilbedingt gröber als Organisch; in sehr hellen Flächen entstehen lange gerade Züge.
+- Einzelne 180°-Umkehrungen bleiben, wo die Tour sie erzwingt (≈ 1–2 % der Ecken), ebenso ≈ 2 % Überlappung.
+- Der Seed wirkt im orthogonalen Stil nicht (Punktwahl ist deterministisch ohne Zufall); er ist nur in der
+  Entwickleransicht sichtbar.

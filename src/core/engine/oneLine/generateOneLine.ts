@@ -9,7 +9,7 @@ import { buildOrientationField, contourAwareCost } from './orientationField';
 import { EngineError } from './errors';
 import { chaikinOpen, dropDuplicatePoints, simplifyPolyline } from './geometry';
 import { ONE_LINE_ENGINE_VERSION, REFERENCE_LONG_EDGE, pointBudgetFor, type OneLineEngineParameters } from './parameters';
-import { relaxStipples, sampleStipples } from './stippling';
+import { relaxStipples, sampleStipples, type Stipples } from './stippling';
 import { optimizeTour, spaceFillingTour } from './tour';
 
 export const ONE_LINE_ENGINE_ID = 'importance-stipple-tour';
@@ -107,10 +107,25 @@ export interface LineShape {
   readonly id: string;
   /** Bump whenever this style's output for identical input changes. */
   readonly version: string;
+  /**
+   * Cost of a connection (dx, dy) for the tour optimization, e.g. closer to
+   * the Manhattan length for orthogonal lines. Absent: the straight distance
+   * (optionally contour-aware), exactly as before.
+   */
+  readonly connectionLength?: (dx: number, dy: number) => number;
+  /**
+   * Own placement of about `count` demand points (working-grid px) instead of
+   * the seeded sampling + relaxation of step 2, e.g. on a lattice.
+   */
+  placePoints?(demand: ScalarField, count: number): Stipples;
   /** Tolerance-independent step on the raw tour (e.g. smoothing). */
   prepare(raw: Float64Array, parameters: OneLineEngineParameters): Float64Array;
-  /** Final polyline at a simplification tolerance (coarsened while above maxPoints). */
-  finish(prepared: Float64Array, tolerance: number): Float64Array;
+  /**
+   * Final polyline at a simplification tolerance (coarsened while above
+   * maxPoints). `maxSegmentLength` = the longest segment validation accepts
+   * (longer ones count as jumps), for styles that join straight runs.
+   */
+  finish(prepared: Float64Array, tolerance: number, maxSegmentLength: number): Float64Array;
 }
 
 /** Organic: soft curves — Chaikin smoothing, then Douglas–Peucker. */
@@ -143,8 +158,13 @@ export function runOneLineEngine(shape: LineShape, input: OneLineRunInput, rawPa
 
   // 2. Demand points
   const budget = Math.max(2, Math.min(requested, gw * gh * 4));
-  const stipples = sampleStipples(demand, budget, hooks.rng.fork('stipple'));
-  relaxStipples(demand, stipples, Math.max(0, Math.floor(parameters.relaxationIterations)), shouldAbort);
+  let stipples: Stipples;
+  if (shape.placePoints) {
+    stipples = shape.placePoints(demand, budget);
+  } else {
+    stipples = sampleStipples(demand, budget, hooks.rng.fork('stipple'));
+    relaxStipples(demand, stipples, Math.max(0, Math.floor(parameters.relaxationIterations)), shouldAbort);
+  }
   checkAbort();
   progress(0.45);
 
@@ -172,9 +192,22 @@ export function runOneLineEngine(shape: LineShape, input: OneLineRunInput, rawPa
   progress(0.55);
   const orientation = parameters.contourAlignment > 0 ? buildOrientationField(analysis, demand, parameters.contourScale) : null;
   checkAbort();
+  const drawn = shape.connectionLength;
   const stats = optimizeTour(xs, ys, order, gw, gh, {
-    ...(orientation
+    ...(orientation && !drawn
       ? { edgeCost: (a: number, b: number) => contourAwareCost(orientation, parameters.contourAlignment, xs[a]!, ys[a]!, xs[b]!, ys[b]!) }
+      : {}),
+    // The style's connection cost, weighted like the contour-aware cost (cost per straight length × style cost).
+    ...(drawn
+      ? {
+          edgeCost: (a: number, b: number) => {
+            const dx = xs[b]! - xs[a]!, dy = ys[b]! - ys[a]!;
+            const straight = Math.hypot(dx, dy);
+            if (straight === 0) return 0;
+            const weight = orientation ? contourAwareCost(orientation, parameters.contourAlignment, xs[a]!, ys[a]!, xs[b]!, ys[b]!) / straight : 1;
+            return weight * drawn(dx, dy);
+          },
+        }
       : {}),
     neighborCount: parameters.neighborCount,
     curvaturePenalty: parameters.curvaturePenalty,
@@ -192,12 +225,15 @@ export function runOneLineEngine(shape: LineShape, input: OneLineRunInput, rawPa
     raw[i * 2 + 1] = ys[order[i]!]! * sy;
   }
   const smoothed = shape.prepare(raw, parameters);
+  const validation = engineValidationOptions(parameters, image, sparsestSpacing(demand, xs.length) * Math.max(sx, sy));
+  // Safety margin for the float32 rounding of the final coordinates.
+  const maxSegment = (validation.maxSegmentLength ?? Infinity) * 0.99;
   let tolerance = Math.max(0, parameters.simplificationTolerance) * (Math.max(image.width, image.height) / REFERENCE_LONG_EDGE);
-  let simplified = shape.finish(smoothed, tolerance);
+  let simplified = shape.finish(smoothed, tolerance, maxSegment);
   // Respect the point cap by coarsening the tolerance (deterministic, bounded).
   for (let guard = 0; (simplified.length >> 1) > settings.maxPoints && guard < 24; guard++) {
     tolerance = Math.max(tolerance * 2, 0.01);
-    simplified = shape.finish(smoothed, tolerance);
+    simplified = shape.finish(smoothed, tolerance, maxSegment);
   }
   const coords = new Float32Array(simplified.length);
   for (let i = 0; i < simplified.length; i += 2) {
@@ -213,8 +249,7 @@ export function runOneLineEngine(shape: LineShape, input: OneLineRunInput, rawPa
   });
 
   // 7. Validation
-  const spacing = sparsestSpacing(demand, xs.length) * Math.max(sx, sy);
-  const report = validateOneLinePath(path, engineValidationOptions(parameters, image, spacing));
+  const report = validateOneLinePath(path, validation);
   if (!report.valid) throw new EngineError('invalid-result', report.errors.join(' '));
   progress(1);
 

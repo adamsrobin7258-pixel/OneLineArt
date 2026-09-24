@@ -1,6 +1,7 @@
 import { EngineError } from './errors';
 import { dropDuplicatePoints, simplifyPolyline } from './geometry';
 import { ORGANIC_LINE_SHAPE, runOneLineEngine, type LineShape, type OneLineRunHooks, type OneLineRunInput, type OneLineRunResult } from './generateOneLine';
+import { ORTHOGONAL_LINE_SHAPE } from './orthogonal';
 import type { OneLineEngineParameters } from './parameters';
 
 export const GEOMETRIC_ENGINE_ID = 'geometric-stipple-tour';
@@ -109,7 +110,7 @@ const engineFor = (shape: LineShape): OneLineEngine => ({
 
 /** Registry of the available engines by id. New styles register here — no branching in the engine. */
 export const ONE_LINE_ENGINES: Readonly<Record<string, OneLineEngine>> = Object.fromEntries(
-  [ORGANIC_LINE_SHAPE, GEOMETRIC_LINE_SHAPE].map((shape) => [shape.id, engineFor(shape)]),
+  [ORGANIC_LINE_SHAPE, GEOMETRIC_LINE_SHAPE, ORTHOGONAL_LINE_SHAPE].map((shape) => [shape.id, engineFor(shape)]),
 );
 
 /** The engine for an id; unknown ids are a controlled parameter error. */

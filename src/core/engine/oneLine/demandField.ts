@@ -48,7 +48,7 @@ export function workingSize(analysis: Size, longEdge: number): Size {
   return { width: Math.max(1, Math.round(analysis.width * scale)), height: Math.max(1, Math.round(analysis.height * scale)) };
 }
 
-function checkLayer(analysis: ImageAnalysis, name: 'importance' | 'globalRelevance' | 'luminance'): ScalarField {
+function checkLayer(analysis: ImageAnalysis, name: 'importance' | 'globalRelevance' | 'luminance' | 'contrast'): ScalarField {
   const layer = analysis[name];
   if (!layer || layer.width !== analysis.width || layer.height !== analysis.height || layer.data.length !== analysis.width * analysis.height) {
     throw new EngineError('invalid-analysis', `Layer ${name} is missing or inconsistent`);
@@ -56,12 +56,35 @@ function checkLayer(analysis: ImageAnalysis, name: 'importance' | 'globalRelevan
   return layer;
 }
 
+const smoothstep = (low: number, high: number, v: number): number => {
+  const t = Math.min(1, Math.max(0, (v - low) / (high - low)));
+  return t * t * (3 - 2 * t);
+};
+
+/** Luminance range over which an area counts as "light" (luminance 0..1): below LOW not at all, above HIGH fully. */
+export const LIGHT_AREA_LUMINANCE = { low: 0.55, high: 0.85 } as const;
+
+/**
+ * Local contrast (standard deviation of luminance in the analysis window, the
+ * raw `contrast` layer) that counts as structure in light areas: below LOW it
+ * is treated as flat paper / sensor noise (denoised luminance), from HIGH on
+ * as clear structure. ≈ 2–8 % lightness differences between neighbours.
+ */
+export const LIGHT_STRUCTURE_CONTRAST = { low: 0.008, high: 0.035 } as const;
+
 /**
  * Line demand per working-grid pixel, in (0, 1]:
  *
  *   s      = (1 − toneWeight) · importance/ref + toneWeight · (1 − luminance)
  *   s     *= (1 − globalModulation) + globalModulation · globalRelevance/ref
+ *   s      = max(s, lightDetail · light(L) · structure)          (only with lightDetail)
  *   demand = floor + (1 − floor) · s^gamma
+ *
+ * structure = smoothstep of the ABSOLUTE local contrast (raw contrast layer,
+ * see LIGHT_STRUCTURE_CONTRAST): independent of the strongest edges in the
+ * image, 0 on flat paper, and not diluted when the working grid is coarser
+ * than thin edges. The max() only lifts light structured pixels; everything
+ * else keeps its demand.
  *
  * Global modulation damps isolated high-contrast specks and strengthens large
  * relevant shapes; the floor keeps the whole canvas in play without filling
@@ -88,11 +111,20 @@ export function buildDemandField(analysis: ImageAnalysis, p: OneLineEngineParame
   const mod = Math.min(1, Math.max(0, p.globalModulation));
   const floor = Math.min(1, Math.max(0, p.demandFloor));
 
+  // Light-area detail: absolute local contrast (the contrast layer is normalized by `reference`).
+  const light = Math.min(1, Math.max(0, p.lightDetail ?? 0));
+  const contrastReference = analysis.meta.normalization.contrast?.reference;
+  const contrast = light > 0 && contrastReference !== undefined ? resampleField(checkLayer(analysis, 'contrast'), size) : null;
+
   const data = new Float32Array(size.width * size.height);
   for (let i = 0; i < data.length; i++) {
     const imp = Math.min(1, importance.data[i]! / impRef);
     const g = Math.min(1, global.data[i]! / globalRef);
-    const s = ((1 - tone) * imp + tone * (1 - luminance.data[i]!)) * (1 - mod + mod * g);
+    let s = ((1 - tone) * imp + tone * (1 - luminance.data[i]!)) * (1 - mod + mod * g);
+    if (contrast) {
+      const structure = smoothstep(LIGHT_STRUCTURE_CONTRAST.low, LIGHT_STRUCTURE_CONTRAST.high, contrast.data[i]! * contrastReference!);
+      s = Math.max(s, light * smoothstep(LIGHT_AREA_LUMINANCE.low, LIGHT_AREA_LUMINANCE.high, luminance.data[i]!) * structure);
+    }
     data[i] = floor + (1 - floor) * Math.pow(Math.min(1, Math.max(0, s)), p.demandGamma);
   }
   const demand: ScalarField = { ...size, data };

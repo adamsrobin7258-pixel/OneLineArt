@@ -53,6 +53,9 @@ export const DETAIL_PROFILES: Readonly<Record<OneLineDetailLevel, DetailProfile>
       contourAlignment: 3.5,
       curvaturePenalty: 0.25,
       simplificationTolerance: 0.15,
+      // Phase 13.1: faint but real structure in LIGHT areas (e.g. a white cup's rim, buildings
+      // against a bright sky) gets line too; it was below the demand floor after the gamma.
+      lightDetail: 0.8,
     },
   },
 };
@@ -101,5 +104,7 @@ export function interpolateDetailParameters<P extends object>(
   const t = (detail - DETAIL_PROFILES[lower].detail) / (DETAIL_PROFILES[upper].detail - DETAIL_PROFILES[lower].detail);
   const a = resolvePreset(lower) as unknown as Record<string, Numeric>;
   const b = resolvePreset(upper) as unknown as Record<string, Numeric>;
-  return Object.fromEntries(Object.keys(a).map((k) => [k, lerpValue(a[k]!, b[k]!, t, integer, k)])) as P;
+  // Optional parameters present on one side only start from 0 on the other (e.g. lightDetail).
+  const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])];
+  return Object.fromEntries(keys.map((k) => [k, lerpValue(a[k] ?? 0, b[k] ?? 0, t, integer, k)])) as P;
 }

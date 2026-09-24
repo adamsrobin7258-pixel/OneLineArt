@@ -20,6 +20,7 @@ import { SegmentedControl } from '../ui/components/SegmentedControl';
 import { Slider } from '../ui/components/Slider';
 import { SwatchPicker } from '../ui/components/SwatchPicker';
 import type { RenderSettingsController } from './state/useRenderSettings';
+import { DRAWING_STYLE_LABELS } from './drawingLabels';
 
 const percent = (v: number) => `${Math.round(v * 100)} %`;
 const decimal = (v: number) => v.toFixed(2).replace('.', ',');
@@ -121,7 +122,7 @@ export function AdjustPanel({ id, oneLine, setDrawing, render }: AdjustPanelProp
             format={(v) => (v === 0 ? 'Aus' : String(v))}
             onCommit={(smoothing) => setDrawing({ smoothing })}
             disabled={!smooths}
-            hint={smooths ? undefined : 'Im geometrischen Stil bleiben die Linien gerade'}
+            hint={smooths ? undefined : DRAWING_STYLE_LABELS[oneLine.drawing.style].straight}
           />
         </div>
       )}

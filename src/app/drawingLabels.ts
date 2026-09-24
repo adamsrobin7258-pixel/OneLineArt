@@ -11,10 +11,11 @@ export const DETAIL_LEVEL_LABELS: Record<OneLineDetailLevel, { readonly label: s
 /** Shown instead of a preset when detail or smoothing were adjusted by hand. */
 export const CUSTOM_DETAIL_LABEL = { label: 'Eigene', hint: 'Eigene Einstellung unter „Anpassen“' } as const;
 
-/** User-facing names of the drawing styles. */
-export const DRAWING_STYLE_LABELS: Record<DrawingStyle, { readonly label: string; readonly hint: string }> = {
+/** User-facing names of the drawing styles; `straight` explains why smoothing is off in styles without it. */
+export const DRAWING_STYLE_LABELS: Record<DrawingStyle, { readonly label: string; readonly hint: string; readonly straight?: string }> = {
   organic: { label: 'Organisch', hint: 'Weiche, frei fließende Linie' },
-  geometric: { label: 'Geometrisch', hint: 'Gerade Linien mit klaren Ecken' },
+  geometric: { label: 'Geometrisch', hint: 'Gerade Linien mit klaren Ecken', straight: 'Im geometrischen Stil bleiben die Linien gerade' },
+  orthogonal: { label: 'Orthogonal', hint: 'Nur waagerechte und senkrechte Linien, rechte Winkel', straight: 'Im orthogonalen Stil bleiben die Linien gerade' },
 };
 
 export const PATH_ERROR_MESSAGES: Record<PathErrorCode, UserMessage> = {

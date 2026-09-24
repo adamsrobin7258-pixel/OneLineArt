@@ -11,3 +11,4 @@ export * from './coverage';
 export * from './generateOneLine';
 export * from './oneLineGenerator';
 export * from './lineStyles';
+export * from './orthogonal';

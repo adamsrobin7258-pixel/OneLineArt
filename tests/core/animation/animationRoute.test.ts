@@ -87,6 +87,67 @@ describe('animation route (order of drawing over the unchanged path)', () => {
   }
 });
 
+/**
+ * Phase 13.2, the cyclic order in the words of the requirement: a line
+ * A → B → C → D → E → F (drawn from a closed tour, so F lies next to A)
+ * started at D is drawn D → E → F → A → B → C → D. The pen lifts between
+ * F and A (that connection is not part of the artwork).
+ */
+describe('13.2 start point D on A…F: cyclic order, same path', () => {
+  const letters = ['A', 'B', 'C', 'D', 'E', 'F'] as const;
+  // A hexagon-like open ring; F is one step away from A.
+  const vertices = [
+    { x: 2, y: 2 },
+    { x: 8, y: 2 },
+    { x: 14, y: 2 },
+    { x: 14, y: 8 },
+    { x: 8, y: 8 },
+    { x: 2, y: 8 },
+  ];
+  const ring = createPath(vertices, { width: 16, height: 10 }, { generatorId: 't', generatorVersion: '1', seed: 0 });
+  const ringIndex = createPathProgress(ring);
+
+  /** The vertices in the order the pen passes them: piece by piece, in drawing direction (consecutive duplicates removed). */
+  function penOrder(route: AnimationRoute): string[] {
+    const out: string[] = [];
+    for (const { from, to } of route.pieces) {
+      const lo = Math.min(from, to), hi = Math.max(from, to);
+      const passed = letters.map((_, i) => i).filter((i) => ringIndex.cumulative[i]! >= lo - 1e-9 && ringIndex.cumulative[i]! <= hi + 1e-9);
+      if (to < from) passed.reverse();
+      for (const i of passed) if (out[out.length - 1] !== letters[i]) out.push(letters[i]!);
+    }
+    return out;
+  }
+  const pointD = { x: vertices[3]!.x / 16, y: vertices[3]!.y / 10 };
+
+  it('default: A → … → F', () => {
+    expect(penOrder(routeFor(ringIndex))).toEqual(['A', 'B', 'C', 'D', 'E', 'F']);
+  });
+
+  it('start D forward: D → E → F → A → B → C → D', () => {
+    const route = routeFor(ringIndex, 'forward', pointD);
+    expect(penOrder(route)).toEqual(['D', 'E', 'F', 'A', 'B', 'C', 'D']);
+    // The jump F → A is never drawn: every drawn interval lies on the path.
+    const drawn = routeIntervals(route, 0, 1);
+    expect(drawn.reduce((sum, { a, b }) => sum + b - a, 0)).toBeCloseTo(ringIndex.totalLength, 9);
+  });
+
+  it('start D reverse: D → C → B → A → F → E → D', () => {
+    expect(penOrder(routeFor(ringIndex, 'reverse', pointD))).toEqual(['D', 'C', 'B', 'A', 'F', 'E', 'D']);
+  });
+
+  it('a tap next to D starts at D (snapped onto the line)', () => {
+    expect(penOrder(routeFor(ringIndex, 'forward', { x: pointD.x + 0.02, y: pointD.y + 0.05 }))[0]).toBe('D');
+  });
+
+  it('no path recomputation: the path object and its coordinates stay identical', () => {
+    const before = Array.from(ring.coords);
+    for (const direction of ['forward', 'reverse'] as const) routeFor(ringIndex, direction, pointD);
+    expect(ringIndex.path).toBe(ring);
+    expect(Array.from(ring.coords)).toEqual(before);
+  });
+});
+
 describe('start point on the path', () => {
   it('a point near a segment snaps onto it (inside the segment)', () => {
     const near = nearestPathPoint(index, { x: 12, y: 4 });

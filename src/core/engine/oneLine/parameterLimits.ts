@@ -8,7 +8,10 @@ export interface NumericLimit {
   readonly integer?: boolean;
 }
 
-type ScalarKey = { [K in keyof OneLineEngineParameters]: OneLineEngineParameters[K] extends number ? K : never }[keyof OneLineEngineParameters];
+/** Required numeric parameters (optional ones are listed in OPTIONAL_PARAMETER_LIMITS). */
+type ScalarKey = {
+  [K in keyof OneLineEngineParameters]-?: undefined extends OneLineEngineParameters[K] ? never : OneLineEngineParameters[K] extends number ? K : never;
+}[keyof OneLineEngineParameters];
 
 /**
  * Safety limits for every engine parameter — the single place that bounds
@@ -37,6 +40,11 @@ export const ENGINE_PARAMETER_LIMITS: Readonly<Record<ScalarKey, NumericLimit>> 
   maxSegmentFraction: { min: 0.01, max: 1 },
   maxZeroLengthShare: { min: 0, max: 0.5 },
 };
+
+/** Optional parameters: validated only when present (absent keeps identities of older settings). */
+export const OPTIONAL_PARAMETER_LIMITS = {
+  lightDetail: { min: 0, max: 1 },
+} as const satisfies Record<string, NumericLimit>;
 
 /** Line budget bounds (demand points). */
 export const POINT_BUDGET_LIMIT: NumericLimit = { min: 100, max: 120_000, integer: true };
@@ -81,6 +89,10 @@ export function sanitizeEngineParameters(parameters: OneLineEngineParameters): S
   const out: Record<string, unknown> = { ...parameters };
   for (const [name, limit] of Object.entries(ENGINE_PARAMETER_LIMITS) as [ScalarKey, NumericLimit][]) {
     out[name] = sanitizeNumber(name, parameters[name], limit, issues);
+  }
+  for (const [name, limit] of Object.entries(OPTIONAL_PARAMETER_LIMITS)) {
+    if ((parameters as unknown as Record<string, unknown>)[name] === undefined) delete out[name];
+    else out[name] = sanitizeNumber(name, (parameters as unknown as Record<string, unknown>)[name], limit, issues);
   }
   let min = sanitizeNumber('pointBudget.min', parameters.pointBudget?.min, POINT_BUDGET_LIMIT, issues);
   let max = sanitizeNumber('pointBudget.max', parameters.pointBudget?.max, POINT_BUDGET_LIMIT, issues);

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
-import { createArtwork, exportAndDownload, probeVideo, settingsScreen, trackWorkers, videoPanel, workers } from './exportHelpers';
-import { pickFile } from './helpers';
+import { createArtwork, exportAndDownload, firstInkAround, probeVideo, settingsScreen, trackWorkers, videoPanel, workers } from './exportHelpers';
+import { createImage, pickFile } from './helpers';
 
 type Core = typeof import('../src/core');
 type Animator = typeof import('../src/platform/browser/animation/artworkAnimator');
@@ -172,6 +172,59 @@ test('start point: set on the image, visible, used, reset — without recomputin
   expect(await workers(page, 'analysis')).toBe(1);
 });
 
+test.describe('start point on a phone (touch)', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+
+  test('picked ON the artwork: a finger slide shows where the line starts, lifting the finger sets it', async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.goto('/');
+    await pickFile(page, 'Foto auswählen', { name: 'foto.jpg', mimeType: 'image/jpeg', buffer: await createImage(page, { layout: 'left-right', width: 800, height: 600 }) });
+    await expect(page.getByTestId('image-toolbar')).toHaveAttribute('data-analysis-status', 'ready', { timeout: 30_000 });
+    await page.getByRole('button', { name: 'Weiter' }).click();
+    await expect(settingsScreen(page)).toHaveAttribute('data-path-status', 'ready', { timeout: 60_000 });
+    const paths = await workers(page, 'pathGeneration');
+    await page.getByRole('button', { name: 'Weiter' }).click();
+    await openPanel(page);
+    await page.getByRole('button', { name: 'Startpunkt setzen' }).click();
+    const picker = page.getByTestId('start-picker');
+    await picker.scrollIntoViewIfNeeded();
+
+    // The picker shows the finished line over the faded photo (faded photo alone is never darker than ~55 % white).
+    expect(await picker.locator('canvas').evaluate((c: HTMLCanvasElement) => {
+      const { data } = c.getContext('2d')!.getImageData(0, 0, c.width, c.height);
+      let ink = 0;
+      for (let i = 0; i < data.length; i += 4) if (data[i]! + data[i + 1]! + data[i + 2]! < 240) ink++;
+      return ink;
+    })).toBeGreaterThan(100);
+
+    // Real touch sequence: down, slide, up (a slide must not scroll the page or cancel the choice).
+    const box = (await picker.boundingBox())!;
+    const at = (x: number, y: number) => [{ x: box.x + box.width * x, y: box.y + box.height * y }];
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: at(0.3, 0.6) });
+    for (let k = 1; k <= 5; k++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: at(0.3 + 0.08 * k, 0.6 - 0.04 * k) });
+    const preview = page.getByTestId('start-preview');
+    await expect(preview).toBeVisible();
+    await expect(picker).toBeVisible();
+    await expect(page.getByTestId('start-marker')).toHaveCount(0);
+    const p = (await preview.boundingBox())!;
+    const shown = [(p.x + p.width / 2 - box.x) / box.width, (p.y + p.height / 2 - box.y) / box.height];
+    expect(Math.abs(shown[0]! - 0.7)).toBeLessThan(0.05);
+    expect(Math.abs(shown[1]! - 0.4)).toBeLessThan(0.05);
+
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await expect(picker).toBeHidden();
+    await expect(page.getByTestId('start-marker')).toBeVisible();
+    // The start is exactly the previewed line point.
+    const [x, y] = await startOf(page);
+    expect(Math.abs(x - shown[0]!)).toBeLessThan(0.01);
+    expect(Math.abs(y - shown[1]!)).toBeLessThan(0.01);
+
+    // Choosing plays back the same line: nothing recomputed.
+    expect(await workers(page, 'pathGeneration')).toBe(paths);
+  });
+});
+
 test('start point with image edits: the transform matches the real pixels for crop, zoom, pan and every rotation', async ({ page }) => {
   await page.goto('/');
   const results = await page.evaluate(async () => {
@@ -307,6 +360,15 @@ test('video export and saved project keep duration, speed, direction and start p
   const probe = await probeVideo(video.buffer);
   expect(probe.durationS).toBeCloseTo(6, 0);
   expect(probe.frames).toBe(6 * 30 + 1);
+  // The video really starts at the chosen point: the first line pixels lie there (and only there).
+  const [x0, y0] = start!.split(',').map(Number) as [number, number];
+  const expectStartsAt = async (buffer: Buffer) => {
+    const ink = await firstInkAround(page, buffer, { x: x0, y: y0 });
+    expect(ink).not.toBeNull();
+    expect(ink!.nearest).toBeLessThan(0.02);
+    expect(ink!.farthest).toBeLessThan(0.35);
+  };
+  await expectStartsAt(video.buffer);
 
   // Save, restart, reopen: the same choices, no computation.
   await page.getByTestId('save-project').click();
@@ -323,5 +385,13 @@ test('video export and saved project keep duration, speed, direction and start p
   expect(await workers(page, 'pathGeneration')).toBe(0);
   expect(await workers(page, 'analysis')).toBe(0);
   expect(paths).toBeGreaterThan(0);
+
+  // Export again from the gallery: the stored start point is used again.
+  await page.getByRole('button', { name: 'Meine Werke' }).click();
+  await page.getByTestId('gallery-item').first().getByRole('button', { name: 'Erneut exportieren' }).click();
+  await expect(page.getByTestId('export-screen')).toBeVisible();
+  await videoPanel(page).getByRole('radio', { name: '1080p' }).click();
+  await expectStartsAt((await exportAndDownload(page, 'Video', 120_000)).buffer);
+  expect(await workers(page, 'pathGeneration')).toBe(0);
 });
 

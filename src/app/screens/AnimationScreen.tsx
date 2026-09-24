@@ -1,12 +1,15 @@
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
 import {
   createPathProgress,
+  drawArtworkLine,
   drawingDurationMs,
   isHolding,
   nearestPathPoint,
   playbackTotalMs,
   toPathPoint,
   type ImageSession,
+  type NearestPathPoint,
+  type NormalizedPoint,
   type PlaybackStatus,
 } from '../../core';
 import { createAnimationLoop, type AnimationLoop, type AnimationStats } from '../../platform/browser/animation/animationLoop';
@@ -53,7 +56,13 @@ export function AnimationScreen({ session, render, animation, onAnimationChange,
   const durationMs = drawingDurationMs(animation);
   const { direction, startPoint } = animation;
   const [panelOpen, setPanelOpen] = useState(false);
-  const [picking, setPicking] = useState(false);
+  const [picking, setPickingState] = useState(false);
+  // While choosing: where the start would snap to under the finger / pointer (touch: the finger covers the spot).
+  const [preview, setPreview] = useState<NearestPathPoint | null>(null);
+  const setPicking = (next: boolean | ((previous: boolean) => boolean)) => {
+    setPreview(null);
+    setPickingState(next);
+  };
   // Android back: first end the start point selection, then close the panel.
   useBackHandler(panelOpen, () => {
     setPicking(false);
@@ -61,8 +70,9 @@ export function AnimationScreen({ session, render, animation, onAnimationChange,
   });
   useBackHandler(picking, () => setPicking(false));
   const panelId = useId();
+  const pathIndex = useMemo(() => (path ? createPathProgress(path) : null), [path]);
   // Where the drawing really starts: the path point nearest to the chosen image point.
-  const start = useMemo(() => (path && startPoint ? nearestPathPoint(createPathProgress(path), toPathPoint(path, startPoint)) : null), [path, startPoint]);
+  const start = useMemo(() => (pathIndex && startPoint ? nearestPathPoint(pathIndex, toPathPoint(pathIndex.path, startPoint)) : null), [pathIndex, startPoint]);
   const photoRef = useRef<HTMLCanvasElement>(null);
   const { renderSettings } = render;
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -130,23 +140,46 @@ export function AnimationScreen({ session, render, animation, onAnimationChange,
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, []);
 
-  // While choosing the start point the (edited) photo is shown, so e.g. an eye can be tapped.
+  // While choosing the start point the finished line is shown over the faded (edited) photo:
+  // the start is picked ON the artwork, and e.g. an eye is still recognisable.
   useEffect(() => {
     const canvas = photoRef.current;
     const ctx = canvas?.getContext('2d');
-    if (!picking || !canvas || !ctx || !size) return;
+    if (!picking || !path || !canvas || !ctx || !size) return;
     canvas.width = size.width;
     canvas.height = size.height;
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, size.width, size.height);
+    ctx.globalAlpha = 0.45;
     ctx.drawImage(session.preview, 0, 0, size.width, size.height);
-  }, [picking, size, session.preview]);
+    ctx.globalAlpha = 1;
+    const animator = createArtworkAnimator({ path, settings: renderSettings, longEdge: PREVIEW_RENDER_EDGE, image: session.processed.pixels });
+    drawArtworkLine(animator.plan, path, ctx);
+    animator.dispose();
+  }, [picking, size, path, renderSettings, session.preview, session.processed.pixels]);
 
-  /** Tap on the image → normalized point of the edited image (independent of the screen size). */
-  const pick = (event: PointerEvent<HTMLElement>) => {
+  /** Pointer on the image → normalized point of the edited image (independent of the screen size). */
+  const pointOf = (event: PointerEvent<HTMLElement>): NormalizedPoint => {
     const box = event.currentTarget.getBoundingClientRect();
-    const point = { x: (event.clientX - box.left) / box.width, y: (event.clientY - box.top) / box.height };
+    return { x: Math.min(1, Math.max(0, (event.clientX - box.left) / box.width)), y: Math.min(1, Math.max(0, (event.clientY - box.top) / box.height)) };
+  };
+  const showPreview = (event: PointerEvent<HTMLElement>) => {
+    if (pathIndex) setPreview(nearestPathPoint(pathIndex, toPathPoint(pathIndex.path, pointOf(event))));
+  };
+  const pickDown = (event: PointerEvent<HTMLElement>) => {
+    // Keep receiving the moves (and the release) even if the finger slides over the edge.
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    showPreview(event);
+  };
+  // Mouse: follows the pointer; touch / pen: only while pressed.
+  const pickMove = (event: PointerEvent<HTMLElement>) => {
+    if (event.pointerType === 'mouse' || event.buttons !== 0) showPreview(event);
+  };
+  const pick = (event: PointerEvent<HTMLElement>) => {
+    const point = pointOf(event);
     setPicking(false);
     loopRef.current?.seek(0);
-    onAnimationChange({ startPoint: { x: Math.min(1, Math.max(0, point.x)), y: Math.min(1, Math.max(0, point.y)) } });
+    onAnimationChange({ startPoint: point });
   };
 
   const playing = status === 'playing';
@@ -183,8 +216,26 @@ export function AnimationScreen({ session, render, animation, onAnimationChange,
               />
             )}
             {picking && (
-              <button type="button" className="animation__pick" data-testid="start-picker" aria-label="Startpunkt auf dem Bild wählen" onPointerUp={pick}>
+              <button
+                type="button"
+                className="animation__pick"
+                data-testid="start-picker"
+                aria-label="Startpunkt auf dem Bild wählen"
+                onPointerDown={pickDown}
+                onPointerMove={pickMove}
+                onPointerUp={pick}
+                onPointerCancel={() => setPreview(null)}
+                onPointerLeave={(event) => event.pointerType === 'mouse' && setPreview(null)}
+              >
                 <canvas ref={photoRef} className="animation__photo" aria-hidden="true" />
+                {preview && path && (
+                  <span
+                    className="animation__start animation__start--preview"
+                    data-testid="start-preview"
+                    style={{ left: `${(preview.point.x / path.bounds.width) * 100}%`, top: `${(preview.point.y / path.bounds.height) * 100}%` }}
+                    aria-hidden="true"
+                  />
+                )}
                 <span className="animation__pick-hint">Tippe auf die Stelle, an der die Linie beginnen soll</span>
               </button>
             )}

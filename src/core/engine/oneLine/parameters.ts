@@ -37,6 +37,15 @@ export interface OneLineEngineParameters {
   readonly demandSmoothing: number;
   /** Percentile used as the reference maximum for importance. */
   readonly importanceReferencePercentile: number;
+  /**
+   * Light-area detail (0..1, optional; absent = off, the pre-13.1 behaviour).
+   * Lifts the demand of structure in BRIGHT areas that the other terms lose:
+   * importance is normalized to the strongest edges of the image and tone
+   * favours dark areas, so faint but real contours in light areas end up
+   * below the demand floor after the gamma. Only local contrast above a
+   * noise threshold counts (see buildDemandField).
+   */
+  readonly lightDetail?: number;
 
   // --- Line budget ---------------------------------------------------------
   /** Number of demand points (≈ line budget) at detail 0 and detail 1. */

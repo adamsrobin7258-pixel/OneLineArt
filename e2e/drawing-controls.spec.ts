@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { colourfulness, createArtwork, exportAndDownload, exportScreen, goToExport, imagePanel, probeVideo, settingsScreen, trackWorkers, videoPanel, workers } from './exportHelpers';
+import { createImage, pickFile } from './helpers';
 
 test.beforeEach(async ({ page }) => trackWorkers(page));
 
@@ -34,7 +35,7 @@ test('style: Organic by default; Geometric draws its own line; switching back is
   test.setTimeout(120_000);
   await createArtwork(page, { width: 900, height: 700 });
   const style = page.getByRole('radiogroup', { name: 'Stil' });
-  await expect(style.getByRole('radio')).toHaveText(['Organisch', 'Geometrisch']);
+  await expect(style.getByRole('radio')).toHaveText(['Organisch', 'Geometrisch', 'Orthogonal']);
   await expect(style.getByRole('radio', { name: 'Organisch' })).toHaveAttribute('aria-checked', 'true');
   await expect(settingsScreen(page)).toHaveAttribute('data-engine', 'importance-stipple-tour');
 
@@ -180,4 +181,116 @@ test('geometric style: animation finishes, image and video export work', async (
   expect(probe.width).toBeGreaterThan(0);
   expect(probe.durationS).toBeGreaterThan(6);
   expect(await workers(page, 'pathGeneration')).toBe(paths);
+});
+
+/** The stored paths of all saved projects (IndexedDB "paths" store): per path the segments that are not axis-parallel. */
+const storedPaths = (page: Page) =>
+  page.evaluate(
+    () =>
+      new Promise<{ points: number; diagonal: number; zero: number }[]>((resolve, reject) => {
+        const open = indexedDB.open('one-line-art');
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const all = open.result.transaction('paths').objectStore('paths').getAll();
+          all.onerror = () => reject(all.error);
+          all.onsuccess = () =>
+            resolve(
+              (all.result as { coords: Float32Array }[]).map(({ coords }) => {
+                let diagonal = 0, zero = 0;
+                for (let i = 2; i < coords.length; i += 2) {
+                  const dx = coords[i]! - coords[i - 2]!, dy = coords[i + 1]! - coords[i - 1]!;
+                  if (dx !== 0 && dy !== 0) diagonal++;
+                  if (dx === 0 && dy === 0) zero++;
+                }
+                return { points: coords.length / 2, diagonal, zero };
+              }),
+            );
+        };
+      }),
+  );
+
+test('orthogonal style: its own line with only horizontal and vertical segments, through edit, detail, colour, animation, export and projects', async ({ page }) => {
+  test.setTimeout(300_000);
+  await page.goto('/');
+  await pickFile(page, 'Bild auswählen', { name: 'foto.jpg', mimeType: 'image/jpeg', buffer: await createImage(page, { layout: 'left-right', width: 900, height: 600 }) });
+  await expect(page.getByTestId('image-toolbar')).toHaveAttribute('data-analysis-status', 'ready', { timeout: 30_000 });
+  // Image edit first: the orthogonal line is computed on the edited image.
+  await page.getByRole('button', { name: 'Bearbeiten' }).click();
+  await page.getByRole('button', { name: 'Nach rechts drehen' }).click();
+  await page.getByRole('button', { name: 'Übernehmen' }).click();
+  await expect(page.getByTestId('image-toolbar')).toHaveAttribute('data-analysis-status', 'ready', { timeout: 30_000 });
+  await page.getByRole('button', { name: 'Weiter' }).click();
+  await expectDrawing(page);
+
+  // Style change → a new line from the orthogonal engine.
+  const before = await workers(page, 'pathGeneration');
+  await page.getByRole('radiogroup', { name: 'Stil' }).getByRole('radio', { name: 'Orthogonal' }).click();
+  await expect(settingsScreen(page)).toHaveAttribute('data-style', 'orthogonal');
+  await expect(settingsScreen(page)).toHaveAttribute('data-engine', 'orthogonal-stipple-tour');
+  await expectDrawing(page);
+  await expect(page.getByText('Nur waagerechte und senkrechte Linien, rechte Winkel')).toBeVisible();
+  expect(await workers(page, 'pathGeneration')).toBe(before + 1);
+
+  // Detail level: a new orthogonal line; smoothing does not apply.
+  await page.getByRole('radiogroup', { name: 'Detailgrad' }).getByRole('radio', { name: 'Detail' }).click();
+  await expectDrawing(page);
+  await expect(settingsScreen(page)).toHaveAttribute('data-engine', 'orthogonal-stipple-tour');
+  const paths = await workers(page, 'pathGeneration');
+  expect(paths).toBe(before + 2);
+  await openAdjust(page);
+  await expect(page.getByRole('slider', { name: 'Linienglättung' })).toBeDisabled();
+  await expect(page.getByText('Im orthogonalen Stil bleiben die Linien gerade')).toBeVisible();
+  // Line width and colours only change how the same line is drawn.
+  await section(page, 'Darstellung');
+  await slide(page, 'Linienbreite', ['End']);
+  await page.getByRole('button', { name: 'Anpassen' }).click(); // close
+  await page.getByRole('radiogroup', { name: 'Darstellung' }).getByRole('radio', { name: 'Verlauf' }).click();
+  await expectDrawing(page);
+
+  // Animation with a start point: plays the same line, nothing recomputed.
+  await page.getByRole('button', { name: 'Weiter' }).click();
+  const canvas = page.getByTestId('animation-canvas');
+  await page.getByRole('button', { name: 'Wiedergabe' }).click();
+  await page.getByRole('button', { name: 'Startpunkt setzen' }).click();
+  const box = (await page.getByTestId('start-picker').boundingBox())!;
+  await page.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.6);
+  await expect(page.getByTestId('start-marker')).toBeVisible();
+  const start = await canvas.getAttribute('data-start');
+  expect(start).not.toBe('auto');
+  await page.getByRole('radio', { name: '5 s', exact: true }).click();
+  await page.getByRole('button', { name: 'Abspielen' }).click();
+  await expect(canvas).toHaveAttribute('data-status', 'finished', { timeout: 20_000 });
+
+  // Export: image and video.
+  await page.getByRole('button', { name: 'Weiter' }).click();
+  await expect(exportScreen(page)).toBeVisible();
+  await imagePanel(page).getByRole('radio', { name: '2048 px', exact: true }).click();
+  expect((await colourfulness(page, (await exportAndDownload(page, 'Bild')).buffer, 'image/png')).line).toBeGreaterThan(0.01);
+  const video = await probeVideo((await exportAndDownload(page, 'Video', 120_000)).buffer);
+  expect(video.durationS).toBeGreaterThan(6);
+  expect(await workers(page, 'pathGeneration')).toBe(paths);
+
+  // Project: the stored line is exactly orthogonal; the gallery names the style.
+  await page.getByTestId('save-project').click();
+  await expect(page.getByTestId('save-project')).toHaveAttribute('data-save-status', 'saved');
+  const stored = await storedPaths(page);
+  expect(stored).toHaveLength(1);
+  expect(stored[0]!.points).toBeGreaterThan(100);
+  expect(stored[0]).toMatchObject({ diagonal: 0, zero: 0 });
+
+  // Restart and reopen: same style, same start point, no computation; a style change computes again.
+  await page.reload();
+  await page.getByRole('button', { name: 'Meine Werke' }).click();
+  await expect(page.getByTestId('gallery-item').first()).toContainText('Orthogonal');
+  await page.getByTestId('gallery-item').first().getByRole('button', { name: /öffnen/ }).click();
+  await expectDrawing(page);
+  await expect(settingsScreen(page)).toHaveAttribute('data-style', 'orthogonal');
+  await page.getByRole('button', { name: 'Weiter' }).click();
+  await expect(canvas).toHaveAttribute('data-start', start!);
+  expect(await workers(page, 'pathGeneration')).toBe(0);
+  await page.getByRole('button', { name: 'Zurück', exact: true }).click();
+  await page.getByRole('radiogroup', { name: 'Stil' }).getByRole('radio', { name: 'Organisch' }).click();
+  await expect(settingsScreen(page)).toHaveAttribute('data-engine', 'importance-stipple-tour');
+  await expectDrawing(page);
+  expect(await workers(page, 'pathGeneration')).toBe(1);
 });

@@ -1,8 +1,8 @@
-import { GEOMETRIC_ENGINE_ID, ONE_LINE_ENGINE_ID } from '../engine';
+import { GEOMETRIC_ENGINE_ID, ONE_LINE_ENGINE_ID, ORTHOGONAL_ENGINE_ID } from '../engine';
 import type { EngineParameterPatch } from './parameterPatch';
 
 /** The user-facing drawing styles. */
-export const DRAWING_STYLES = ['organic', 'geometric'] as const;
+export const DRAWING_STYLES = ['organic', 'geometric', 'orthogonal'] as const;
 export type DrawingStyle = (typeof DRAWING_STYLES)[number];
 export const DEFAULT_DRAWING_STYLE: DrawingStyle = 'organic';
 
@@ -24,4 +24,6 @@ export const DRAWING_STYLE_PROFILES: Readonly<Record<DrawingStyle, DrawingStyleP
   organic: { engineId: ONE_LINE_ENGINE_ID, parameters: {}, smoothing: true },
   // Same route, drawn with straight 45°/90° lines; smoothing would round its corners.
   geometric: { engineId: GEOMETRIC_ENGINE_ID, parameters: {}, smoothing: false },
+  // Own route (Manhattan tour, L-corners): only horizontal and vertical lines.
+  orthogonal: { engineId: ORTHOGONAL_ENGINE_ID, parameters: {}, smoothing: false },
 };

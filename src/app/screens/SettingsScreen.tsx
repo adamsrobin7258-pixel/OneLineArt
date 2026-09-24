@@ -93,7 +93,7 @@ export function SettingsScreen({ session, controller, render, onBack, onContinue
         )}
       </div>
       {adjusting && <AdjustPanel id={panelId} oneLine={oneLine} setDrawing={setDrawing} render={render} />}
-      <footer className="controlbar controlbar--wide">
+      <footer className="controlbar controlbar--wide controlbar--three">
         <div className="controlbar__options">
           <StyleChoice value={oneLine.drawing.style} onChange={(style) => setDrawing({ style })} fill />
           {/* A preset sets all line parameters (continuous detail and smoothing back to the preset). */}

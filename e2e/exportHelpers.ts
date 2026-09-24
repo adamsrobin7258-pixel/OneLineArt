@@ -98,6 +98,39 @@ export async function probeVideo(buffer: Buffer) {
   };
 }
 
+/**
+ * Where the drawing begins in a video: decodes the first frames in the page (WebCodecs via
+ * mediabunny) until one shows line pixels, and returns their nearest and farthest distance
+ * from `point` (normalized to the frame). null if no frame up to `maxSeconds` has ink.
+ */
+export async function firstInkAround(page: Page, buffer: Buffer, point: { x: number; y: number }, maxSeconds = 1) {
+  return page.evaluate(
+    async ({ base64, point, maxSeconds }) => {
+      const mb = await import('/node_modules/mediabunny/dist/modules/src/index.js' as string);
+      const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+      const input = new mb.Input({ source: new mb.BufferSource(bytes), formats: mb.ALL_FORMATS });
+      const sink = new mb.CanvasSink(await input.getPrimaryVideoTrack(), { poolSize: 1 });
+      for await (const frame of sink.canvases(0, maxSeconds)) {
+        const canvas = frame.canvas as HTMLCanvasElement | OffscreenCanvas;
+        const { data, width, height } = (canvas.getContext('2d') as CanvasRenderingContext2D).getImageData(0, 0, canvas.width, canvas.height);
+        let nearest = Infinity, farthest = 0;
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const i = (y * width + x) * 4;
+            if (data[i]! + data[i + 1]! + data[i + 2]! >= 300) continue;
+            const d = Math.hypot(x / width - point.x, y / height - point.y);
+            nearest = Math.min(nearest, d);
+            farthest = Math.max(farthest, d);
+          }
+        }
+        if (nearest < Infinity) return { seconds: frame.timestamp as number, nearest, farthest };
+      }
+      return null;
+    },
+    { base64: buffer.toString('base64'), point, maxSeconds },
+  );
+}
+
 /** Share of coloured pixels among the line pixels of an encoded image, decoded in the page. */
 export async function colourfulness(page: Page, buffer: Buffer, mimeType: string) {
   return page.evaluate(
