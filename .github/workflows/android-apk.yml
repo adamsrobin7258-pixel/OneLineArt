@@ -55,6 +55,10 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The action's default ('tools') no longer exists in current SDK command-line tools.
+          # Only what the project needs: platform tools + compileSdk 36; Gradle fetches the rest.
+          packages: 'platform-tools platforms;android-36'
 
       - name: Set up Gradle (wrapper from android/, with cache)
         uses: gradle/actions/setup-gradle@v4
