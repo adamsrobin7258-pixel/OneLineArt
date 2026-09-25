@@ -66,19 +66,41 @@ export const LIGHT_AREA_LUMINANCE = { low: 0.55, high: 0.85 } as const;
 
 /**
  * Local contrast (standard deviation of luminance in the analysis window, the
- * raw `contrast` layer) that counts as structure in light areas: below LOW it
- * is treated as flat paper / sensor noise (denoised luminance), from HIGH on
- * as clear structure. ≈ 2–8 % lightness differences between neighbours.
+ * raw `contrast` layer) that counts as structure: below LOW it is treated as
+ * flat paper / sensor noise (denoised luminance), from HIGH on as clear
+ * structure. ≈ 2–8 % lightness differences between neighbours. Luminance is
+ * perceptual (L*), so the same scale serves light areas (lightDetail, 13.1)
+ * and dark ones (structureToneBalance, 14.1).
  */
 export const LIGHT_STRUCTURE_CONTRAST = { low: 0.008, high: 0.035 } as const;
+
+/** Blurred structure from which a region counts as fully structured (absorbs float rounding of the blur). */
+const FULL_STRUCTURE = 1 - 1e-4;
 
 /**
  * Line demand per working-grid pixel, in (0, 1]:
  *
- *   s      = (1 − toneWeight) · importance/ref + toneWeight · (1 − luminance)
+ *   tone   = (1 − luminance) · (1 − balance · (1 − region))  (balance = structureToneBalance,
+ *                                                           region = structure blurred at the analysis' regionScale)
+ *   s      = (1 − toneWeight) · importance/ref + toneWeight · tone
  *   s     *= (1 − globalModulation) + globalModulation · globalRelevance/ref
  *   s      = max(s, lightDetail · light(L) · structure)          (only with lightDetail)
  *   demand = floor + (1 − floor) · s^gamma
+ *
+ * Structure/tone balance: darkness alone is not information. Without it a
+ * large flat dark area gets almost the demand of the motif (its tone term is
+ * high, and darkness is also part of the analysis importance). With it, the
+ * tone term counts fully only where there is local structure; on flat areas
+ * a (1 − balance) share remains, so tone still shapes the drawing and the
+ * line still runs through large areas — it is not an edge drawing. The
+ * factor is ≤ 1: no pixel gets more demand than before; structured areas
+ * gain only relatively (the point budget is fixed).
+ *
+ * `region` asks whether an AREA is structured, not whether a pixel lies next
+ * to an edge: the contrast window marks a narrow band along every hard edge,
+ * so without the blur a flat shape would be drawn as a hollow outline (an
+ * edge drawing). The blur uses the analysis' own region scale (regionScale,
+ * the scale of its region density), so "region" means the same in both.
  *
  * structure = smoothstep of the ABSOLUTE local contrast (raw contrast layer,
  * see LIGHT_STRUCTURE_CONTRAST): independent of the strongest edges in the
@@ -111,19 +133,29 @@ export function buildDemandField(analysis: ImageAnalysis, p: OneLineEngineParame
   const mod = Math.min(1, Math.max(0, p.globalModulation));
   const floor = Math.min(1, Math.max(0, p.demandFloor));
 
-  // Light-area detail: absolute local contrast (the contrast layer is normalized by `reference`).
+  // Light-area detail and structure/tone balance: absolute local contrast (the contrast layer is normalized by `reference`).
   const light = Math.min(1, Math.max(0, p.lightDetail ?? 0));
+  const balance = Math.min(1, Math.max(0, p.structureToneBalance ?? 0));
   const contrastReference = analysis.meta.normalization.contrast?.reference;
-  const contrast = light > 0 && contrastReference !== undefined ? resampleField(checkLayer(analysis, 'contrast'), size) : null;
+  const contrast = (light > 0 || balance > 0) && contrastReference !== undefined ? resampleField(checkLayer(analysis, 'contrast'), size) : null;
+  const structureAt = (i: number) => smoothstep(LIGHT_STRUCTURE_CONTRAST.low, LIGHT_STRUCTURE_CONTRAST.high, contrast!.data[i]! * contrastReference!);
+  let region: Float32Array | null = null;
+  if (contrast && balance > 0) {
+    const structure = new Float32Array(size.width * size.height);
+    for (let i = 0; i < structure.length; i++) structure[i] = structureAt(i);
+    region = gaussianBlur({ ...size, data: structure }, analysis.meta.parameters.regionScale * Math.max(size.width, size.height)).data;
+  }
 
   const data = new Float32Array(size.width * size.height);
   for (let i = 0; i < data.length; i++) {
     const imp = Math.min(1, importance.data[i]! / impRef);
     const g = Math.min(1, global.data[i]! / globalRef);
-    let s = ((1 - tone) * imp + tone * (1 - luminance.data[i]!)) * (1 - mod + mod * g);
-    if (contrast) {
-      const structure = smoothstep(LIGHT_STRUCTURE_CONTRAST.low, LIGHT_STRUCTURE_CONTRAST.high, contrast.data[i]! * contrastReference!);
-      s = Math.max(s, light * smoothstep(LIGHT_AREA_LUMINANCE.low, LIGHT_AREA_LUMINANCE.high, luminance.data[i]!) * structure);
+    // balance 0 ⇒ factor exactly 1 ⇒ bit-identical to the pre-14.1 demand.
+    // A fully structured region (1 up to float rounding of the blur) keeps exactly its previous tone.
+    const toneFactor = region ? 1 - balance * (region[i]! >= FULL_STRUCTURE ? 0 : 1 - region[i]!) : 1;
+    let s = ((1 - tone) * imp + tone * (1 - luminance.data[i]!) * toneFactor) * (1 - mod + mod * g);
+    if (contrast && light > 0) {
+      s = Math.max(s, light * smoothstep(LIGHT_AREA_LUMINANCE.low, LIGHT_AREA_LUMINANCE.high, luminance.data[i]!) * structureAt(i));
     }
     data[i] = floor + (1 - floor) * Math.pow(Math.min(1, Math.max(0, s)), p.demandGamma);
   }

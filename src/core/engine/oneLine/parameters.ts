@@ -46,6 +46,16 @@ export interface OneLineEngineParameters {
    * noise threshold counts (see buildDemandField).
    */
   readonly lightDetail?: number;
+  /**
+   * Structure/tone balance (0..1, optional; absent = 0, the pre-14.1 behaviour).
+   * Share of the tone term that needs local structure: on a structureless
+   * area the tone contributes only (1 − structureToneBalance) of its value,
+   * on a structured one all of it. Large flat DARK areas (night sky, dark
+   * wall, blurred background) thus stop competing with the motif merely by
+   * being dark; dark detail keeps its demand. Never raises a demand above
+   * the pre-14.1 value (see buildDemandField).
+   */
+  readonly structureToneBalance?: number;
 
   // --- Line budget ---------------------------------------------------------
   /** Number of demand points (≈ line budget) at detail 0 and detail 1. */
@@ -98,6 +108,8 @@ export const DEFAULT_ENGINE_PARAMETERS: OneLineEngineParameters = {
   demandFloor: 0.01,
   demandSmoothing: 0,
   importanceReferencePercentile: 0.995,
+  // Phase 14.1 (Balanced); Minimal and Detail set their own value (detailLevels.ts).
+  structureToneBalance: 0.6,
   pointBudget: { min: 4000, max: 40000 },
   relaxationIterations: 8,
   neighborCount: 8,

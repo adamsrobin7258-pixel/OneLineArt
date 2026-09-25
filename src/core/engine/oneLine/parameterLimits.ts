@@ -44,6 +44,7 @@ export const ENGINE_PARAMETER_LIMITS: Readonly<Record<ScalarKey, NumericLimit>> 
 /** Optional parameters: validated only when present (absent keeps identities of older settings). */
 export const OPTIONAL_PARAMETER_LIMITS = {
   lightDetail: { min: 0, max: 1 },
+  structureToneBalance: { min: 0, max: 1 },
 } as const satisfies Record<string, NumericLimit>;
 
 /** Line budget bounds (demand points). */

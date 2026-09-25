@@ -1079,3 +1079,45 @@ Projektdatei → Import → importiertes Werk inkl. Video ab dem Startpunkt), de
 (beginnt auf geleerter Fläche wieder am Startpunkt) und die Phase-13-Bedienelemente bei 360–1280 px
 (erreichbar, nicht verdeckt). Pfad- und Analyse-Worker werden dabei gezählt: nur Stil/Detail/Bearbeitung
 berechnen neu. Realgerätetest (Xiaomi 15 Ultra) für 13.1–13.8 bestanden, s. `RELEASE_CHECKLIST.md`.
+
+## Engine-Qualität: Struktur/Ton-Balance (Phase 14.1)
+
+**Ursache.** Die Linienmenge folgte im Bedarfsfeld vor allem dem Tonwert: `toneWeight · (1 − L)` plus
+Dunkelheit als Teil der Analyse-Wichtigkeit (`localWeights.luminance`). Eine große flache dunkle Fläche
+(Nachthimmel, dunkle Wand, unscharfer Hintergrund) bekam dadurch fast so viel Linie wie das strukturierte
+Motiv; gemessen z. B. Raketenstart, Balanced: flacher Himmel s = 0,52, Gittertürme 0,61, weiße Rakete 0,51.
+
+**Lösung.** Optionaler Engine-Parameter `structureToneBalance` (0..1, fehlt = 0 = bisheriges Verhalten,
+bit-identisch). Nur der Tonwert-Term wird gedämpft, und nur soweit die Umgebung strukturlos ist:
+```
+tone = (1 − L) · (1 − balance · (1 − region))
+region = Gauß-Glättung der Struktur (σ = regionScale der Analyse, 5 % der langen Kante)
+Struktur = smoothstep des absoluten lokalen Kontrasts (dieselbe Skala wie lightDetail, 13.1)
+```
+- Keine neue Analyse: die vorhandene Kontrast-Ebene wird wiederverwendet (Analysezeit unverändert).
+- Faktor ≤ 1: kein Pixel bekommt mehr Bedarf als vorher; Struktur gewinnt nur relativ (festes Punktbudget).
+- `region` statt Pixelwert: der Kontrast ist entlang jeder harten Kante in einem schmalen Band hoch; ohne
+  Glättung würden flache Formen als hohle Umrisse gezeichnet (Konturzeichnung). Voll strukturierte Regionen
+  (region ≥ 1 − 1e-4) behalten exakt ihren bisherigen Tonwert.
+- `lightDetail` bleibt unverändert (eigene, ungeglättete Struktur, `max()` danach).
+- Stufen: Minimal 0,3 · Balanced 0,6 (= Engine-Standard) · Detail 0,75. Auf flachen Flächen bleibt vom
+  Tonwert-Gewicht 0,7·0,7 = 0,49 · 0,6·0,4 = 0,24 · 0,4·0,25 = 0,10; der Regler interpoliert.
+
+**Wirkung (echte Fotos, Organisch, Liniendichte dunkel-strukturiert ÷ dunkel-flach, vorher → nachher):**
+Rakete Balanced 1,33 → 1,93, Detail 1,67 → 2,49; Blume 1,36 → 2,07 / 1,76 → 2,86; Low-Key-Katze
+1,54 → 2,07 / 1,87 → 2,50; Grace Hopper 1,15 → 1,59 / 1,38 → 1,96; Minimal jeweils +18–33 %.
+Helle glatte Flächen bleiben ruhig; helle Struktur ÷ helle Fläche bei Detail gleich oder besser, bei
+Minimal/Balanced ±5 % (Randeffekt der Regionsglättung, s. Test).
+
+**Kosten.** Bedarfsfeld +≈ 20 ms (Glättung). Weil strukturierte Bereiche dichter werden, vergrößert die
+Engine ihr adaptives Arbeitsraster häufiger (bestehender Mechanismus `minPixelsPerDensePoint`): Detail auf
+Motiven mit großen flachen dunklen Flächen bis ≈ +50 % Laufzeit (Desktop 2,6 → 4,2 s), sonst +5–10 %.
+Orthogonal/Geometrisch: mehr Kreuzungen in verdichteten Bereichen (z. B. Blume Balanced 241 → 513).
+
+**Golden.** Die Presets mit `structureToneBalance` sind in `GOLDEN_14_1` eingefroren (nach Freigabe);
+`GOLDEN` / `GOLDEN_13_1` bleiben unverändert und werden weiter geprüft: die Presets **ohne**
+`structureToneBalance` liefern bit-identisch die bisherigen Pfade (Engine unverändert).
+
+**Future Work (nicht umgesetzt).** Kreuzungen nach der Linienform (Geometrisch/Orthogonal) entwirren;
+adaptives Arbeitsraster/Laufzeit bei Detail begrenzen; Dunkelheit in der Analyse-Wichtigkeit
+(`localWeights.luminance`) ebenfalls strukturabhängig machen (würde die Analyse selbst ändern).

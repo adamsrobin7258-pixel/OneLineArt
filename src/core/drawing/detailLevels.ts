@@ -33,10 +33,16 @@ export const DETAIL_PROFILES: Readonly<Record<OneLineDetailLevel, DetailProfile>
       curvaturePenalty: 0.6,
       smoothingIterations: 3,
       simplificationTolerance: 0.6,
+      // Phase 14.1: flat areas keep 70 % of their tone (effective flat tone weight 0.7 · 0.7 = 0.49):
+      // Minimal is drawn by large tonal forms, so structure only nudges it.
+      structureToneBalance: 0.3,
     },
   },
   balanced: {
     detail: 0.5,
+    // = the engine default; since phase 14.1 incl. structureToneBalance 0.6 (flat areas keep
+    // 40 % of their tone, 0.6 · 0.4 = 0.24: a flat dark sky, wall or blurred background no
+    // longer competes with the structured motif merely by being dark).
     parameters: {},
   },
   detail: {
@@ -56,6 +62,8 @@ export const DETAIL_PROFILES: Readonly<Record<OneLineDetailLevel, DetailProfile>
       // Phase 13.1: faint but real structure in LIGHT areas (e.g. a white cup's rim, buildings
       // against a bright sky) gets line too; it was below the demand floor after the gamma.
       lightDetail: 0.8,
+      // Phase 14.1: flat areas keep 25 % of their tone (0.4 · 0.25 = 0.10) — Detail weighs structure most.
+      structureToneBalance: 0.75,
     },
   },
 };
