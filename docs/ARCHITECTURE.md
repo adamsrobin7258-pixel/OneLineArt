@@ -988,7 +988,7 @@ ab 960 px, darunter gestapelt.
 
 ### Bekannte Grenzen
 - Orthogonal ist stilbedingt gröber als Organisch; in sehr hellen Flächen entstehen lange gerade Züge.
-- Einzelne 180°-Umkehrungen bleiben, wo die Tour sie erzwingt (≈ 1–2 % der Ecken), ebenso ≈ 2 % Überlappung.
+- Einzelne 180°-Umkehrungen bleiben, wo die Tour sie erzwingt (seit 14.2 ≈ 0,3–2 % der Segmente, vorher ≈ 1–4 %); Überlappungen entstehen vor allem an diesen Spitzen.
 - Der Seed wirkt im orthogonalen Stil nicht (Punktwahl ist deterministisch ohne Zufall); er ist nur in der
   Entwickleransicht sichtbar.
 
@@ -1121,3 +1121,45 @@ Orthogonal/Geometrisch: mehr Kreuzungen in verdichteten Bereichen (z. B. Blume B
 **Future Work (nicht umgesetzt).** Kreuzungen nach der Linienform (Geometrisch/Orthogonal) entwirren;
 adaptives Arbeitsraster/Laufzeit bei Detail begrenzen; Dunkelheit in der Analyse-Wichtigkeit
 (`localWeights.luminance`) ebenfalls strukturabhängig machen (würde die Analyse selbst ändern).
+
+## Geometrisch & Orthogonal: Kreuzungen und Spitzen (Phase 14.2)
+
+**Ursache (gemessen je Pipeline-Stufe).** Die optimierte Tour hat wenige Kreuzungen (2-opt entfernt sie auf
+den GERADEN Verbindungen; z. B. Blume, Balanced: 7 bzw. 30). Gezeichnet werden aber Eckwege: Geometrisch
+eine gerade + eine diagonale Teilstrecke, Orthogonal ein „L“ über eine Ecke der Bounding-Box. Erst diese
+Umwandlung erzeugte den Großteil (Geometrisch 7 → 88, Orthogonal 30 → 450, die Stufen-Bereinigung danach
+→ 513). 85 % der verbleibenden Kreuzungen lagen zwischen direkt aufeinanderfolgenden Verbindungen (kleine
+Schlingen). Spitzen (180°): Geometrisch wählte die Teilstrecken-Reihenfolge gierig ohne Blick auf
+Umkehrungen (≈ 1,5–1,9 % der Segmente); Orthogonal hatte Spitzen dort, wo die Tour so zickzackt, dass JEDE
+Eckwahl zurückläuft.
+
+**Lösung (nur in der Formumwandlung, `oneLine/routeRepair.ts`; Organisch unverändert).** Beide Eckwahlen
+haben je Verbindung die gleiche Länge — geändert wird nur die Seite, Punkte und Länge bleiben.
+- Geometrisch: Viterbi über die Teilstrecken-Reihenfolge (wie Orthogonal). Die Kosten bilden die alte
+  Regel nach (gerade zuerst, diagonal zuerst nur als Fortsetzung) und vermeiden Umkehrungen (8 Drehungen).
+  Minimierung jeder 45°-Drehung wurde verworfen: sie wechselt die Eckseiten benachbarter Verbindungen und
+  erhöhte die Kreuzungen (gemessen +19–41 %). Fast oktilineare Segmente (< 0,06°) werden exakt auf die
+  Richtung gezogen (Endpunkt ≤ 0,1 % verschoben) statt mit einem Mikro-Knick gezeichnet.
+- Beide Viterbis: Kostenterm „Nachbarverbindungen kreuzen sich“ (4 = eine halbe Umkehrung).
+- Beide: `uncrossCorners` — lokale Eck-Umschaltung gegen Kreuzungen mit weiter entfernten Teilen der Linie
+  (Segment-Raster, nur Nachbarzellen; nur wenn Kreuzungen sinken und keine Umkehrung entsteht; 3 Durchläufe).
+- Orthogonal: `removeForcedReversals` — Vertauschen zweier benachbarter Tourpunkte, wo jede Eckwahl
+  zurückliefe; nur wenn Umkehrungen verschwinden und die gezeichnete Länge nicht wächst (alle Punkte bleiben,
+  Anfang/Ende fest). Die Stufen-Bereinigung entfernt eine Stufe nur noch, wenn keine Kreuzung hinzukommt.
+- Versionen: Geometrisch 1.1.0, Orthogonal 1.1.0 (gespeicherte Projekte behalten ihren Pfad).
+
+**Wirkung (10 Motive, Summe; vorher → nachher).** Geometrisch: Kreuzungen −42 % / −62 % / −54 %
+(Minimal / Balanced / Detail), Spitzen 2423 / 5799 / 11443 → 0 / 0 / 11, Länge unverändert, Segmente −6 %
+(weniger Knicke). Orthogonal: Kreuzungen −42 % / −46 % / −41 %, Spitzen ≈ −50 %, Länge −0,02 … −0,10 %,
+100 % achsenparallel. Blume Orthogonal Balanced 513 → 239. Bildabdeckung und Regionen-Dichten unverändert
+(±0,01). Laufzeit ≈ −1 … +2 % (Geometrisch), ≈ +4–7 % (Orthogonal).
+
+**Future Work (nicht umgesetzt).** Restliche Orthogonal-Spitzen (≈ 0,3–2 %) sind Tour-Zickzacks, die nur
+eine Änderung der Tour selbst (Umkehrungskosten in 2-opt) oder längere Umwege beheben würden; Kreuzungen
+zwischen in der Tour weit entfernten Verbindungen, die keine Eck-Umschaltung löst (Or-/2-opt auf der
+gezeichneten Geometrie).
+
+**Bekannte Test-Race-Conditions (vorbestehend, nicht Teil von 14.2).** `gallery-query` „many works …“
+(Liste nach `useDeferredValue` noch nicht neu aufgebaut) und `phase13-release` „13.9 whole workflow“ (Neuladen
+direkt nach „Umbenennen → Übernehmen“, bevor die Umbenennung gespeichert ist). Beide treten im Referenzstand
+gleich häufig auf (je ≈ 1 von 8–12 Wiederholungen unter Last) und sollen separat stabilisiert werden.

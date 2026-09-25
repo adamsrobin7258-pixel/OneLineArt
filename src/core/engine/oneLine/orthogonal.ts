@@ -2,10 +2,11 @@ import type { ScalarField } from '../../models';
 import { pixelsPerDensePoint } from './demandField';
 import { dropDuplicatePoints } from './geometry';
 import type { LineShape } from './generateOneLine';
+import { NEIGHBOUR_CROSSING_COST, SegmentGrid, buildCornerRoute, neighboursCross, uncrossCorners, type CornerOf } from './routeRepair';
 import type { Stipples } from './stippling';
 
 export const ORTHOGONAL_ENGINE_ID = 'orthogonal-stipple-tour';
-export const ORTHOGONAL_ENGINE_VERSION = '1.0.0';
+export const ORTHOGONAL_ENGINE_VERSION = '1.1.0';
 
 /** Cost of one 90° turn in the corner choice (in turns); a 180° reversal costs this much more. */
 const REVERSAL_COST = 8;
@@ -36,9 +37,24 @@ function turnCost(a: Leg, b: Leg): number {
  * is exactly axis-parallel (equal x or equal y).
  */
 export function orthogonalRoute(coords: Float64Array): Float64Array {
+  if (coords.length >> 1 < 2) return coords;
+  return buildCornerRoute(coords, orthogonalChoices(coords), orthogonalCorner(coords));
+}
+
+/** Corner of connection i: choice 0 = horizontal first (bx, ay), 1 = vertical first (ax, by); null if straight. */
+export function orthogonalCorner(coords: Float64Array): CornerOf {
+  return (i, choice) => {
+    const ax = coords[i * 2]!, ay = coords[i * 2 + 1]!, bx = coords[i * 2 + 2]!, by = coords[i * 2 + 3]!;
+    if (ax === bx || ay === by) return null;
+    return choice === 0 ? [bx, ay] : [ax, by];
+  };
+}
+
+/** The Viterbi corner choice of orthogonalRoute, per connection (0 = horizontal first). */
+export function orthogonalChoices(coords: Float64Array): Uint8Array {
   const n = coords.length >> 1;
-  if (n < 2) return coords;
-  const m = n - 1;
+  const m = Math.max(0, n - 1);
+  if (m === 0) return new Uint8Array(0);
   // Per connection and choice (0 = horizontal first, 1 = vertical first): first and last leg.
   const first: Leg[][] = [];
   const last: Leg[][] = [];
@@ -49,7 +65,8 @@ export function orthogonalRoute(coords: Float64Array): Float64Array {
     first.push([h ?? v, v ?? h]);
     last.push([v ?? h, h ?? v]);
   }
-  // Viterbi: cost[i][c] = fewest turns up to and including connection i with choice c.
+  const cornerOf = orthogonalCorner(coords);
+  // Viterbi: cost[i][c] = fewest turns (and neighbour crossings, 14.2) up to and including connection i with choice c.
   const cost = new Float64Array(m * 2);
   const from = new Uint8Array(m * 2);
   const inner = (i: number, c: number) => (first[i]![c] && last[i]![c] && first[i]![c]!.axis !== last[i]![c]!.axis ? 1 : 0);
@@ -59,7 +76,8 @@ export function orthogonalRoute(coords: Float64Array): Float64Array {
     for (let c = 0; c < 2; c++) {
       let best = Infinity, arg = 0;
       for (let p = 0; p < 2; p++) {
-        const value = cost[(i - 1) * 2 + p]! + turnCost(last[i - 1]![p]!, first[i]![c]!);
+        const value =
+          cost[(i - 1) * 2 + p]! + turnCost(last[i - 1]![p]!, first[i]![c]!) + (neighboursCross(coords, cornerOf, i - 1, p, c) ? NEIGHBOUR_CROSSING_COST : 0);
         if (value < best) {
           best = value;
           arg = p;
@@ -72,23 +90,90 @@ export function orthogonalRoute(coords: Float64Array): Float64Array {
   const choice = new Uint8Array(m);
   choice[m - 1] = cost[(m - 1) * 2 + 1]! < cost[(m - 1) * 2]! ? 1 : 0;
   for (let i = m - 1; i > 0; i--) choice[i - 1] = from[i * 2 + choice[i]!]!;
+  return choice;
+}
 
-  const out = new Float64Array((2 * n - 1) * 2);
-  let o = 0;
-  out[o++] = coords[0]!;
-  out[o++] = coords[1]!;
-  for (let i = 0; i < m; i++) {
-    const ax = coords[i * 2]!, ay = coords[i * 2 + 1]!;
-    const bx = coords[i * 2 + 2]!, by = coords[i * 2 + 3]!;
-    if (ax !== bx && ay !== by) {
-      // Corner: (bx, ay) = horizontal first, (ax, by) = vertical first.
-      out[o++] = choice[i] === 0 ? bx : ax;
-      out[o++] = choice[i] === 0 ? ay : by;
+/** Legs of connection i for a choice: first and last (equal when the connection is straight). */
+function legsOf(points: Float64Array, i: number, choice: number): [Leg, Leg] {
+  const dx = points[i * 2 + 2]! - points[i * 2]!, dy = points[i * 2 + 3]! - points[i * 2 + 1]!;
+  const h = legOf(dx, 0), v = legOf(0, dy);
+  return choice === 0 ? [h ?? v, v ?? h] : [v ?? h, h ?? v];
+}
+
+/**
+ * Orthogonal cost of connections from..to (inclusive) with the given choices,
+ * as the Viterbi counts it (inner corners, junctions incl. the one before
+ * `from` and after `to`, 180° = 1 + REVERSAL_COST, neighbour crossings), and
+ * the number of reversals.
+ */
+function windowCost(points: Float64Array, choices: Uint8Array, from: number, to: number): { turns: number; reversals: number } {
+  const m = (points.length >> 1) - 1;
+  let turns = 0, reversals = 0;
+  for (let i = Math.max(0, from - 1); i <= Math.min(m - 1, to + 1); i++) {
+    const [first, last] = legsOf(points, i, choices[i]!);
+    if (i >= from && i <= to && first && last && first.axis !== last.axis) turns++;
+    if (i > Math.max(0, from - 1)) {
+      const before = legsOf(points, i - 1, choices[i - 1]!)[1];
+      const t = turnCost(before, first);
+      turns += t + (neighboursCross(points, orthogonalCorner(points), i - 1, choices[i - 1]!, choices[i]!) ? NEIGHBOUR_CROSSING_COST : 0);
+      if (t > 1) reversals++;
     }
-    out[o++] = bx;
-    out[o++] = by;
   }
-  return out.subarray(0, o);
+  return { turns, reversals };
+}
+
+const manhattan = (points: Float64Array, i: number) => Math.abs(points[i * 2 + 2]! - points[i * 2]!) + Math.abs(points[i * 2 + 3]! - points[i * 2 + 1]!);
+
+/**
+ * Forced spikes: where the tour zigzags so that EVERY corner choice runs the
+ * line straight back (e.g. up, down-and-sideways, up again), no corner
+ * switch can help. Swapping two neighbouring tour points can: every point is
+ * still visited (coverage unchanged), only the order of two neighbours
+ * changes. A swap is taken when it removes reversals without adding drawn
+ * (Manhattan) length; the three affected connections then get their best
+ * corners. The first and last point stay in place. Updates `points` and
+ * `choices` in place; returns the number of swaps. Deterministic.
+ */
+export function removeForcedReversals(points: Float64Array, choices: Uint8Array): number {
+  const n = points.length >> 1;
+  let swaps = 0;
+  for (let u = 1; u + 2 < n; u++) {
+    // Only where a reversal touches the pair (junction u, u+1 or u+2).
+    const before = windowCost(points, choices, u - 1, u + 1);
+    if (before.reversals === 0) continue;
+    const length = manhattan(points, u - 1) + manhattan(points, u) + manhattan(points, u + 1);
+    const swap = () => {
+      const x = points[u * 2]!, y = points[u * 2 + 1]!;
+      points[u * 2] = points[u * 2 + 2]!;
+      points[u * 2 + 1] = points[u * 2 + 3]!;
+      points[u * 2 + 2] = x;
+      points[u * 2 + 3] = y;
+    };
+    const saved = [choices[u - 1]!, choices[u]!, choices[u + 1]!];
+    swap();
+    if (manhattan(points, u - 1) + manhattan(points, u) + manhattan(points, u + 1) > length + 1e-9) {
+      swap();
+      continue;
+    }
+    let best: { turns: number; reversals: number; combo: number } | null = null;
+    for (let combo = 0; combo < 8; combo++) {
+      choices[u - 1] = combo & 1;
+      choices[u] = (combo >> 1) & 1;
+      choices[u + 1] = (combo >> 2) & 1;
+      const c = windowCost(points, choices, u - 1, u + 1);
+      if (!best || c.reversals < best.reversals || (c.reversals === best.reversals && c.turns < best.turns)) best = { ...c, combo };
+    }
+    if (best!.reversals < before.reversals) {
+      choices[u - 1] = best!.combo & 1;
+      choices[u] = (best!.combo >> 1) & 1;
+      choices[u + 1] = (best!.combo >> 2) & 1;
+      swaps++;
+    } else {
+      swap();
+      [choices[u - 1], choices[u], choices[u + 1]] = saved as [number, number, number];
+    }
+  }
+  return swaps;
 }
 
 /**
@@ -127,6 +212,8 @@ export function mergeOrthogonalRuns(coords: Float64Array, maxRun = Infinity): Fl
  * stays axis-parallel; if it would vanish or flip, the step is kept.
  * U-turns (→ ↓ ←) are real shape and are never touched. Coordinates are
  * assigned, not recomputed, so the legs stay exactly axis-parallel.
+ * Since 14.2 a step is only removed if the shifted legs cross no more of the
+ * line than the legs they replace (checked locally in a segment grid).
  */
 export function removeOrthogonalJogs(coords: Float64Array, tolerance: number, maxRun = Infinity): Float64Array {
   let pts = mergeOrthogonalRuns(coords, maxRun);
@@ -137,6 +224,11 @@ export function removeOrthogonalJogs(coords: Float64Array, tolerance: number, ma
     const p = Float64Array.from(pts);
     const keep = new Uint8Array(n).fill(1);
     let changed = false;
+    // Segment k → k+1 has grid id k; a replaced segment gets a new id (outId = current outgoing segment of a point).
+    const grid = SegmentGrid.around(p);
+    const outId = new Int32Array(n).fill(-1);
+    for (let k = 0; k + 1 < n; k++) outId[k] = grid.add(p[k * 2]!, p[k * 2 + 1]!, p[k * 2 + 2]!, p[k * 2 + 3]!);
+    const segmentCrossings = (ax: number, ay: number, bx: number, by: number, exclude: number[]) => grid.count(ax, ay, bx, by, exclude);
     // Legs (i-1→i), (i→i+1) = the step, (i+1→i+2); the point i+2 is shifted.
     for (let i = 1; i + 2 < n; i++) {
       if (!keep[i] || !keep[i + 1]) continue;
@@ -158,7 +250,24 @@ export function removeOrthogonalJogs(coords: Float64Array, tolerance: number, ma
         if (Math.sign(shifted) !== next.sign) continue;
       }
       // Continue on the first run's line: the point after the step takes point i's coordinate.
-      p[j * 2 + a] = p[i * 2 + a]!;
+      const replaced = [outId[prev]!, outId[i]!, outId[i + 1]!, ...(j + 1 < n ? [outId[j]!] : [])];
+      const shifted = Float64Array.from([p[j * 2]!, p[j * 2 + 1]!]);
+      shifted[a] = p[i * 2 + a]!;
+      const hasNext = j + 1 < n;
+      const nx = hasNext ? p[j * 2 + 2]! : 0, ny = hasNext ? p[j * 2 + 3]! : 0;
+      const oldCrossings =
+        segmentCrossings(p[prev * 2]!, p[prev * 2 + 1]!, p[i * 2]!, p[i * 2 + 1]!, replaced) +
+        segmentCrossings(p[i * 2]!, p[i * 2 + 1]!, p[i * 2 + 2]!, p[i * 2 + 3]!, replaced) +
+        segmentCrossings(p[i * 2 + 2]!, p[i * 2 + 3]!, p[j * 2]!, p[j * 2 + 1]!, replaced) +
+        (hasNext ? segmentCrossings(p[j * 2]!, p[j * 2 + 1]!, nx, ny, replaced) : 0);
+      const newCrossings =
+        segmentCrossings(p[prev * 2]!, p[prev * 2 + 1]!, shifted[0]!, shifted[1]!, replaced) +
+        (hasNext ? segmentCrossings(shifted[0]!, shifted[1]!, nx, ny, replaced) : 0);
+      if (newCrossings > oldCrossings) continue;
+      p[j * 2 + a] = shifted[a]!;
+      for (const id of replaced) grid.remove(id);
+      outId[prev] = grid.add(p[prev * 2]!, p[prev * 2 + 1]!, p[j * 2]!, p[j * 2 + 1]!);
+      if (hasNext) outId[j] = grid.add(p[j * 2]!, p[j * 2 + 1]!, nx, ny);
       keep[i] = 0;
       keep[i + 1] = 0;
       changed = true;
@@ -312,6 +421,16 @@ export const ORTHOGONAL_LINE_SHAPE: LineShape = {
   placePoints: latticePoints,
   prepare: (raw) => raw,
   // No Douglas–Peucker on the tour: on the lattice it would only join straight runs, without the length limit.
-  finish: (prepared, tolerance, maxSegmentLength) =>
-    removeOrthogonalJogs(orthogonalRoute(dropDuplicatePoints(dropNearPoints(prepared, tolerance))), tolerance, maxSegmentLength),
+  finish: (prepared, tolerance, maxSegmentLength) => {
+    // A copy: the neighbour swap works in place, and `prepared` is reused when the engine coarsens.
+    const points = Float64Array.from(dropDuplicatePoints(dropNearPoints(prepared, tolerance)));
+    if (points.length >> 1 < 2) return points;
+    const choices = orthogonalChoices(points);
+    const cornerOf = orthogonalCorner(points);
+    // Phase 14.2: swap neighbours where the tour forces a spike, then switch corners whose legs cross
+    // other parts of the line (same points, same or shorter drawn length).
+    removeForcedReversals(points, choices);
+    uncrossCorners(points, choices, cornerOf);
+    return removeOrthogonalJogs(buildCornerRoute(points, choices, cornerOf), tolerance, maxSegmentLength);
+  },
 };

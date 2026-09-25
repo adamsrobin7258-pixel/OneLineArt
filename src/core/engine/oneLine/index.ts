@@ -12,3 +12,4 @@ export * from './generateOneLine';
 export * from './oneLineGenerator';
 export * from './lineStyles';
 export * from './orthogonal';
+export * from './routeRepair';
