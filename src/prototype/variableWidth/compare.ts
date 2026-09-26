@@ -1,12 +1,14 @@
-import { DEFAULT_RENDER_SETTINGS, resolveOneLineSettings, type OneLinePath, type ProcessedImage } from '../../core';
-import { compareRendering, type RenderingComparison, type VariableWidthLine } from '../../core/experimental/variableWidth';
+import { DEFAULT_RENDER_SETTINGS, resolveOneLineSettings, type OneLinePath, type ProcessedImage, type Size } from '../../core';
+import { compareRendering, measureLineGeometry, type LineGeometry, type RenderingComparison, type VariableWidthLine } from '../../core/experimental/variableWidth';
 import { runAnalysis } from '../../platform/browser/analysisRunner';
 import { renderArtworkSurface, freeSurface } from '../../platform/browser/artworkRenderer';
 import { runPathGeneration } from '../../platform/browser/pathRunner';
-import { canvasOf, drawLine, lightnessOfCanvas, lightnessOfImage, sizeFor } from './draw';
+import { FULL_VIEW, applyView, canvasOf, drawLine, lightnessOfCanvas, lightnessOfImage, sizeFor, type ViewWindow } from './draw';
 
-/** Long edge at which both drawings are measured (the app's reference render edge). */
+/** Long edge at which all drawings are measured (the app's reference render edge). */
 export const MEASURE_EDGE = 1000;
+/** Largest canvas edge used for a magnified organic rendering. */
+const MAX_ZOOM_EDGE = 4096;
 
 export interface OrganicResult {
   readonly path: OneLinePath;
@@ -25,34 +27,51 @@ export async function runOrganic(processed: ProcessedImage): Promise<OrganicResu
   return { path: outcome.path, durationMs: performance.now() - started };
 }
 
-/** Draws the organic path with the app's own renderer (default render settings: black, 1 px @ 1000 px). */
-export function drawOrganic(ctx: CanvasRenderingContext2D, path: OneLinePath, longEdge: number): void {
-  const { surface, size } = renderArtworkSurface({ path, settings: DEFAULT_RENDER_SETTINGS, longEdge });
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
+/**
+ * Draws the organic path with the app's own renderer (default render settings:
+ * black, 1 px @ 1000 px) into a canvas of `size`, optionally magnified.
+ */
+export function drawOrganic(ctx: CanvasRenderingContext2D, path: OneLinePath, size: Size, view: ViewWindow = FULL_VIEW): void {
+  const longEdge = Math.min(MAX_ZOOM_EDGE, Math.max(size.width, size.height) * Math.max(1, view.zoom));
+  const { surface } = renderArtworkSurface({ path, settings: DEFAULT_RENDER_SETTINGS, longEdge });
+  applyView(ctx, size, view);
   ctx.drawImage(surface.canvas as CanvasImageSource, 0, 0, size.width, size.height);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   freeSurface(surface);
 }
 
-export interface Comparison {
-  readonly prototype: RenderingComparison;
-  readonly organic: RenderingComparison | null;
+export interface VariantMeasurement {
+  readonly geometry: LineGeometry | null;
+  readonly tone: RenderingComparison;
+  readonly durationMs: number | null;
 }
 
-/** Both drawings at MEASURE_EDGE, compared with the original at the prototype's line spacing. */
-export function measure(processed: ProcessedImage, line: VariableWidthLine, organic: OneLinePath | null): Comparison {
-  const size = sizeFor(line.path.bounds, MEASURE_EDGE);
+/**
+ * Every drawing at MEASURE_EDGE, compared with the original at the line
+ * spacing; plus the spacing/width statistics of each variable-width line.
+ */
+export function measureVariants(
+  processed: ProcessedImage,
+  lines: ReadonlyArray<{ readonly key: string; readonly line: VariableWidthLine; readonly durationMs: number }>,
+  organic: OneLinePath | null,
+): Map<string, VariantMeasurement> {
+  const out = new Map<string, VariantMeasurement>();
+  const first = lines[0]?.line;
+  if (!first) return out;
+  const size = sizeFor(first.path.bounds, MEASURE_EDGE);
   const original = lightnessOfImage(processed.pixels, size);
-  const spacingPx = line.spacing * (size.width / line.path.bounds.width);
-  const a = canvasOf(size);
-  drawLine(a.ctx, line, size);
-  const prototype = compareRendering(original, lightnessOfCanvas(a.ctx, size), spacingPx);
-  let other: RenderingComparison | null = null;
+  const spacingPx = first.spacing * (size.width / first.path.bounds.width);
+  for (const { key, line, durationMs } of lines) {
+    const a = canvasOf(size);
+    drawLine(a.ctx, line, size);
+    out.set(key, { geometry: measureLineGeometry(line), tone: compareRendering(original, lightnessOfCanvas(a.ctx, size), spacingPx), durationMs });
+  }
   if (organic) {
     const b = canvasOf(size);
     b.ctx.fillStyle = '#ffffff';
     b.ctx.fillRect(0, 0, size.width, size.height);
-    drawOrganic(b.ctx, organic, MEASURE_EDGE);
-    other = compareRendering(original, lightnessOfCanvas(b.ctx, size), spacingPx);
+    drawOrganic(b.ctx, organic, size);
+    out.set('organic', { geometry: null, tone: compareRendering(original, lightnessOfCanvas(b.ctx, size), spacingPx), durationMs: null });
   }
-  return { prototype, organic: other };
+  return out;
 }

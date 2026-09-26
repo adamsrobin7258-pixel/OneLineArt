@@ -10,3 +10,5 @@ export * from './routes';
 export * from './generate';
 export * from './outline';
 export * from './metrics';
+export * from './curvedRoutes';
+export * from './spacing';

@@ -7,9 +7,21 @@
  * for every input size (a 4 px spacing at 800 px ≙ 200 lines on the long side).
  */
 
-/** How the one line covers the picture. */
-export const VARIABLE_WIDTH_ROUTES = ['meander-rows', 'meander-columns', 'spiral'] as const;
+/**
+ * How the one line covers the picture. Phase 15.1: meander rows (reference),
+ * meander columns, spiral (with frame). Phase 15.2: arc spiral, organic meander,
+ * flowing curve (curvedRoutes.ts).
+ */
+export const VARIABLE_WIDTH_ROUTES = ['meander-rows', 'meander-columns', 'spiral', 'arc-spiral', 'organic-meander', 'flow'] as const;
 export type VariableWidthRoute = (typeof VARIABLE_WIDTH_ROUTES)[number];
+
+/**
+ * How far the maximum width may exceed the spacing (Phase 15.2 experiment):
+ * safe ≤ 0.9 × spacing (Phase 15.1), controlled ≤ 1.2 ×, free ≤ 2 ×.
+ */
+export const VARIABLE_WIDTH_MODES = ['safe', 'controlled', 'free'] as const;
+export type VariableWidthMode = (typeof VARIABLE_WIDTH_MODES)[number];
+export const MAX_WIDTH_SHARES: Readonly<Record<VariableWidthMode, number>> = { safe: 0.9, controlled: 1.2, free: 2 };
 
 /** Lightness → width transfer (see transfer.ts). */
 export const VARIABLE_WIDTH_CURVES = ['perceptual', 'linear'] as const;
@@ -36,10 +48,16 @@ export interface VariableWidthParameters {
   readonly curve: VariableWidthCurve;
   /** Stretch the image's tonal range (0.5 %…99.5 % percentiles) to full black…white. */
   readonly autoLevels: boolean;
+  /** Arc spiral: distance of the centre beyond the start corner, in canvas diagonals (0 = at the corner). */
+  readonly arcCenter: number;
+  /** Organic meander and flowing curve: 0…1 share of the largest allowed bend. */
+  readonly bend: number;
+  /** How far the maximum width may exceed the spacing (see MAX_WIDTH_SHARES). */
+  readonly widthMode: VariableWidthMode;
 }
 
-/** Largest width as a share of the spacing: keeps a visible gap between neighbouring lines. */
-export const MAX_WIDTH_SHARE = 0.9;
+/** Largest width as a share of the spacing in the safe mode: keeps a visible gap between neighbouring lines. */
+export const MAX_WIDTH_SHARE = MAX_WIDTH_SHARES.safe;
 /** Smallest allowed min width as a share of the spacing (never 0). */
 export const MIN_WIDTH_SHARE = 0.02;
 
@@ -55,6 +73,9 @@ export const DEFAULT_VARIABLE_WIDTH_PARAMETERS: VariableWidthParameters = {
   route: 'meander-rows',
   curve: 'perceptual',
   autoLevels: true,
+  arcCenter: 0.3,
+  bend: 0.8,
+  widthMode: 'safe',
 };
 
 export interface NumericLimit {
@@ -71,6 +92,8 @@ export const VARIABLE_WIDTH_LIMITS = {
   contrast: { min: -1, max: 1 },
   detail: { min: 0, max: 2 },
   smoothing: { min: 0, max: 2 },
+  arcCenter: { min: 0, max: 3 },
+  bend: { min: 0, max: 1 },
 } as const satisfies Record<string, NumericLimit>;
 
 export interface VariableWidthIssue {
@@ -104,13 +127,16 @@ export function sanitizeVariableWidthParameters(input: Partial<VariableWidthPara
     return clamped;
   };
 
+  const widthMode = input.widthMode ?? d.widthMode;
+  if (!(VARIABLE_WIDTH_MODES as readonly string[]).includes(widthMode)) throw new RangeError(`Unknown width mode "${String(widthMode)}"`);
   const workingLongEdge = Math.round(num('workingLongEdge'));
   const spacing = num('spacing');
   let maxWidth = num('maxWidth');
   let minWidth = num('minWidth');
-  const widest = MAX_WIDTH_SHARE * spacing;
+  const share = MAX_WIDTH_SHARES[widthMode];
+  const widest = share * spacing;
   if (maxWidth > widest) {
-    issues.push({ name: 'maxWidth', message: `maxWidth ${maxWidth} would let lines merge; limited to ${widest.toFixed(3)} (${MAX_WIDTH_SHARE} × spacing)` });
+    issues.push({ name: 'maxWidth', message: `maxWidth ${maxWidth} limited to ${widest.toFixed(3)} (${share} × spacing, mode ${widthMode})` });
     maxWidth = widest;
   }
   const thinnest = MIN_WIDTH_SHARE * spacing;
@@ -150,6 +176,9 @@ export function sanitizeVariableWidthParameters(input: Partial<VariableWidthPara
       route,
       curve,
       autoLevels: input.autoLevels ?? d.autoLevels,
+      arcCenter: num('arcCenter'),
+      bend: num('bend'),
+      widthMode,
     },
     issues,
   };

@@ -1,4 +1,4 @@
-import type { VariableWidthParameters } from './parameters';
+import { MAX_WIDTH_SHARE, type VariableWidthParameters } from './parameters';
 
 /**
  * Lightness → line width.
@@ -38,7 +38,22 @@ export interface WidthTransfer {
   (lightness: number): number;
 }
 
+/** Overlap modes (Phase 15.2): the extra width beyond the safe maximum is spent on the darkest tones below this lightness. */
+export const OVERLAP_TONE_RANGE = 0.35;
+
 export function createWidthTransfer(p: Pick<VariableWidthParameters, 'spacing' | 'minWidth' | 'maxWidth' | 'curve'>): WidthTransfer {
+  const safe = MAX_WIDTH_SHARE * p.spacing;
+  if (p.maxWidth > safe) {
+    // Beyond the safe maximum coverage cannot grow any more (it is already ~1 at w = spacing): the
+    // Phase 15.1 curve runs up to the safe maximum, and the darkest tones add the rest smoothly
+    // (quadratic ramp below OVERLAP_TONE_RANGE). Continuous and monotonic; the safe mode never gets here.
+    const base = createWidthTransfer({ ...p, maxWidth: safe });
+    const extra = p.maxWidth - safe;
+    return (l) => {
+      const t = Math.min(1, Math.max(0, (OVERLAP_TONE_RANGE - l) / OVERLAP_TONE_RANGE));
+      return Math.min(p.maxWidth, base(l) + extra * t * t);
+    };
+  }
   const { spacing: s, minWidth: lo, maxWidth: hi } = p;
   const clamp = (w: number) => Math.min(hi, Math.max(lo, w));
   if (p.curve === 'linear') return (l) => clamp(lo + (hi - lo) * (1 - Math.min(1, Math.max(0, l))));

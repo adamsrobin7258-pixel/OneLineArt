@@ -1,11 +1,12 @@
 import type { OneLinePath, RasterImage, Size } from '../../models';
 import { sanitizeVariableWidthParameters, type VariableWidthIssue, type VariableWidthParameters } from './parameters';
+import { arcSpiral, flowCurve, organicMeander, type CurvedRouteDiagnostics } from './curvedRoutes';
 import { meanderColumns, meanderRows, spiral, type Route, type RouteOptions } from './routes';
 import { buildToneField, sampleField, type ToneField } from './toneField';
 import { createWidthTransfer } from './transfer';
 
 export const VARIABLE_WIDTH_GENERATOR_ID = 'experimental-variable-width';
-export const VARIABLE_WIDTH_VERSION = '0.1.0';
+export const VARIABLE_WIDTH_VERSION = '0.2.0';
 
 /**
  * EXPERIMENTAL (Phase 15.1): one continuous line at constant spacing whose
@@ -41,6 +42,8 @@ export interface VariableWidthDiagnostics {
   readonly noiseSigma: number;
   /** Centre line length, image px. */
   readonly length: number;
+  /** Phase 15.2 curved routes only: split rows, cusps, clamped points (all 0 when the geometry holds). */
+  readonly curved: CurvedRouteDiagnostics | null;
 }
 
 /** Sample distance along the centre line, working px (the width can change this finely). */
@@ -51,8 +54,18 @@ const WIDTH_TOLERANCE = 0.02;
 /** Longest merged run in samples: bounds the work and the segment length. */
 const MAX_RUN = 32;
 
-export function variableWidthRoute(size: Size, p: VariableWidthParameters): Route {
+/** Flowing curve: rows across the sweep diagonal, river-curve wavelength 1.8 canvas diagonals. */
+export const FLOW_SHAPE = { tilt: 0.5, wavelength: 1.8 } as const;
+
+/**
+ * The centre line of a route. Depends on the working-grid size and the route
+ * parameters (route, spacing, start, arcCenter, bend) only — never on the image.
+ */
+export function variableWidthRoute(size: Size, p: VariableWidthParameters): Route & { curved?: CurvedRouteDiagnostics } {
   const options: RouteOptions = { spacing: p.spacing, start: p.start, step: SAMPLE_STEP };
+  if (p.route === 'arc-spiral') return arcSpiral(size, options, p.arcCenter);
+  if (p.route === 'organic-meander') return organicMeander(size, options, p.bend);
+  if (p.route === 'flow') return flowCurve(size, options, { ...FLOW_SHAPE, bend: p.bend });
   if (p.route === 'spiral') return spiral(size, options);
   if (p.route === 'meander-columns') return meanderColumns(size, options);
   return meanderRows(size, options);
@@ -150,6 +163,7 @@ export function generateVariableWidthLine(image: RasterImage, input: Partial<Var
       levels: tone.levels,
       noiseSigma: tone.noiseSigma,
       length,
+      curved: route.curved ?? null,
     },
   };
 }

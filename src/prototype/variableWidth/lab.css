@@ -200,3 +200,42 @@ figcaption,
   margin: 0;
   overflow-wrap: anywhere;
 }
+
+/* Phase 15.2 */
+.lab__select {
+  width: 100%;
+  min-height: var(--control-h);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+}
+
+.lab__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.lab__chips .button {
+  min-width: 0;
+  padding-inline: var(--space-2);
+}
+
+/* Only while setting the start point: a drag moves the point instead of scrolling the page. */
+.lab__canvas.is-picking {
+  touch-action: none;
+}
+
+.lab__zoom {
+  gap: var(--space-2) var(--space-3);
+}
+
+.lab__table tr.lab__group th {
+  padding-top: var(--space-3);
+  text-align: left;
+  color: var(--color-muted);
+  font-weight: 600;
+}

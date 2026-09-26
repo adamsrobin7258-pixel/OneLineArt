@@ -143,3 +143,123 @@ Speicher: 0,3–1,6 MB pro Linie. Mögliche Optimierungen, falls nötig:
 - Außenteile der Spirale analytisch überspringen (die Hälfte der Abtastpunkte).
 - Tonfeld einmal berechnen und bei reinen Dicken- oder Routenänderungen wiederverwenden.
 - Abtastschritt 1,5 px statt 1 px.
+
+---
+
+# Phase 15.2: Pfadgeometrien bei konstantem Abstand
+
+Unverändert bleibt der Grundsatz: **Das Bild bestimmt nie die Lage der Linie, nur ihre Dicke.**
+Die Mittellinie hängt nur von Arbeitsraster, Abstand, Startpunkt und den
+Geometrie-Parametern ab. Tonfeld, Kennlinie, Detailverstärkung und Glättung sind
+unverändert. Die Phase-15.1-Routen sind bitgleich; ein Test vergleicht Hashes mit
+dem Commit `7ff48fd`.
+
+## Neue Dateien und Änderungen
+
+| Datei | Inhalt |
+|---|---|
+| `curvedRoutes.ts` (neu) | Spirale (Bögen), Organischer Mäander, Fließende Kurve; gemeinsame Halbkreis-Wenden |
+| `spacing.ts` (neu) | Abstands- und Dickenstatistik für jede Linienform |
+| `parameters.ts` | Neue Routen, `arcCenter`, `bend`, `widthMode` (Sicher/Kontrolliert/Frei) |
+| `transfer.ts` | Nur für Dicken über 90 % des Abstands: Zusatzdicke in den dunkelsten Tönen (im Modus „Sicher“ unverändert) |
+| `generate.ts` | Auswahl der neuen Routen, Diagnose `curved`, Version 0.2.0 |
+| Testseite | Auswahl der vier Linienführungen, Sechsfach-Vergleich, gemeinsamer Ausschnitt-Zoom (1–8×), Startpunkt antippen und ziehen, Abstands-Presets 3–10 px, Dicken-Modi, erweiterte Messtabelle |
+
+## Geometrische Grundlage und Grenzen
+
+1. **Exakt konstanter Abstand verlangt Parallelkurven.** Alle Bahnen müssen Offsets
+   einer einzigen Grundkurve sein. Ein Offset bleibt nur glatt, solange der Abstand
+   zur Grundkurve kleiner ist als deren Krümmungsradius. Über ein ganzes Bild sind
+   deshalb nur sanfte Krümmungen möglich.
+2. **Gekrümmte Zeilen über die volle Breite können den Abstand nicht exakt halten.**
+   Wenn die Zeilen das Rechteck lückenlos füllen und links und rechts enden, ist der
+   obere Bildrand selbst eine Zeile. Alle Offsets eines Geraden sind gerade. Der
+   organische Mäander ist deshalb bewusst eine gemessene Näherung.
+3. **Eine einzige Linie ohne Rahmen braucht Bahnen, die das Bild in einem Stück
+   durchqueren.** Das ist garantiert, wenn jede Bahn in x und in y monoton verläuft.
+   Spirale und Fließende Kurve sind so gebaut.
+4. **Konzentrische Kreise um einen Punkt im Bild zerfallen zu den Ecken hin in
+   mehrere Bögen**, bei einem Punkt im Inneren bis zu vier. Eine einzige Linie
+   bräuchte dann Sprünge, Überlappungen oder einen Rahmen; genau das war das
+   Randproblem der 15.1-Spirale. Ohne diese Probleme geht es nur, wenn das Zentrum
+   an oder außerhalb einer Ecke liegt. Ein frei im Bild gewählter Mittelpunkt ist
+   deshalb mit „eine Linie, konstanter Abstand, kein Rand“ nicht vereinbar. Das gilt
+   für jede Kreis- oder Ringfamilie. Einzige Ausnahme ist die eckige
+   Rechteckspirale, deren Zentrum durch das Bild festgelegt ist (die Mittelachse).
+
+## Die Varianten
+
+| | Mäander – Referenz | Spirale (Bögen) | Organischer Mäander | Fließende Kurve |
+|---|---|---|---|---|
+| Prinzip | gerade Zeilen, Halbkreis-Wenden (15.1) | konzentrische Kreisbögen um ein Zentrum an/außerhalb der Start-Ecke | volle Zeilen, verschoben um `A·sin(πY/H)·h(x,Y)` aus zwei langen Wellen | exakte Parallelkurven einer „Flusskurve“ (Sinus im Tangentenwinkel), schräg |
+| Abstand (6 Fotos, 800 px) | 4,00 (5–95 %: 4,00…4,00) | 4,03 (3,98…4,01) | 4,00 (3,69…4,34) | 4,03 (3,99…4,00) |
+| Standardabweichung | 0,15 | 0,26 | 0,25 | 0,28 |
+| Exakt? | ja | ja, außer an schrägen Wenden | Näherung, max. ±12 % × Schwung | ja, außer an schrägen Wenden |
+| Startpunkt | nächste Ecke | nächste Ecke (Zentrum dahinter) | nächste Ecke | nächste Ecke |
+| Rand | Wenden berühren den Rand | keine Rahmenlinie; kleine Keillücken an schrägen Wenden | wie Referenz | wie Spirale |
+| Zentrum/Zielscheibe | – | keins im Bild (nur Viertelringe in der Ecke bei Zentrum 0) | – | – |
+| Detail-Stärke hell / mittel / dunkel | 0,71 / 0,86 / 0,46 | 0,72 / 0,85 / 0,46 | 0,71 / 0,85 / 0,46 | 0,73 / 0,85 / 0,46 |
+| Berechnung (Node, 800 px) | ≈ 175–215 ms | ≈ 180–200 ms | ≈ 180–190 ms | ≈ 280–300 ms |
+
+Die Abstandswerte stammen aus `measureLineGeometry`. Gemessen wird der Abstand jedes
+Linienpunkts (alle halben Abstände, inklusive Wenden) zur nächsten anderen Bahn. Die
+Maxima von 8–9 px entstehen an Wenden und Ecken. Die Detail-Stärke ist mit
+Mischung im linearen Licht gemessen. Im Browser-Canvas, dessen Kantenglättung in
+sRGB arbeitet, zeigen schräge und gekrümmte Linien rund 10 % weniger Detail-Stärke
+als waagerechte (0,70–0,73 statt 0,81 bei Grace Hopper). Das ist ein
+Darstellungseffekt und keiner der Geometrie.
+
+**Beobachtungen:**
+- **In Originalgröße** wirken Spirale und Fließende Kurve deutlich mehr wie eine
+  gezeichnete Linie (Stich, Handschraffur) als die waagerechten Zeilen. Der
+  organische Mäander wirkt wie die Referenz mit leichtem Schwung.
+- **Verkleinert** (Übersicht, Handy-Ansicht): Alle Varianten wirken wie ein
+  Graustufenfoto. Der organische Mäander erzeugt in ruhigen Flächen sichtbare
+  Moiré-Ringe; die Wellen der Zeilen interferieren mit dem Pixelraster der Anzeige.
+  In Originalgröße gibt es dieses Moiré nicht.
+- **Größere Abstände** (6–8 px) machen die Linie als Linie sichtbar. Feine Details
+  (Falten, Brillengestell) werden entsprechend gröber.
+
+## Dicke darf Abstand überschreiten (Experiment)
+
+| Modus | Grenze | Voreinstellung der Testseite | Wirkung (Porträt, 6 px) |
+|---|---|---|---|
+| Sicher | ≤ 90 % | 82,5 % | Tonabweichung dunkel 42,6 L*, Detail dunkel 0,26, Überlappung 0 % |
+| Kontrolliert | ≤ 120 % | 115 % | Tonabweichung dunkel 6,8 L*, Detail dunkel 0,86, 40 % der Linie berührt die Nachbarbahn |
+| Frei | ≤ 200 % | 180 % | Tonabweichung dunkel 5,8 L*, 53 % Berührung |
+
+Die Zusatzdicke über 90 % hinaus fließt nur in Töne unter L* 35 (quadratischer
+Anstieg), hellere Töne bleiben exakt wie im Modus „Sicher“. Dunkle Töne werden damit
+darstellbar. In großen dunklen Flächen (Haare, Jacke) verschmelzen die Linien aber zu
+geschlossenem Schwarz; die Linienstruktur ist dort weg.
+
+## Performance (Arbeitskopie 2048 px)
+
+| | Node 800 / 1200 / 1600 px | Chromium | Chromium 4× gedrosselt |
+|---|---|---|---|
+| Mäander – Referenz | 174 / 284 / 437 ms | 173 ms | 726 ms (+ 177 ms Zeichnen) |
+| Spirale (Bögen) | 182 / 306 / 486 ms | 193 ms | 909 ms (+ 394 ms) |
+| Organischer Mäander | 177 / 327 / 539 ms | 235 ms | 844 ms (+ 178 ms) |
+| Fließende Kurve | 295 / 520 / 965 ms | 296 ms | 1255 ms (+ 311 ms) |
+| Spirale 15.1 | 336 / 738 / 1316 ms | – | – |
+
+Die Fließende Kurve ist langsamer, weil jede Bahn aus der gesamten Grundkurve
+versetzt und dann zugeschnitten wird (2,4× mehr Abtastpunkte). Mögliche
+Optimierungen: nur den sichtbaren Teil der Grundkurve je Bahn versetzen und die
+Grundkurve gröber abtasten (0,55 statt 0,4 px). Die Abstandsmessung dauert
+0,1–0,2 s auf dem Desktop und läuft nur auf Knopfdruck.
+
+## Offene Punkte vor einer Integration
+
+- Die schrägen Wenden lassen kleine Keillücken am Rand. Wenden mit variablem Radius
+  würden das verbessern.
+- Moiré bei verkleinerter Darstellung, besonders beim organischen Mäander. Nötig
+  wären eine Vorschau mit echter Flächenmittelung oder ein Mindestabstand relativ
+  zur Anzeigegröße.
+- Canvas-Kantenglättung in sRGB lässt dünne schräge Linien anders wirken als
+  waagerechte. Das Rendering sollte in linearem Licht oder mit Supersampling
+  kalibriert werden.
+- Der Startpunkt ist für alle rahmenfreien Varianten an eine Ecke gebunden (siehe
+  Grundlage, Punkt 4).
+- Die Modi „Kontrolliert“ und „Frei“ bringen dunkle Töne zurück, erzeugen aber
+  geschlossene Flächen.

@@ -6,11 +6,29 @@ export function sizeFor(bounds: Size, longEdge: number): Size {
   return { width: Math.max(1, Math.round(bounds.width * scale)), height: Math.max(1, Math.round(bounds.height * scale)) };
 }
 
+/** A shared magnified view: centre (normalized 0…1) and zoom factor (1 = whole picture). */
+export interface ViewWindow {
+  readonly cx: number;
+  readonly cy: number;
+  readonly zoom: number;
+}
+
+export const FULL_VIEW: ViewWindow = { cx: 0.5, cy: 0.5, zoom: 1 };
+
+/** Sets the canvas transform for a view (centre clamped so the window stays inside the picture). */
+export function applyView(ctx: CanvasRenderingContext2D, size: Size, view: ViewWindow = FULL_VIEW): void {
+  const z = Math.max(1, view.zoom);
+  const half = 1 / (2 * z);
+  const cx = Math.min(1 - half, Math.max(half, view.cx)), cy = Math.min(1 - half, Math.max(half, view.cy));
+  ctx.setTransform(z, 0, 0, z, size.width / 2 - z * cx * size.width, size.height / 2 - z * cy * size.height);
+}
+
 export interface DrawOptions {
   readonly color?: string;
   readonly background?: string;
   /** Draw only the first `upTo` points (0…1 share of the line). */
   readonly progress?: number;
+  readonly view?: ViewWindow;
 }
 
 /** Fills the variable-width line (as one outline) into a canvas of the given size. */
@@ -26,23 +44,27 @@ export function drawLine(ctx: CanvasRenderingContext2D, line: VariableWidthLine,
     scaleY: size.height / bh,
     widthScale: Math.max(size.width, size.height) / Math.max(bw, bh),
   });
+  applyView(ctx, size, o.view);
   ctx.beginPath();
   traceOutline(outline, ctx);
   ctx.fillStyle = o.color ?? '#000000';
   ctx.fill('nonzero');
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
 }
 
 /**
  * The centre line coloured from start (green) to end (red), with start and
  * end markers — makes the ONE route and its direction visible.
  */
-export function drawRoute(ctx: CanvasRenderingContext2D, line: VariableWidthLine, size: Size, progress = 1): void {
+export function drawRoute(ctx: CanvasRenderingContext2D, line: VariableWidthLine, size: Size, progress = 1, view: ViewWindow = FULL_VIEW): void {
   const c = line.path.coords;
   const n = c.length >> 1;
   const count = Math.max(2, Math.min(n, Math.round(progress * n)));
   const sx = size.width / line.path.bounds.width, sy = size.height / line.path.bounds.height;
   const chunks = 60;
-  ctx.lineWidth = Math.max(1, Math.max(size.width, size.height) / 900);
+  const z = Math.max(1, view.zoom);
+  applyView(ctx, size, view);
+  ctx.lineWidth = Math.max(1, Math.max(size.width, size.height) / 900) / z;
   ctx.lineJoin = 'round';
   for (let k = 0; k < chunks; k++) {
     const from = Math.floor((k * (n - 1)) / chunks), to = Math.min(count - 1, Math.floor(((k + 1) * (n - 1)) / chunks));
@@ -55,15 +77,32 @@ export function drawRoute(ctx: CanvasRenderingContext2D, line: VariableWidthLine
   }
   const marker = (i: number, fill: string) => {
     ctx.beginPath();
-    ctx.arc(c[i * 2]! * sx, c[i * 2 + 1]! * sy, Math.max(5, Math.max(size.width, size.height) / 120), 0, Math.PI * 2);
+    ctx.arc(c[i * 2]! * sx, c[i * 2 + 1]! * sy, Math.max(5, Math.max(size.width, size.height) / 120) / z, 0, Math.PI * 2);
     ctx.fillStyle = fill;
     ctx.fill();
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2 / z;
     ctx.strokeStyle = '#ffffff';
     ctx.stroke();
   };
   marker(0, 'hsl(130 80% 35%)');
   marker(count - 1, count === n ? 'hsl(0 80% 45%)' : 'hsl(40 90% 45%)');
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+}
+
+/** Marks a normalized point (the chosen start) with a ring. */
+export function drawStartMarker(ctx: CanvasRenderingContext2D, size: Size, x: number, y: number, view: ViewWindow = FULL_VIEW): void {
+  const z = Math.max(1, view.zoom);
+  applyView(ctx, size, view);
+  const r = Math.max(8, Math.max(size.width, size.height) / 60) / z;
+  ctx.beginPath();
+  ctx.arc(x * size.width, y * size.height, r, 0, Math.PI * 2);
+  ctx.lineWidth = 3 / z;
+  ctx.strokeStyle = '#ffffff';
+  ctx.stroke();
+  ctx.lineWidth = 1.5 / z;
+  ctx.strokeStyle = 'hsl(130 80% 35%)';
+  ctx.stroke();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
 }
 
 export function canvasOf(size: Size): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
