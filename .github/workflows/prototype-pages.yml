@@ -1,0 +1,66 @@
+# Publishes ONLY the Phase 15.1 prototype test page (prototype/variable-width.html) to GitHub Pages,
+# for manual tests in a normal mobile browser. Started by hand via "Run workflow".
+# Separate from the app: builds with vite.prototype.config.ts into dist-prototype/;
+# the app build (dist/), the APK workflow and Android are not touched.
+# The page processes images locally in the browser; nothing is uploaded anywhere.
+# URL: https://<owner>.github.io/<repository>/prototype/variable-width.html
+name: Prototype test page (GitHub Pages)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: prototype-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (lockfile)
+        run: npm ci
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+
+      - name: Build the prototype page only
+        run: npx vite build -c vite.prototype.config.ts
+
+      - name: Check the published files
+        run: |
+          test -f dist-prototype/prototype/variable-width.html
+          ls dist-prototype/assets/variable-width-*.js dist-prototype/assets/variable-width-*.css
+          ls dist-prototype/assets/variableWidth.worker-*.js dist-prototype/assets/analysis.worker-*.js dist-prototype/assets/pathGeneration.worker-*.js
+          # All asset URLs must be relative (GitHub Pages serves under /<repository>/).
+          ! grep -E '(src|href)="/' dist-prototype/prototype/variable-width.html
+          find dist-prototype -type f | sort
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist-prototype
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}prototype/variable-width.html
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
