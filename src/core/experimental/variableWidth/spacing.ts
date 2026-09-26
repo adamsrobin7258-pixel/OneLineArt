@@ -35,6 +35,11 @@ export interface LineGeometry {
   /** Share of very thin / very thick line (lowest / highest 5 % of the allowed width range). */
   readonly thinShare: number;
   readonly thickShare: number;
+  /**
+   * Phase 15.3 debug view (only with `{ samples: true }`): every measured point
+   * as x, y (image px) and its distance to the neighbouring pass (working px).
+   */
+  readonly samples?: Float32Array;
 }
 
 function stats(values: Float64Array): Stats {
@@ -64,7 +69,7 @@ function stats(values: Float64Array): Stats {
 const WINDOW = 1.6;
 const SEARCH = 3;
 
-export function measureLineGeometry(line: VariableWidthLine): LineGeometry {
+export function measureLineGeometry(line: VariableWidthLine, options: { readonly samples?: boolean } = {}): LineGeometry {
   const c = line.path.coords;
   const w = line.widths;
   const n = c.length >> 1;
@@ -87,6 +92,7 @@ export function measureLineGeometry(line: VariableWidthLine): LineGeometry {
   }
 
   const distances: number[] = [];
+  const points: number[] = [];
   const widthsAt: number[] = [];
   let unmatched = 0, overlap = 0;
   const seen = new Int32Array(segs).fill(-1);
@@ -129,6 +135,7 @@ export function measureLineGeometry(line: VariableWidthLine): LineGeometry {
         continue;
       }
       distances.push(best / k);
+      if (options.samples) points.push(qx, qy, best / k);
       if ((qw + bestW) / 2 >= best) overlap++;
     }
   }
@@ -151,5 +158,6 @@ export function measureLineGeometry(line: VariableWidthLine): LineGeometry {
     overlapShare: distances.length ? overlap / distances.length : 0,
     thinShare: thin / total,
     thickShare: thick / total,
+    ...(options.samples ? { samples: Float32Array.from(points) } : {}),
   };
 }

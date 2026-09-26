@@ -15,20 +15,23 @@ export interface OrganicResult {
   readonly durationMs: number;
 }
 
+/** Production styles shown for comparison. */
+export type ProductionStyle = 'organic' | 'orthogonal';
+
 /**
- * The existing Organic style, exactly as the app computes it (analysis worker,
- * path worker, Balanced preset, seed 1) — unchanged, only called from here.
+ * An existing production style, exactly as the app computes it (analysis
+ * worker, path worker, Balanced preset, seed 1) — unchanged, only called from here.
  */
-export async function runOrganic(processed: ProcessedImage): Promise<OrganicResult> {
+export async function runProduction(processed: ProcessedImage, style: ProductionStyle): Promise<OrganicResult> {
   const started = performance.now();
   const { analysis } = await runAnalysis(processed).promise;
-  const e = resolveOneLineSettings({ style: 'organic', detailLevel: 'balanced', seed: 1 });
+  const e = resolveOneLineSettings({ style, detailLevel: 'balanced', seed: 1 });
   const outcome = await runPathGeneration(processed, analysis, e.settings, e.parameters, e.engineId).promise;
   return { path: outcome.path, durationMs: performance.now() - started };
 }
 
 /**
- * Draws the organic path with the app's own renderer (default render settings:
+ * Draws a production path (Organic or Orthogonal) with the app's own renderer (default render settings:
  * black, 1 px @ 1000 px) into a canvas of `size`, optionally magnified.
  */
 export function drawOrganic(ctx: CanvasRenderingContext2D, path: OneLinePath, size: Size, view: ViewWindow = FULL_VIEW): void {
@@ -53,7 +56,7 @@ export interface VariantMeasurement {
 export function measureVariants(
   processed: ProcessedImage,
   lines: ReadonlyArray<{ readonly key: string; readonly line: VariableWidthLine; readonly durationMs: number }>,
-  organic: OneLinePath | null,
+  production: ReadonlyMap<string, OneLinePath>,
 ): Map<string, VariantMeasurement> {
   const out = new Map<string, VariantMeasurement>();
   const first = lines[0]?.line;
@@ -66,12 +69,12 @@ export function measureVariants(
     drawLine(a.ctx, line, size);
     out.set(key, { geometry: measureLineGeometry(line), tone: compareRendering(original, lightnessOfCanvas(a.ctx, size), spacingPx), durationMs });
   }
-  if (organic) {
+  for (const [key, path] of production) {
     const b = canvasOf(size);
     b.ctx.fillStyle = '#ffffff';
     b.ctx.fillRect(0, 0, size.width, size.height);
-    drawOrganic(b.ctx, organic, size);
-    out.set('organic', { geometry: null, tone: compareRendering(original, lightnessOfCanvas(b.ctx, size), spacingPx), durationMs: null });
+    drawOrganic(b.ctx, path, size);
+    out.set(key, { geometry: null, tone: compareRendering(original, lightnessOfCanvas(b.ctx, size), spacingPx), durationMs: null });
   }
   return out;
 }

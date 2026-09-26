@@ -239,3 +239,43 @@ figcaption,
   color: var(--color-muted);
   font-weight: 600;
 }
+
+/* Phase 15.3 */
+.lab__native {
+  overflow: auto;
+  max-width: 100%;
+  max-height: 80vh;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-paper);
+}
+
+.lab__native .lab__canvas {
+  aspect-ratio: auto !important;
+  height: auto;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.lab__key {
+  display: inline-block;
+  padding: 0 var(--space-1);
+  border-radius: 4px;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.lab__key--ok {
+  background: hsl(140 70% 38%);
+}
+
+.lab__key--near {
+  background: hsl(42 95% 42%);
+}
+
+.lab__key--wide {
+  background: hsl(215 85% 50%);
+}
+
+.lab__key--tight {
+  background: hsl(0 80% 50%);
+}

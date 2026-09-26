@@ -18,8 +18,8 @@ import { createId } from '../../platform/browser/ids';
 import { Button } from '../../ui/components/Button';
 import { SegmentedControl } from '../../ui/components/SegmentedControl';
 import { Slider } from '../../ui/components/Slider';
-import { MEASURE_EDGE, drawOrganic, measureVariants, runOrganic, type OrganicResult, type VariantMeasurement } from './compare';
-import { FULL_VIEW, applyView, canvasOf, download, drawLine, drawRoute, drawStartMarker, sizeFor, type ViewWindow } from './draw';
+import { MEASURE_EDGE, drawOrganic, measureVariants, runProduction, type OrganicResult, type ProductionStyle, type VariantMeasurement } from './compare';
+import { FULL_VIEW, applyView, canvasOf, download, drawLine, drawRoute, drawSpacingMap, drawStartMarker, sizeFor, type ViewWindow } from './draw';
 import { runVariableWidth, type VariableWidthOutcome } from './runner';
 import { TEST_IMAGES } from './testImages';
 
@@ -40,6 +40,12 @@ const ROUTES: ReadonlyArray<{ value: VariableWidthRoute; label: string; short: s
   { value: 'arc-spiral', label: 'Spirale', short: 'Spirale' },
   { value: 'organic-meander', label: 'Organischer Mäander', short: 'Organ. Mäander' },
   { value: 'flow', label: 'Fließende Kurve', short: 'Fließende Kurve' },
+  { value: 'free-orthogonal', label: 'Free Orthogonal', short: 'Free Orthogonal' },
+];
+
+const PRODUCTION: ReadonlyArray<{ value: ProductionStyle; label: string }> = [
+  { value: 'orthogonal', label: 'Orthogonal (App)' },
+  { value: 'organic', label: 'Organisch (App)' },
 ];
 const EXTRA_ROUTES: ReadonlyArray<{ value: VariableWidthRoute; label: string }> = [
   { value: 'meander-columns', label: 'Mäander in Spalten (15.1)' },
@@ -54,6 +60,8 @@ const ROUTE_HINTS: Readonly<Record<VariableWidthRoute, string>> = {
     'Kreisbögen im exakten Abstand um ein Zentrum an oder außerhalb der Start-Ecke. Mit einem Zentrum im Bild ist eine einzige Linie ohne Rand und Sprünge nicht möglich (siehe Doku).',
   'organic-meander': 'Zeilen über die ganze Breite mit langsamer, rein geometrischer Krümmung. Der Abstand ist hier nur näherungsweise konstant (gemessen).',
   flow: 'Exakte Parallelkurven einer langsamen Flusskurve, schräg durchs Bild, Start an der nächstgelegenen Ecke.',
+  'free-orthogonal':
+    'Labyrinth nur aus waagerechten und senkrechten Linien auf einem Gitter im exakten Abstand: die Linie läuft um einen Baum aus Korridoren herum. Start frei wählbar; das Ende liegt einen Abstand daneben.',
 };
 
 const START_PRESETS = [
@@ -84,7 +92,22 @@ interface PointerHandlers {
 }
 
 /** Canvas that re-draws whenever `draw` changes, at device resolution of its CSS width. */
-function ArtCanvas({ bounds, draw, label, pointer, picking = false }: { bounds: Size; draw: (ctx: CanvasRenderingContext2D, size: Size) => void; label: string; pointer?: PointerHandlers; picking?: boolean }) {
+function ArtCanvas({
+  bounds,
+  draw,
+  label,
+  pointer,
+  picking = false,
+  native,
+}: {
+  bounds: Size;
+  draw: (ctx: CanvasRenderingContext2D, size: Size) => void;
+  label: string;
+  pointer?: PointerHandlers;
+  picking?: boolean;
+  /** 1:1 view: shown at this size in CSS pixels (one working-grid pixel each), drawn at device resolution. */
+  native?: Size;
+}) {
   const ref = useRef<HTMLCanvasElement>(null);
   const pressed = useRef(false);
   const [cssWidth, setCssWidth] = useState(0);
@@ -98,13 +121,16 @@ function ArtCanvas({ bounds, draw, label, pointer, picking = false }: { bounds: 
   useEffect(() => {
     const el = ref.current;
     if (!el || cssWidth === 0) return;
-    const longEdge = Math.min(EXPORT_EDGE, Math.round(cssWidth * (window.devicePixelRatio || 1) * (Math.max(bounds.width, bounds.height) / bounds.width)));
+    // 1:1 view: one working-grid pixel per CSS pixel, drawn at device resolution (no downscaling).
+    const nativeEdge = native ? Math.min(4096, Math.round(Math.max(native.width, native.height) * (window.devicePixelRatio || 1))) : 0;
+    const longEdge = native ? nativeEdge : Math.min(EXPORT_EDGE, Math.round(cssWidth * (window.devicePixelRatio || 1) * (Math.max(bounds.width, bounds.height) / bounds.width)));
     const size = sizeFor(bounds, longEdge);
     el.width = size.width;
     el.height = size.height;
     const ctx = el.getContext('2d');
     if (ctx) draw(ctx, size);
-  }, [bounds, draw, cssWidth]);
+  }, [bounds, draw, cssWidth, native]);
+  const nativeStyle = native ? { width: `${sizeFor(bounds, Math.max(native.width, native.height)).width}px`, maxWidth: 'none' } : {};
   const at = (event: ReactPointerEvent<HTMLCanvasElement>): [number, number] => {
     const r = event.currentTarget.getBoundingClientRect();
     return [Math.min(1, Math.max(0, (event.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (event.clientY - r.top) / r.height))];
@@ -113,7 +139,7 @@ function ArtCanvas({ bounds, draw, label, pointer, picking = false }: { bounds: 
     <canvas
       ref={ref}
       className={`lab__canvas${picking ? ' is-picking' : ''}${pointer ? ' is-interactive' : ''}`}
-      style={{ aspectRatio: `${bounds.width} / ${bounds.height}` }}
+      style={{ aspectRatio: `${bounds.width} / ${bounds.height}`, ...nativeStyle }}
       aria-label={label}
       onPointerDown={(e) => {
         if (!pointer) return;
@@ -216,8 +242,10 @@ export function VariableWidthLab() {
   const [picking, setPicking] = useState(false);
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
   const [zoomView, setZoomView] = useState<ViewWindow>(FULL_VIEW);
-  const [organic, setOrganic] = useState<{ id: string; result: OrganicResult } | null>(null);
-  const [organicBusy, setOrganicBusy] = useState(false);
+  const [production, setProduction] = useState<{ id: string; results: Partial<Record<ProductionStyle, OrganicResult>> } | null>(null);
+  const [productionBusy, setProductionBusy] = useState(false);
+  const [showSpacing, setShowSpacing] = useState(false);
+  const [native, setNative] = useState(false);
   const [variants, setVariants] = useState<{ request: typeof request; lines: Map<VariableWidthRoute, VariableWidthOutcome> } | null>(null);
   const [measured, setMeasured] = useState<{ key: unknown[]; data: Map<string, VariantMeasurement> } | null>(null);
   const [measuring, setMeasuring] = useState(false);
@@ -266,10 +294,12 @@ export function VariableWidthLab() {
   const outcome = result?.outcome ?? shown;
   if (result?.outcome && result.outcome !== shown) setShown(result.outcome);
   const line = outcome?.line ?? null;
-  const organicPath = organic?.id === source.id ? organic.result.path : null;
+  const productionResults = production?.id === source.id ? production.results : null;
   const variantLines = variants?.request === request ? variants.lines : null;
-  const measurement = measured && measured.key[0] === variantLines && measured.key[1] === organicPath ? measured.data : null;
+  const measurement = measured && measured.key[0] === variantLines && measured.key[1] === productionResults ? measured.data : null;
   const lineGeometry = geometry && geometry.line === line ? geometry.geometry : null;
+  // Spacing heat map: measured once per line, only while shown.
+  if (showSpacing && line && !lineGeometry?.samples) setGeometry({ line, geometry: measureLineGeometry(line, { samples: true }) });
   const shownError = error ?? (busy ? null : (result?.error ?? null));
 
   const onFile = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -287,17 +317,20 @@ export function VariableWidthLab() {
     }
   };
 
-  const computeOrganic = async () => {
-    setOrganicBusy(true);
+  const computeProduction = async () => {
+    setProductionBusy(true);
     setError(null);
     const id = source.id;
+    const results: Partial<Record<ProductionStyle, OrganicResult>> = {};
     try {
-      const organicResult = await runOrganic(source.processed);
-      setOrganic({ id, result: organicResult });
+      for (const p of PRODUCTION) {
+        results[p.value] = await runProduction(source.processed, p.value);
+        setProduction({ id, results: { ...results } });
+      }
     } catch (e) {
-      setError(`Organische Linie fehlgeschlagen: ${String(e)}`);
+      setError(`Produktive Linie fehlgeschlagen: ${String(e)}`);
     } finally {
-      setOrganicBusy(false);
+      setProductionBusy(false);
     }
   };
 
@@ -310,7 +343,8 @@ export function VariableWidthLab() {
         const o = variantLines.get(r.value);
         return o ? [{ key: r.value, line: o.line, durationMs: o.durationMs }] : [];
       });
-      setMeasured({ key: [variantLines, organicPath], data: measureVariants(source.processed, lines, organicPath) });
+      const paths = new Map(PRODUCTION.flatMap((p) => (productionResults?.[p.value] ? [[p.value as string, productionResults[p.value]!.path] as const] : [])));
+      setMeasured({ key: [variantLines, productionResults], data: measureVariants(source.processed, lines, paths) });
       setMeasuring(false);
     }, 30);
   };
@@ -340,9 +374,10 @@ export function VariableWidthLab() {
       if (!line) return;
       drawLine(ctx, line, size, { progress, view: zoomView });
       if (view === 'route') drawRoute(ctx, line, size, progress, zoomView);
+      if (showSpacing && lineGeometry?.samples) drawSpacingMap(ctx, size, line, lineGeometry.samples, zoomView);
       if (marker) drawStartMarker(ctx, size, marker.x, marker.y, zoomView);
     },
-    [line, progress, view, zoomView, marker],
+    [line, progress, view, zoomView, marker, showSpacing, lineGeometry],
   );
   const drawVariant = useCallback(
     (route: VariableWidthRoute) => (ctx: CanvasRenderingContext2D, size: Size) => {
@@ -370,15 +405,17 @@ export function VariableWidthLab() {
     },
     [source, zoomView],
   );
-  const drawOrganicPanel = useCallback(
-    (ctx: CanvasRenderingContext2D, size: Size) => {
+  const drawProduction = useCallback(
+    (style: ProductionStyle) => (ctx: CanvasRenderingContext2D, size: Size) => {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, size.width, size.height);
-      if (organicPath) drawOrganic(ctx, organicPath, size, zoomView);
+      const path = productionResults?.[style]?.path;
+      if (path) drawOrganic(ctx, path, size, zoomView);
     },
-    [organicPath, zoomView],
+    [productionResults, zoomView],
   );
+  const productionDrawers = useMemo(() => new Map(PRODUCTION.map((p) => [p.value, drawProduction(p.value)])), [drawProduction]);
 
   const widthRange = useMemo(() => {
     if (!line) return null;
@@ -422,13 +459,13 @@ export function VariableWidthLab() {
       };
 
   const bendRoute = params.route === 'organic-meander' || params.route === 'flow';
-  const columns = [...ROUTES.map((r) => ({ key: r.value as string, label: r.short })), { key: 'organic', label: 'Organisch (App)' }];
+  const columns = [...ROUTES.map((r) => ({ key: r.value as string, label: r.short })), ...PRODUCTION.map((p) => ({ key: p.value as string, label: p.label }))];
 
   return (
     <div className="lab">
       <header className="lab__header">
         <div>
-          <p className="lab__eyebrow">Experimenteller Prototyp · Phase 15.2 · nicht Teil der App</p>
+          <p className="lab__eyebrow">Experimenteller Prototyp · Phase 15.3 · nicht Teil der App</p>
           <h1 className="lab__title">Konstanter Linienabstand, variable Liniendicke</h1>
         </div>
         <div className="lab__sources">
@@ -475,6 +512,25 @@ export function VariableWidthLab() {
           </div>
           {params.route === 'arc-spiral' && (
             <Slider label="Zentrum außerhalb der Ecke" value={params.arcCenter} min={0} max={2} step={0.05} format={fmt(2, ' × Diagonale')} onCommit={(v) => set('arcCenter', v)} hint="0 = Zentrum genau in der Ecke (stark gebogen), größer = flachere Bögen" />
+          )}
+          {params.route === 'free-orthogonal' && (
+            <>
+              <Slider label="Ordnung" value={params.mazeOrder} {...VARIABLE_WIDTH_LIMITS.mazeOrder} step={0.05} format={fmt(2)} onCommit={(v) => set('mazeOrder', v)} hint="1 = lange, fließende Korridore entlang eines langsamen Richtungsfelds · 0 = zufälliges Labyrinth" />
+              <Slider label="Feldgröße" value={params.mazeScale} min={0.1} max={2} step={0.05} format={fmt(2, ' × Bildkante')} onCommit={(v) => set('mazeScale', v)} hint="Wellenlänge des Richtungsfelds: klein = unruhiger, groß = große ruhige Bereiche" />
+              <div className="lab__field">
+                <span className="lab__label">Labyrinth-Variante (Seed)</span>
+                <div className="lab__row">
+                  <Button variant="quiet" onClick={() => set('mazeSeed', Math.max(0, params.mazeSeed - 1))}>
+                    −
+                  </Button>
+                  <span className="lab__status">{params.mazeSeed}</span>
+                  <Button variant="quiet" onClick={() => set('mazeSeed', params.mazeSeed + 1)}>
+                    +
+                  </Button>
+                </div>
+                <span className="lab__hint">Derselbe Seed ergibt immer genau dasselbe Labyrinth – unabhängig vom Bild.</span>
+              </div>
+            </>
           )}
           {bendRoute && <Slider label="Schwung" value={params.bend} {...VARIABLE_WIDTH_LIMITS.bend} step={0.05} format={fmt(2)} onCommit={(v) => set('bend', v)} hint={params.route === 'flow' ? 'Anteil der größten Krümmung, bei der der Abstand exakt bleibt' : 'Krümmung; bei 1 ändert sich der Abstand um höchstens ±12 %'} />}
           <div className="lab__field">
@@ -530,7 +586,12 @@ export function VariableWidthLab() {
               </Button>
             </div>
             <span className="lab__hint">
-              Der Startpunkt bestimmt nur die Lage der Linie, nie die Tonwerte. {params.route === 'spiral' ? 'Spirale 15.1: genau am Punkt.' : 'Diese Linienführung beginnt an der Ecke, die dem Punkt am nächsten liegt.'}
+              Der Startpunkt bestimmt nur die Lage der Linie, nie die Tonwerte.{' '}
+              {params.route === 'spiral'
+                ? 'Spirale 15.1: genau am Punkt.'
+                : params.route === 'free-orthogonal'
+                  ? 'Free Orthogonal: genau an der nächsten Gitterzelle – überall im Bild möglich.'
+                  : 'Diese Linienführung beginnt an der Ecke, die dem Punkt am nächsten liegt.'}
             </span>
           </div>
           <SegmentedControl<VariableWidthCurve>
@@ -582,7 +643,36 @@ export function VariableWidthLab() {
 
           {view !== 'compare' && (
             <>
-              <ArtCanvas bounds={bounds} draw={drawResult} label="Ergebnis des Prototyps" pointer={pointer} picking={picking} />
+              <div className="lab__row">
+                <SegmentedControl<string>
+                  label="Anzeige"
+                  value={native ? 'native' : 'fit'}
+                  onChange={(v) => setNative(v === 'native')}
+                  options={[
+                    { value: 'fit', label: 'Handy (verkleinert)' },
+                    { value: 'native', label: 'Originalgröße 1:1' },
+                  ]}
+                />
+                <label className="lab__check">
+                  <input type="checkbox" checked={showSpacing} onChange={(e) => setShowSpacing(e.target.checked)} /> Abstand anzeigen
+                </label>
+              </div>
+              {showSpacing && (
+                <p className="lab__hint">
+                  Punkte = gemessener Abstand zur Nachbarbahn: <span className="lab__key lab__key--ok">±1 %</span> <span className="lab__key lab__key--near">±1–5 %</span>{' '}
+                  <span className="lab__key lab__key--wide">weiter</span> <span className="lab__key lab__key--tight">enger</span>
+                </p>
+              )}
+              <div className={native ? 'lab__native' : undefined}>
+                <ArtCanvas
+                  bounds={bounds}
+                  draw={drawResult}
+                  label="Ergebnis des Prototyps"
+                  pointer={pointer}
+                  picking={picking}
+                  {...(native && line ? { native: line.working } : {})}
+                />
+              </div>
               <Slider label="Zeichnung bis" value={progress} min={0.001} max={1} step={0.001} format={(v) => `${(v * 100).toFixed(1)} %`} onChange={setProgress} onCommit={setProgress} hint="zeigt, wie die eine Linie durch das Bild läuft (grün = Start, rot = Ende)" />
             </>
           )}
@@ -607,17 +697,23 @@ export function VariableWidthLab() {
                     </figcaption>
                   </figure>
                 ))}
-                <figure>
-                  {organicPath ? <ArtCanvas bounds={bounds} draw={drawOrganicPanel} label="Organisch" pointer={pointer} /> : <div className="lab__placeholder" style={{ aspectRatio: `${bounds.width} / ${bounds.height}` }} />}
-                  <figcaption>
-                    Organische One-Line-Art (App, Ausgewogen)
-                    {organic?.id === source.id && ` · ${(organic.result.durationMs / 1000).toFixed(1)} s`}
-                  </figcaption>
-                </figure>
+                {PRODUCTION.map((p) => (
+                  <figure key={p.value}>
+                    {productionResults?.[p.value] ? (
+                      <ArtCanvas bounds={bounds} draw={productionDrawers.get(p.value)!} label={p.label} pointer={pointer} />
+                    ) : (
+                      <div className="lab__placeholder" style={{ aspectRatio: `${bounds.width} / ${bounds.height}` }} />
+                    )}
+                    <figcaption>
+                      {p.label}, Ausgewogen, App-Renderer
+                      {productionResults?.[p.value] && ` · ${(productionResults[p.value]!.durationMs / 1000).toFixed(1)} s`}
+                    </figcaption>
+                  </figure>
+                ))}
               </div>
               <div className="lab__row">
-                <Button variant="quiet" disabled={organicBusy} onClick={computeOrganic}>
-                  {organicBusy ? 'Organisch wird berechnet …' : organicPath ? 'Organisch neu berechnen' : 'Organische Linie berechnen'}
+                <Button variant="quiet" disabled={productionBusy} onClick={computeProduction}>
+                  {productionBusy ? 'Produktive Linien werden berechnet …' : productionResults ? 'Produktive Linien neu berechnen' : 'Produktive Linien berechnen (Orthogonal, Organisch)'}
                 </Button>
                 <Button variant="quiet" disabled={!variantLines || variantLines.size < ROUTES.length || measuring} onClick={runMeasure}>
                   {measuring ? 'Messe …' : 'Alle messen'}
@@ -658,7 +754,7 @@ export function VariableWidthLab() {
                 {lineGeometry ? (
                   `Mittel ${lineGeometry.spacing.mean.toFixed(3)} · Min ${lineGeometry.spacing.min.toFixed(2)} · Max ${lineGeometry.spacing.max.toFixed(2)} · σ ${lineGeometry.spacing.std.toFixed(3)} · 5–95 % ${lineGeometry.spacing.p05.toFixed(2)}…${lineGeometry.spacing.p95.toFixed(2)} px · Überlappung ${pct(lineGeometry.overlapShare)}`
                 ) : (
-                  <Button variant="ghost" onClick={() => line && setGeometry({ line, geometry: measureLineGeometry(line) })}>
+                  <Button variant="ghost" onClick={() => line && setGeometry({ line, geometry: measureLineGeometry(line, { samples: true }) })}>
                     Abstand messen
                   </Button>
                 )}

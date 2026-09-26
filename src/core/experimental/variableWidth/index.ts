@@ -11,4 +11,5 @@ export * from './generate';
 export * from './outline';
 export * from './metrics';
 export * from './curvedRoutes';
+export * from './orthogonalMaze';
 export * from './spacing';

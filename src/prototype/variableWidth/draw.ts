@@ -132,3 +132,35 @@ export function download(blob: Blob, name: string): void {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
+
+/** Spacing colours: within ±1 %, within ±5 %, wider, tighter than the target spacing. */
+export const SPACING_COLORS = { ok: 'hsl(140 70% 38%)', near: 'hsl(42 95% 48%)', wide: 'hsl(215 85% 50%)', tight: 'hsl(0 80% 50%)' } as const;
+
+/**
+ * Debug overlay: every measured point of the spacing statistics, coloured by
+ * its deviation from the spacing parameter (see SPACING_COLORS).
+ */
+export function drawSpacingMap(ctx: CanvasRenderingContext2D, size: Size, line: VariableWidthLine, samples: Float32Array, view: ViewWindow = FULL_VIEW): void {
+  const z = Math.max(1, view.zoom);
+  const sx = size.width / line.path.bounds.width, sy = size.height / line.path.bounds.height;
+  const target = line.parameters.spacing;
+  const r = Math.max(1, (line.spacing * sx) / 5) * Math.min(1, 2 / z) + 0.4;
+  applyView(ctx, size, view);
+  const groups: Record<keyof typeof SPACING_COLORS, number[]> = { ok: [], near: [], wide: [], tight: [] };
+  for (let i = 0; i < samples.length; i += 3) {
+    const rel = samples[i + 2]! / target - 1;
+    const key = Math.abs(rel) <= 0.01 ? 'ok' : Math.abs(rel) <= 0.05 ? 'near' : rel > 0 ? 'wide' : 'tight';
+    groups[key].push(samples[i]! * sx, samples[i + 1]! * sy);
+  }
+  for (const key of Object.keys(groups) as (keyof typeof SPACING_COLORS)[]) {
+    const pts = groups[key];
+    ctx.fillStyle = SPACING_COLORS[key];
+    ctx.beginPath();
+    for (let i = 0; i < pts.length; i += 2) {
+      ctx.moveTo(pts[i]! + r, pts[i + 1]!);
+      ctx.arc(pts[i]!, pts[i + 1]!, r, 0, Math.PI * 2);
+    }
+    ctx.fill();
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+}

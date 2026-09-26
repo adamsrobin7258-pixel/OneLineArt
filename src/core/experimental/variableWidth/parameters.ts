@@ -10,9 +10,9 @@
 /**
  * How the one line covers the picture. Phase 15.1: meander rows (reference),
  * meander columns, spiral (with frame). Phase 15.2: arc spiral, organic meander,
- * flowing curve (curvedRoutes.ts).
+ * flowing curve (curvedRoutes.ts). Phase 15.3: free orthogonal (orthogonalMaze.ts).
  */
-export const VARIABLE_WIDTH_ROUTES = ['meander-rows', 'meander-columns', 'spiral', 'arc-spiral', 'organic-meander', 'flow'] as const;
+export const VARIABLE_WIDTH_ROUTES = ['meander-rows', 'meander-columns', 'spiral', 'arc-spiral', 'organic-meander', 'flow', 'free-orthogonal'] as const;
 export type VariableWidthRoute = (typeof VARIABLE_WIDTH_ROUTES)[number];
 
 /**
@@ -54,6 +54,12 @@ export interface VariableWidthParameters {
   readonly bend: number;
   /** How far the maximum width may exceed the spacing (see MAX_WIDTH_SHARES). */
   readonly widthMode: VariableWidthMode;
+  /** Free orthogonal: seed of the labyrinth (integer). */
+  readonly mazeSeed: number;
+  /** Free orthogonal: 0…1 share of the slow direction field (1 = long flowing corridors, 0 = random maze). */
+  readonly mazeOrder: number;
+  /** Free orthogonal: wavelength of the direction field in canvas long edges. */
+  readonly mazeScale: number;
 }
 
 /** Largest width as a share of the spacing in the safe mode: keeps a visible gap between neighbouring lines. */
@@ -76,6 +82,9 @@ export const DEFAULT_VARIABLE_WIDTH_PARAMETERS: VariableWidthParameters = {
   arcCenter: 0.3,
   bend: 0.8,
   widthMode: 'safe',
+  mazeSeed: 1,
+  mazeOrder: 0.8,
+  mazeScale: 0.6,
 };
 
 export interface NumericLimit {
@@ -94,6 +103,9 @@ export const VARIABLE_WIDTH_LIMITS = {
   smoothing: { min: 0, max: 2 },
   arcCenter: { min: 0, max: 3 },
   bend: { min: 0, max: 1 },
+  mazeSeed: { min: 0, max: 99999 },
+  mazeOrder: { min: 0, max: 1 },
+  mazeScale: { min: 0.1, max: 3 },
 } as const satisfies Record<string, NumericLimit>;
 
 export interface VariableWidthIssue {
@@ -179,6 +191,9 @@ export function sanitizeVariableWidthParameters(input: Partial<VariableWidthPara
       arcCenter: num('arcCenter'),
       bend: num('bend'),
       widthMode,
+      mazeSeed: Math.round(num('mazeSeed')),
+      mazeOrder: num('mazeOrder'),
+      mazeScale: num('mazeScale'),
     },
     issues,
   };

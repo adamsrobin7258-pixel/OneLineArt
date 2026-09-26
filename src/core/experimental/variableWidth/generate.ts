@@ -1,6 +1,7 @@
 import type { OneLinePath, RasterImage, Size } from '../../models';
 import { sanitizeVariableWidthParameters, type VariableWidthIssue, type VariableWidthParameters } from './parameters';
 import { arcSpiral, flowCurve, organicMeander, type CurvedRouteDiagnostics } from './curvedRoutes';
+import { orthogonalMaze } from './orthogonalMaze';
 import { meanderColumns, meanderRows, spiral, type Route, type RouteOptions } from './routes';
 import { buildToneField, sampleField, type ToneField } from './toneField';
 import { createWidthTransfer } from './transfer';
@@ -59,13 +60,14 @@ export const FLOW_SHAPE = { tilt: 0.5, wavelength: 1.8 } as const;
 
 /**
  * The centre line of a route. Depends on the working-grid size and the route
- * parameters (route, spacing, start, arcCenter, bend) only — never on the image.
+ * parameters (route, spacing, start, arcCenter, bend, maze*) only — never on the image.
  */
 export function variableWidthRoute(size: Size, p: VariableWidthParameters): Route & { curved?: CurvedRouteDiagnostics } {
   const options: RouteOptions = { spacing: p.spacing, start: p.start, step: SAMPLE_STEP };
   if (p.route === 'arc-spiral') return arcSpiral(size, options, p.arcCenter);
   if (p.route === 'organic-meander') return organicMeander(size, options, p.bend);
   if (p.route === 'flow') return flowCurve(size, options, { ...FLOW_SHAPE, bend: p.bend });
+  if (p.route === 'free-orthogonal') return orthogonalMaze(size, options, { seed: p.mazeSeed, order: p.mazeOrder, scale: p.mazeScale });
   if (p.route === 'spiral') return spiral(size, options);
   if (p.route === 'meander-columns') return meanderColumns(size, options);
   return meanderRows(size, options);
