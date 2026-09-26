@@ -385,3 +385,220 @@ Die Route selbst (Baum + Schleife) braucht 17 / 55 / 88 ms. Der Speicher liegt b
   kurze Stücke, die wie Körnung wirken.
 - Die 90°-Ecken bleiben bei jeder Dicke echte Ecken. Abgerundete Ecken wären eine
   spätere Option, verletzen aber die Vorgabe „keine Rundungen“.
+
+# Phase 15.4: Free Orthogonal bei Ordnung 0 verfeinern
+
+Ziel: das freie Labyrinth von Ordnung 0 behalten, aber weniger sehr kurze Stücke,
+weniger körnige Ecken und weniger unruhige lokale Strukturen. Eine Linie, nur 90°,
+konstanter Abstand, freier Start, unabhängig vom Bild. Keine Zufalls-Jitter.
+
+Ergebnis: neue Route **`free-orthogonal-grown`** („Free Orthogonal – gewachsen
+(15.4)“). Sie steht als eigene Variante neben Free Orthogonal 15.3, das
+unverändert bleibt (Bit-für-Bit-Test gegen die Hashes von Commit 6ad99bc).
+
+## Ursache der Körnung (Messung)
+
+Jedes gerade Stück der Linie ist ein ganzes Vielfaches des Abstands. 1 Abstand ist
+die kürzeste mögliche Länge. Jede Sackgasse des Baums ergibt eine solche 1er-Kappe,
+ebenso jedes Wandende, also jede enge U-Kehre des Korridors. Ein Kruskal-Baum auf
+Zufallsgewichten (Ordnung 0) hat sehr viele davon.
+
+Gemessen wurde die Route 600 × 800 px bei 4 px Abstand, gemittelt über die
+Seeds 1–5. Die Werte sind in Abständen angegeben; da jedes Stück ein ganzes
+Vielfaches ist, bedeutet „< 1,5×“ dasselbe wie „< 2×“ und dasselbe wie „= 1×“.
+
+| Variante | Stücke | Mittel | Median | p5/25/75/95 | Max | = 1× | ≤ 2× | ≤ 3× | Treppenstufen | Knicke/100 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| FO 15.3 Ordnung 0 | 13 217 | 2,27 | 2 | 1/1/3/5 | 15,8 | 34,8 % | 71,0 % | 83,4 % | 36,1 % | 44,1 |
+| FO 15.3 Ordnung 0,05 | 13 210 | 2,27 | 2 | 1/1/3/5 | 17,8 | 34,9 % | 71,0 % | 83,5 % | – | 44,0 |
+| FO 15.3 Ordnung 0,10 | 13 125 | 2,29 | 2 | 1/1/3/5 | 18,0 | 34,9 % | 70,8 % | 83,2 % | – | 43,7 |
+| FO 15.3 Ordnung 0,15 | 12 988 | 2,31 | 2 | 1/1/3/5,4 | 20,2 | 35,0 % | 70,6 % | 82,7 % | – | 43,3 |
+| FO 15.3 Ordnung 0,20 | 12 771 | 2,35 | 2 | 1/1/3/6 | 20,2 | 35,3 % | 70,2 % | 82,0 % | 34,8 %¹ | 42,6 |
+| **FO gewachsen (Standard)** | 8 479 | **3,54** | **3** | 1/2/5/8 | 27,6 | **23,3 %** | **38,6 %** | **56,0 %** | **15,4 %** | **28,3** |
+
+¹ Wert aus der Messung auf der Testseite (Porträt).
+„Treppenstufe“ = ein Stück ≤ 2× zwischen zwei gegensinnigen Knicken (┐└┐└).
+
+**Ordnung 0 bis 0,2 ändert die Segmentverteilung praktisch nicht.** Die
+Körnung ist eine Eigenschaft des Kruskal-Zufallsbaums, nicht der Ordnung.
+
+## Untersuchte Ansätze
+
+Die Werte gelten für dieselbe Messung, jeweils mit „Treppen“, „Haarnadeln“ und
+„Variation“ = 0, sofern nicht anders angegeben.
+
+| Ansatz | Umsetzung | = 1× | ≤ 2× | Treppen | Mittel |
+|---|---|---|---|---|---|
+| D: wachsender Baum, nur zufällig (Prim-artig) | `run` 0 | 35,2 % | 67,5 % | 32,2 % | 2,63 |
+| D: wachsender Baum, gemischt | `run` 0,5 / 0,8 | 29,1 / 24,5 % | 64,8 / 60,8 % | 36 % | 2,54 / 2,72 |
+| D: wachsender Baum, nur neueste Zelle (DFS) | `run` 1 | 21,5 % | 58,1 % | 36,5 % | 2,88 |
+| A: Geradeaus-Vorliebe | `run` 0,5, `straight` 0,8 | 31,3 % | 57,5 % | 26,2 % | 3,02 |
+| A+D | `run` 1, `straight` 0,5 | 21,2 % | 49,6 % | 28,4 % | 3,43 |
+| B: Treppen vermeiden (lokale Bauregel) | `run` 1, `stairs` 1 | 22,5 % | 36,5 % | 14,0 % | 3,53 |
+| B: + Haarnadeln vermeiden | `run` 1, `stairs` 1, `hairpins` 1 | 20,4 % | 33,0 % | 12,6 % | 3,74 |
+| C: räumlich variierende Korridore | `run` 0,5, `straight` 0,3, `variation` 1 | 31,2 % | 60,4 % | 29,3 % | 2,95 |
+| C zusätzlich zum Standard | `variation` 0,5 / 1 | 25,8 / 29,2 % | 43,5 / 50,0 % | 17,8 / 20,8 % | 3,31 / 3,27 |
+| verworfen: Sackgassen zusammenlegen (Baum-Nachbearbeitung) | benachbarte Blätter verbinden | −0,2 Pp | −0,7 Pp | – | – |
+
+Befunde:
+
+- Der größte Hebel ist **D (Korridore statt Zufallsbaum)** zusammen mit **B (keine
+  Treppen)**.
+- **A** allein macht die Linie länger und ruhiger, verschiebt den Charakter aber
+  schneller Richtung „Korridor-Muster“.
+- **C** bringt messbar nichts. Die Stellen mit weniger Korridor erzeugen wieder
+  kurze Stücke. C bleibt als Regler auf der Testseite (Standard 0).
+- **Das Zusammenlegen von Sackgassen** änderte bei DFS-artigen Bäumen weniger als
+  1 Prozentpunkt. Es wurde wieder entfernt.
+- **Untergrenze:** Jedes perfekte Labyrinth hat Sackgassen und Wandenden. Etwa
+  20 % 1er-Stücke sind mit diesem Gitter nicht zu unterschreiten, ohne die
+  Konstruktion zu wechseln.
+
+## Konstruktion (`grownMaze` in `orthogonalMaze.ts`)
+
+Es gilt dasselbe Grobgitter wie in 15.3, mit derselben Umrundung (`treeLoop`,
+unverändert aus 15.3 herausgelöst) und denselben Garantien. Nur der Baum
+entsteht anders („growing tree“):
+
+1. Eine aktive Liste beginnt bei einer Wurzelzelle, die der Seed bestimmt. Die
+   Wurzel hängt nicht vom Startpunkt ab, der Startpunkt öffnet nur die Schleife.
+2. Jeder Schritt wählt mit Anteil `run` die **neueste** aktive Zelle (langer,
+   verschlungener Gang) oder sonst eine **zufällige** aktive Zelle (Abzweig).
+   Die Zelle gräbt in einen unbesuchten Nachbarn; ohne unbesuchten Nachbarn
+   verlässt sie die Liste.
+3. Richtungsgewichte:
+   - Geradeaus erhält Gewicht × 1 / (1 − 0,95 · `straight`).
+   - Direkt nach einem Knick wird zurück in die alte Richtung (Treppe) mit
+     × (1 − `stairs`) gewichtet.
+   - Ein zweiter gleichsinniger Knick (Haarnadel) wird mit × (1 − `hairpins`)
+     gewichtet.
+   - `variation` mischt `run` und `straight` mit einem langsamen Feld aus drei
+     Wellen (Wellenlänge `mazeScale`).
+4. Alle Zufallszahlen stammen aus `createRandom(seed)`. Die aktive Liste
+   behält die Reihenfolge; tote Einträge werden gesammelt und bei mehr als der
+   Hälfte kompaktiert. Das Ergebnis ist deterministisch und hat O(n) Laufzeit.
+
+Standardwerte: `mazeRun` 0,9, `mazeStraight` 0,2, `mazeStairs` 1,
+`mazeHairpins` 0,7, `mazeVariation` 0. Der Seed wird mit 15.3 geteilt
+(`mazeSeed`).
+
+Nebenbei behoben: Ein Grobgitter mit nur einer Zelle Breite wurde in 15.3 falsch
+verbunden, weil eine senkrechte Kante als waagerecht galt. Bei allen anderen
+Gittern bleibt die Ausgabe bitgleich.
+
+## Abstand (Porträt, 800 px Arbeitsauflösung)
+
+| Abstand | FO 15.3 Ordnung 0: Mittel / σ | FO gewachsen: Mittel / σ / p5–p95 / Min |
+|---|---|---|
+| 3 px | 3,002 / 0,049 | 3,001 / 0,025 / 3,00–3,00 / 3,00 |
+| 4 px | 4,004 / 0,072 | 4,002 / 0,041 / 4,00–4,00 / 4,00 |
+| 5 px | – | 5,003 / 0,066 / 5,00–5,00 / 5,00 |
+| 6 px | 6,008 / 0,129 | 6,004 / 0,086 / 6,00–6,00 / 6,00 |
+| 8 px | – | 8,007 / 0,120 / 8,00–8,00 / 8,00 |
+| 10 px | 10,021 / 0,258 | 10,011 / 0,151 / 10,00–10,00 / 10,00 |
+
+Die 15.3-Referenz lag bei 4 px bei Mittel 4,006 und σ 0,093 (Ordnung 0,8). Das σ
+stammt nur aus Messpunkten an Sackgassen, wo die nächste Bahn schräg liegt.
+Weniger Sackgassen ergeben deshalb ein kleineres σ.
+
+## Breitenmodi (Porträt)
+
+Die Tonwirkung hängt an der Dickenkurve, nicht an der Route.
+
+| | Sicher | Kontrolliert | Frei |
+|---|---|---|---|
+| 4 px: Dunkel-Tonfehler / geschlossene Fläche | 42,8 L* / 0 % | 6,5 L* / 41,4 % (15.3: 6,5 / 41,2 %) | 6,1 L* / 44,5 % (15.3: 5,8 / 42,6 %) |
+| 6 px: Dunkel-Tonfehler / Überlappung | 43,7 L* / 0 % | 9,3 L* / 42,5 % | 8,4 L* / 54,1 % |
+| 8 px: Dunkel-Tonfehler / Überlappung | 42,7 L* / 0 % | 7,4 L* / 40,0 % | 6,8 L* / 53,0 % |
+
+Der Abstand bleibt in allen Modi exakt (p5–p95 = Abstand).
+
+## Animation (Linie von 0 bis 100 % gezeichnet)
+
+Gemessen wurde der Mittelwert über 8 Startpunkte: 4 Ecken, die Mitte und 3 freie
+Punkte. Die Kennzahlen:
+
+- **Ausdehnung:** Box des gezeichneten Teils, als Anteil der Bildfläche.
+- **Verzweigung:** Umriss der bedeckten Zellen / Umriss eines gleich großen
+  Quadrats.
+
+| Stand | FO 15.3 Ordnung 0: Ausdehnung / Verzweigung | FO gewachsen: Ausdehnung / Verzweigung |
+|---|---|---|
+| 5 % | 12 % / 2,55 | 11 % / 3,62 |
+| 10 % | 23 % / 2,24 | 23 % / 3,40 |
+| 20 % | 41 % / 2,21 | 47 % / 4,01 |
+| 35 % | 66 % / 2,13 | 76 % / 3,70 |
+| 50 % | 91 % / 2,10 | 85 % / 2,98 |
+| 65 % | 97 % / 2,18 | 97 % / 3,03 |
+| 80 % | 99 % / 1,83 | 98 % / 2,56 |
+| 100 % | 99 % / 1,01 | 99 % / 1,01 |
+
+- **FO 15.3:** Die Linie wächst als körniger, kompakter Fleck.
+- **FO gewachsen:** Die Linie läuft in verästelten Gängen über das Bild, und die
+  Lücken füllen sich später.
+- Die Segmentverteilung bleibt in jeder Phase gleich (= 1×: 23–24 % statt 35 %).
+  Es gibt also keinen Abschnitt, der unruhiger wird.
+
+## Bild
+
+Verglichen wurden Porträt, Gesicht und Haar (Katze), Kleidung (Astronaut),
+Architektur und Struktur (Ziegel), dunkel (Mond), hell (High-Key), feine
+Strukturen (Gras) und Landschaft (Rakete). Alle Bilder sind lokal und nicht im
+Repository.
+
+- **Detail-Stärke und Tonfehler** sind innerhalb von ±0,01 bzw. ±0,3 L* gleich
+  wie bei FO 15.3. Die Dicke trägt den Ton, nicht die Route.
+- **1:1 und 4×:** Die Noppen (┴) und Zickzack-Treppen von Ordnung 0 sind
+  weitgehend verschwunden. Das Muster bleibt ein Labyrinth, aber mit längeren,
+  verschlungenen Gängen.
+- **Stark verkleinert (Vorschaubild, ≈ 300 px, unter 1 Pixel pro Linie):** Die
+  längeren parallelen Gangbündel können als leichtes Moiré/Flecken erscheinen.
+  Bei Handygröße (≥ 1 Gerätepixel pro Linie, getestet mit 560 px und auf der
+  Testseite) war das nicht sichtbar.
+
+## Performance
+
+Node, Kaffee-Bild auf 2048 px hochskaliert, Ordnung 0 für 15.3:
+
+| Arbeitsauflösung | FO 15.3: gesamt / Geometrie | FO gewachsen: gesamt / Geometrie | gespeicherte Punkte 15.3 → neu |
+|---|---|---|---|
+| 800 px | 168 / 10 ms | 147 / 7 ms | 33 218 → 30 971 |
+| 1200 px | 320 / 37 ms | 304 / 7 ms | 69 796 → 64 283 |
+| 1600 px | 540 / 64 ms | 514 / 17 ms | 114 175 → 104 846 |
+| 2048 px | 1128 / 112 ms | 881 / 23 ms | 175 915 → 159 921 |
+
+Der Rest der Gesamtzeit sind Tonfeld, Dicke und Zusammenfassen gerader Stücke,
+bei beiden gleich. Chromium, Bild 2048 px:
+
+| | FO 15.3 | FO gewachsen |
+|---|---|---|
+| Arbeitsauflösung 800: Erzeugen / Zeichnen | 200 / 52 ms | 184 / 51 ms |
+| Arbeitsauflösung 1600: Erzeugen / Zeichnen | 581 / 141 ms | 476 / 119 ms |
+| 4× gedrosselt (Handy), 800: Erzeugen / Zeichnen | 842 / 292 ms | 803 / 239 ms |
+| 4× gedrosselt (Handy), 1600: Erzeugen / Zeichnen | 2259 / 586 ms | 2430 / 584 ms |
+
+Speicher: Die Linie braucht 0,37–1,9 MB (etwas weniger als 15.3, weil sie weniger
+Punkte hat), die Route vorübergehend 1,7–11 MB wie bisher. Dazu kommen je Grobzelle
+ca. 30 Byte für den Baum.
+
+## Testseite
+
+- Linienführung „Free Orthogonal – gewachsen (15.4)“ mit den Reglern
+  Korridore, Geradeaus, Treppen vermeiden, Haarnadeln vermeiden, Räumliche
+  Variation (+ Feldgröße) und Seed. „Free Orthogonal (15.3)“ bleibt wählbar.
+- „Entstehung abspielen“ (12 s) sowie die Sprungmarken 5/10/20/35/50/65/80/100 %
+  mit Ausdehnung, Reichweite und Verzweigung des gezeichneten Teils.
+- Statistik „Segmente“ für Gitter-Routen: Anzahl, Mittel, Median, Anteile 1×/≤ 2×/≤ 3×,
+  Treppenstufen, Knicke.
+- Vergleich mit dem Satz „Free Orthogonal (15.4)“: FO 15.3 Ordnung 0, FO
+  gewachsen, FO 15.3 Ordnung 0,1 und 0,2, Fließende Kurve, Mäander und
+  Orthogonal (App). „Alle Routen (15.3)“ bleibt als zweiter Satz erhalten.
+  „Alle messen“ zeigt zusätzlich die Segmentstatistik.
+
+## Grenzen
+
+- Etwa 20–23 % der Stücke bleiben 1 Abstand lang. Das sind Sackgassen und
+  Wandenden, die zu jedem Labyrinth auf diesem Gitter gehören.
+- Mit `Korridore` → 1 und `Geradeaus` → 1 wird das Muster ruhiger und
+  korridorartiger. Das ist bewusst ein Regler, nicht der Standard.
+- Die Linie bleibt motivunabhängig. Gänge laufen auch mitten durch Gesichter.

@@ -4,9 +4,12 @@ import {
   DEFAULT_VARIABLE_WIDTH_PARAMETERS,
   MAX_WIDTH_SHARES,
   VARIABLE_WIDTH_LIMITS,
+  buildStages,
   measureLineGeometry,
+  segmentStats,
   variableWidthSvg,
   type LineGeometry,
+  type SegmentStats,
   type VariableWidthCurve,
   type VariableWidthLine,
   type VariableWidthMode,
@@ -18,7 +21,7 @@ import { createId } from '../../platform/browser/ids';
 import { Button } from '../../ui/components/Button';
 import { SegmentedControl } from '../../ui/components/SegmentedControl';
 import { Slider } from '../../ui/components/Slider';
-import { MEASURE_EDGE, drawOrganic, measureVariants, runProduction, type OrganicResult, type ProductionStyle, type VariantMeasurement } from './compare';
+import { MEASURE_EDGE, drawOrganic, isLatticeRoute, measureVariants, runProduction, type OrganicResult, type ProductionStyle, type VariantMeasurement } from './compare';
 import { FULL_VIEW, applyView, canvasOf, download, drawLine, drawRoute, drawSpacingMap, drawStartMarker, sizeFor, type ViewWindow } from './draw';
 import { runVariableWidth, type VariableWidthOutcome } from './runner';
 import { TEST_IMAGES } from './testImages';
@@ -34,14 +37,48 @@ type View = 'result' | 'route' | 'compare';
 const EXPORT_EDGE = 2048;
 const fmt = (digits: number, unit = '') => (v: number) => `${v.toFixed(digits)}${unit}`;
 
-/** The four route shapes of Phase 15.2 (compared side by side), plus the Phase 15.1 extras. */
+/** The route shapes of Phases 15.2–15.4, plus the Phase 15.1 extras. */
 const ROUTES: ReadonlyArray<{ value: VariableWidthRoute; label: string; short: string }> = [
   { value: 'meander-rows', label: 'Mäander – Referenz', short: 'Mäander – Referenz' },
   { value: 'arc-spiral', label: 'Spirale', short: 'Spirale' },
   { value: 'organic-meander', label: 'Organischer Mäander', short: 'Organ. Mäander' },
   { value: 'flow', label: 'Fließende Kurve', short: 'Fließende Kurve' },
-  { value: 'free-orthogonal', label: 'Free Orthogonal', short: 'Free Orthogonal' },
+  { value: 'free-orthogonal', label: 'Free Orthogonal (15.3)', short: 'Free Orthogonal' },
+  { value: 'free-orthogonal-grown', label: 'Free Orthogonal – gewachsen (15.4)', short: 'FO gewachsen' },
 ];
+
+/** One panel of the comparison: the current parameters with these overrides. */
+interface CompareVariant {
+  readonly key: string;
+  readonly label: string;
+  readonly short: string;
+  readonly params: Partial<VariableWidthParameters>;
+}
+type CompareSet = '15.4' | '15.3';
+const COMPARE_SETS: Readonly<Record<CompareSet, { readonly label: string; readonly variants: readonly CompareVariant[]; readonly production: readonly ProductionStyle[] }>> = {
+  '15.4': {
+    label: 'Free Orthogonal (15.4)',
+    variants: [
+      { key: 'fo-0', label: 'Free Orthogonal 15.3 · Ordnung 0', short: 'FO 15.3 · 0', params: { route: 'free-orthogonal', mazeOrder: 0 } },
+      { key: 'grown', label: 'Free Orthogonal gewachsen (15.4)', short: 'FO gewachsen', params: { route: 'free-orthogonal-grown' } },
+      { key: 'fo-0.1', label: 'Free Orthogonal 15.3 · Ordnung 0,1', short: 'FO 15.3 · 0,1', params: { route: 'free-orthogonal', mazeOrder: 0.1 } },
+      { key: 'fo-0.2', label: 'Free Orthogonal 15.3 · Ordnung 0,2', short: 'FO 15.3 · 0,2', params: { route: 'free-orthogonal', mazeOrder: 0.2 } },
+      { key: 'flow', label: 'Fließende Kurve', short: 'Fließende Kurve', params: { route: 'flow' } },
+      { key: 'meander', label: 'Mäander – Referenz', short: 'Mäander', params: { route: 'meander-rows' } },
+    ],
+    production: ['orthogonal'],
+  },
+  '15.3': {
+    label: 'Alle Routen (15.3)',
+    variants: ROUTES.filter((r) => r.value !== 'free-orthogonal-grown').map((r) => ({ key: r.value, label: r.label, short: r.short, params: { route: r.value } })),
+    production: ['orthogonal', 'organic'],
+  },
+};
+
+/** Animation stages measured in Phase 15.4 (share of the line drawn). */
+const STAGES = [0.05, 0.1, 0.2, 0.35, 0.5, 0.65, 0.8, 1] as const;
+/** Duration of "Entstehung abspielen" from 0 to 100 %. */
+const PLAY_MS = 12000;
 
 const PRODUCTION: ReadonlyArray<{ value: ProductionStyle; label: string }> = [
   { value: 'orthogonal', label: 'Orthogonal (App)' },
@@ -62,6 +99,8 @@ const ROUTE_HINTS: Readonly<Record<VariableWidthRoute, string>> = {
   flow: 'Exakte Parallelkurven einer langsamen Flusskurve, schräg durchs Bild, Start an der nächstgelegenen Ecke.',
   'free-orthogonal':
     'Labyrinth nur aus waagerechten und senkrechten Linien auf einem Gitter im exakten Abstand: die Linie läuft um einen Baum aus Korridoren herum. Start frei wählbar; das Ende liegt einen Abstand daneben.',
+  'free-orthogonal-grown':
+    'Phase 15.4: dasselbe Gitter und dieselbe Umrundung wie Free Orthogonal, aber das Labyrinth wird wie von Hand „gegraben“ (wachsender Baum): weniger Sackgassen-Noppen und Treppen, längere Wege. Unabhängig vom Bild.',
 };
 
 const START_PRESETS = [
@@ -180,6 +219,7 @@ function MeasureTable({ columns, data }: { columns: ReadonlyArray<{ key: string;
     </tr>
   );
   const g = (f: (x: LineGeometry) => string) => (m: VariantMeasurement) => (m.geometry ? f(m.geometry) : undefined);
+  const sg = (f: (x: SegmentStats) => string) => (m: VariantMeasurement) => (m.segments ? f(m.segments) : undefined);
   return (
     <div className="lab__tablewrap">
       <table className="lab__table">
@@ -211,6 +251,17 @@ function MeasureTable({ columns, data }: { columns: ReadonlyArray<{ key: string;
           {row('Überlappende Dicke', g((x) => pct(x.overlapShare)))}
           {row('Sehr dünn / sehr dick', g((x) => `${pct(x.thinShare)} / ${pct(x.thickShare)}`))}
           {row('Berechnung (ms)', (m) => (m.durationMs === null ? undefined : Math.round(m.durationMs).toString()))}
+          <tr className="lab__group">
+            <th colSpan={columns.length + 1}>Gerade Stücke (nur Gitter-Routen, in Abständen)</th>
+          </tr>
+          {row('Anzahl', sg((x) => x.count.toLocaleString('de-DE')))}
+          {row('Min / Max', sg((x) => `${n1(x.min, 1)} / ${n1(x.max, 1)}`))}
+          {row('Mittel / Median', sg((x) => `${n1(x.mean)} / ${n1(x.median, 1)}`))}
+          {row('5 / 25 / 75 / 95 %', sg((x) => `${n1(x.p05, 1)} / ${n1(x.p25, 1)} / ${n1(x.p75, 1)} / ${n1(x.p95, 1)}`))}
+          {row('Anteil 1× (= < 1,5× und < 2×)', sg((x) => pct(x.atMost1)))}
+          {row('Anteil ≤ 2× / ≤ 3×', sg((x) => `${pct(x.atMost2)} / ${pct(x.atMost3)}`))}
+          {row('Treppenstufen', sg((x) => pct(x.stairShare)))}
+          {row('Knicke je 100 Abstände', sg((x) => n1(x.turnsPer100, 1)))}
           <tr className="lab__group">
             <th colSpan={columns.length + 1}>Bild (bei {MEASURE_EDGE} px, aus Betrachtungsabstand)</th>
           </tr>
@@ -246,7 +297,9 @@ export function VariableWidthLab() {
   const [productionBusy, setProductionBusy] = useState(false);
   const [showSpacing, setShowSpacing] = useState(false);
   const [native, setNative] = useState(false);
-  const [variants, setVariants] = useState<{ request: typeof request; lines: Map<VariableWidthRoute, VariableWidthOutcome> } | null>(null);
+  const [compareSet, setCompareSet] = useState<CompareSet>('15.4');
+  const [variants, setVariants] = useState<{ request: typeof request; set: CompareSet; lines: Map<string, VariableWidthOutcome> } | null>(null);
+  const [playing, setPlaying] = useState(false);
   const [measured, setMeasured] = useState<{ key: unknown[]; data: Map<string, VariantMeasurement> } | null>(null);
   const [measuring, setMeasuring] = useState(false);
   const [geometry, setGeometry] = useState<{ line: VariableWidthLine; geometry: LineGeometry } | null>(null);
@@ -263,30 +316,45 @@ export function VariableWidthLab() {
     return job.cancel;
   }, [request]);
 
-  // Comparison: the four route shapes with exactly the same image and parameters (only the route differs).
+  // Comparison: the variants of the chosen set with exactly the same image and parameters (only the overrides differ).
   useEffect(() => {
     if (view !== 'compare') return;
     let cancelled = false;
     let job: ReturnType<typeof runVariableWidth> | null = null;
-    const lines = new Map<VariableWidthRoute, VariableWidthOutcome>();
+    const lines = new Map<string, VariableWidthOutcome>();
     (async () => {
-      for (const r of ROUTES) {
+      for (const v of COMPARE_SETS[compareSet].variants) {
         if (cancelled) return;
-        job = runVariableWidth(request.source.processed.pixels, { ...request.params, route: r.value });
+        job = runVariableWidth(request.source.processed.pixels, { ...request.params, ...v.params });
         try {
-          lines.set(r.value, await job.promise);
+          lines.set(v.key, await job.promise);
         } catch (e) {
-          if (!cancelled) setError(`${r.label}: ${String(e)}`);
+          if (!cancelled) setError(`${v.label}: ${String(e)}`);
           return;
         }
-        if (!cancelled) setVariants({ request, lines: new Map(lines) });
+        if (!cancelled) setVariants({ request, set: compareSet, lines: new Map(lines) });
       }
     })();
     return () => {
       cancelled = true;
       job?.cancel();
     };
-  }, [request, view]);
+  }, [request, view, compareSet]);
+
+  // "Entstehung abspielen": the drawn share grows from 0 to 100 % in PLAY_MS.
+  useEffect(() => {
+    if (!playing) return;
+    let frame = 0;
+    const started = performance.now();
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - started) / PLAY_MS);
+      setProgress(Math.max(0.001, t));
+      if (t < 1) frame = requestAnimationFrame(tick);
+      else setPlaying(false);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [playing]);
 
   const busy = result?.request !== request;
   // Keep showing the last line while a new one is computed.
@@ -295,9 +363,16 @@ export function VariableWidthLab() {
   if (result?.outcome && result.outcome !== shown) setShown(result.outcome);
   const line = outcome?.line ?? null;
   const productionResults = production?.id === source.id ? production.results : null;
-  const variantLines = variants?.request === request ? variants.lines : null;
+  const compare = COMPARE_SETS[compareSet];
+  const variantLines = variants?.request === request && variants.set === compareSet ? variants.lines : null;
   const measurement = measured && measured.key[0] === variantLines && measured.key[1] === productionResults ? measured.data : null;
   const lineGeometry = geometry && geometry.line === line ? geometry.geometry : null;
+  // Phase 15.4: segment lengths of lattice routes, and how the line builds up at the current progress.
+  const segments = useMemo(() => (line && isLatticeRoute(line.parameters.route) ? segmentStats(line.path.coords, line.spacing) : null), [line]);
+  const stage = useMemo(
+    () => (line && !playing && progress < 1 ? buildStages(line.path.coords, line.path.bounds, line.spacing, [progress])[0]! : null),
+    [line, progress, playing],
+  );
   // Spacing heat map: measured once per line, only while shown.
   if (showSpacing && line && !lineGeometry?.samples) setGeometry({ line, geometry: measureLineGeometry(line, { samples: true }) });
   const shownError = error ?? (busy ? null : (result?.error ?? null));
@@ -321,10 +396,10 @@ export function VariableWidthLab() {
     setProductionBusy(true);
     setError(null);
     const id = source.id;
-    const results: Partial<Record<ProductionStyle, OrganicResult>> = {};
+    const results: Partial<Record<ProductionStyle, OrganicResult>> = { ...productionResults };
     try {
-      for (const p of PRODUCTION) {
-        results[p.value] = await runProduction(source.processed, p.value);
+      for (const style of compare.production) {
+        results[style] = await runProduction(source.processed, style);
         setProduction({ id, results: { ...results } });
       }
     } catch (e) {
@@ -339,11 +414,11 @@ export function VariableWidthLab() {
     setMeasuring(true);
     // Let the button state paint before the synchronous measurement.
     setTimeout(() => {
-      const lines = ROUTES.flatMap((r) => {
-        const o = variantLines.get(r.value);
-        return o ? [{ key: r.value, line: o.line, durationMs: o.durationMs }] : [];
+      const lines = compare.variants.flatMap((v) => {
+        const o = variantLines.get(v.key);
+        return o ? [{ key: v.key, line: o.line, durationMs: o.durationMs }] : [];
       });
-      const paths = new Map(PRODUCTION.flatMap((p) => (productionResults?.[p.value] ? [[p.value as string, productionResults[p.value]!.path] as const] : [])));
+      const paths = new Map(compare.production.flatMap((p) => (productionResults?.[p] ? [[p as string, productionResults[p]!.path] as const] : [])));
       setMeasured({ key: [variantLines, productionResults], data: measureVariants(source.processed, lines, paths) });
       setMeasuring(false);
     }, 30);
@@ -380,8 +455,8 @@ export function VariableWidthLab() {
     [line, progress, view, zoomView, marker, showSpacing, lineGeometry],
   );
   const drawVariant = useCallback(
-    (route: VariableWidthRoute) => (ctx: CanvasRenderingContext2D, size: Size) => {
-      const o = variantLines?.get(route);
+    (key: string) => (ctx: CanvasRenderingContext2D, size: Size) => {
+      const o = variantLines?.get(key);
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, size.width, size.height);
@@ -389,7 +464,7 @@ export function VariableWidthLab() {
     },
     [variantLines, zoomView],
   );
-  const drawers = useMemo(() => new Map(ROUTES.map((r) => [r.value, drawVariant(r.value)])), [drawVariant]);
+  const drawers = useMemo(() => new Map(compare.variants.map((v) => [v.key, drawVariant(v.key)])), [drawVariant, compare]);
   const drawOriginal = useCallback(
     (ctx: CanvasRenderingContext2D, size: Size) => {
       const px = source.processed.pixels;
@@ -459,13 +534,16 @@ export function VariableWidthLab() {
       };
 
   const bendRoute = params.route === 'organic-meander' || params.route === 'flow';
-  const columns = [...ROUTES.map((r) => ({ key: r.value as string, label: r.short })), ...PRODUCTION.map((p) => ({ key: p.value as string, label: p.label }))];
+  const columns = [
+    ...compare.variants.map((v) => ({ key: v.key, label: v.short })),
+    ...PRODUCTION.filter((p) => compare.production.includes(p.value)).map((p) => ({ key: p.value as string, label: p.label })),
+  ];
 
   return (
     <div className="lab">
       <header className="lab__header">
         <div>
-          <p className="lab__eyebrow">Experimenteller Prototyp · Phase 15.3 · nicht Teil der App</p>
+          <p className="lab__eyebrow">Experimenteller Prototyp · Phase 15.4 · nicht Teil der App</p>
           <h1 className="lab__title">Konstanter Linienabstand, variable Liniendicke</h1>
         </div>
         <div className="lab__sources">
@@ -532,6 +610,33 @@ export function VariableWidthLab() {
               </div>
             </>
           )}
+          {params.route === 'free-orthogonal-grown' && (
+            <>
+              <Slider label="Korridore" value={params.mazeRun} {...VARIABLE_WIDTH_LIMITS.mazeRun} step={0.05} format={fmt(2)} onCommit={(v) => set('mazeRun', v)} hint="1 = lange, verschlungene Wege mit wenigen Sackgassen · 0 = buschig verzweigt (viele kurze Sackgassen)" />
+              <Slider label="Geradeaus" value={params.mazeStraight} {...VARIABLE_WIDTH_LIMITS.mazeStraight} step={0.05} format={fmt(2)} onCommit={(v) => set('mazeStraight', v)} hint="Vorliebe, geradeaus weiterzulaufen: längere gerade Stücke" />
+              <Slider label="Treppen vermeiden" value={params.mazeStairs} {...VARIABLE_WIDTH_LIMITS.mazeStairs} step={0.05} format={fmt(2)} onCommit={(v) => set('mazeStairs', v)} hint="unterdrückt ┐└┐└-Stufen (Knick und sofort zurück)" />
+              <Slider label="Haarnadeln vermeiden" value={params.mazeHairpins} {...VARIABLE_WIDTH_LIMITS.mazeHairpins} step={0.05} format={fmt(2)} onCommit={(v) => set('mazeHairpins', v)} hint="unterdrückt zwei gleichsinnige Knicke direkt hintereinander (enge U-Kehren mit kurzer Kappe)" />
+              <Slider label="Räumliche Variation" value={params.mazeVariation} {...VARIABLE_WIDTH_LIMITS.mazeVariation} step={0.05} format={fmt(2)} onCommit={(v) => set('mazeVariation', v)} hint="0 = überall gleich · 1 = Korridore und Geradeaus schwanken über das Bild (langsames Feld, vom Seed)" />
+              {params.mazeVariation > 0 && (
+                <Slider label="Feldgröße" value={params.mazeScale} min={0.1} max={2} step={0.05} format={fmt(2, ' × Bildkante')} onCommit={(v) => set('mazeScale', v)} hint="Wellenlänge der Variation" />
+              )}
+            </>
+          )}
+          {params.route === 'free-orthogonal-grown' && (
+            <div className="lab__field">
+              <span className="lab__label">Labyrinth-Variante (Seed)</span>
+              <div className="lab__row">
+                <Button variant="quiet" onClick={() => set('mazeSeed', Math.max(0, params.mazeSeed - 1))}>
+                  −
+                </Button>
+                <span className="lab__status">{params.mazeSeed}</span>
+                <Button variant="quiet" onClick={() => set('mazeSeed', params.mazeSeed + 1)}>
+                  +
+                </Button>
+              </div>
+              <span className="lab__hint">Derselbe Seed ergibt immer genau dasselbe Labyrinth – unabhängig vom Bild.</span>
+            </div>
+          )}
           {bendRoute && <Slider label="Schwung" value={params.bend} {...VARIABLE_WIDTH_LIMITS.bend} step={0.05} format={fmt(2)} onCommit={(v) => set('bend', v)} hint={params.route === 'flow' ? 'Anteil der größten Krümmung, bei der der Abstand exakt bleibt' : 'Krümmung; bei 1 ändert sich der Abstand um höchstens ±12 %'} />}
           <div className="lab__field">
             <span className="lab__label">Linienabstand</span>
@@ -589,7 +694,7 @@ export function VariableWidthLab() {
               Der Startpunkt bestimmt nur die Lage der Linie, nie die Tonwerte.{' '}
               {params.route === 'spiral'
                 ? 'Spirale 15.1: genau am Punkt.'
-                : params.route === 'free-orthogonal'
+                : isLatticeRoute(params.route)
                   ? 'Free Orthogonal: genau an der nächsten Gitterzelle – überall im Bild möglich.'
                   : 'Diese Linienführung beginnt an der Ecke, die dem Punkt am nächsten liegt.'}
             </span>
@@ -674,30 +779,61 @@ export function VariableWidthLab() {
                 />
               </div>
               <Slider label="Zeichnung bis" value={progress} min={0.001} max={1} step={0.001} format={(v) => `${(v * 100).toFixed(1)} %`} onChange={setProgress} onCommit={setProgress} hint="zeigt, wie die eine Linie durch das Bild läuft (grün = Start, rot = Ende)" />
+              <div className="lab__row">
+                <Button variant={playing ? 'primary' : 'quiet'} disabled={!line} onClick={() => setPlaying((p) => !p)}>
+                  {playing ? 'Anhalten' : 'Entstehung abspielen'}
+                </Button>
+                <div className="lab__chips" role="group" aria-label="Zeichnungsstand">
+                  {STAGES.map((st) => (
+                    <Button
+                      key={st}
+                      variant={!playing && Math.abs(progress - st) < 1e-6 ? 'primary' : 'quiet'}
+                      onClick={() => {
+                        setPlaying(false);
+                        setProgress(st);
+                      }}
+                    >
+                      {Math.round(st * 100)} %
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              {stage && (
+                <p className="lab__hint" role="status">
+                  Bei {(stage.progress * 100).toFixed(0)} %: Ausdehnung {pct(stage.boxShare)} der Bildfläche · Reichweite vom Start {pct(stage.reach)} der Diagonale · Verzweigung{' '}
+                  {n1(stage.spread)} (1 = kompakter Fleck, größer = verästelt)
+                </p>
+              )}
             </>
           )}
 
           {view === 'compare' && (
             <>
+              <SegmentedControl<CompareSet>
+                label="Vergleichssatz"
+                value={compareSet}
+                onChange={setCompareSet}
+                options={(Object.keys(COMPARE_SETS) as CompareSet[]).map((k) => ({ value: k, label: COMPARE_SETS[k].label }))}
+              />
               <div className="lab__grid">
                 <figure>
                   <ArtCanvas bounds={bounds} draw={drawOriginal} label="Original" pointer={pointer} />
                   <figcaption>Original</figcaption>
                 </figure>
-                {ROUTES.map((r) => (
-                  <figure key={r.value}>
-                    {variantLines?.get(r.value) ? (
-                      <ArtCanvas bounds={bounds} draw={drawers.get(r.value)!} label={r.label} pointer={pointer} />
+                {compare.variants.map((v) => (
+                  <figure key={v.key}>
+                    {variantLines?.get(v.key) && drawers.get(v.key) ? (
+                      <ArtCanvas bounds={bounds} draw={drawers.get(v.key)!} label={v.label} pointer={pointer} />
                     ) : (
                       <div className="lab__placeholder" style={{ aspectRatio: `${bounds.width} / ${bounds.height}` }} />
                     )}
                     <figcaption>
-                      {r.label}
-                      {variantLines?.get(r.value) ? ` · ${Math.round(variantLines.get(r.value)!.durationMs)} ms` : ' · wird berechnet …'}
+                      {v.label}
+                      {variantLines?.get(v.key) ? ` · ${Math.round(variantLines.get(v.key)!.durationMs)} ms` : ' · wird berechnet …'}
                     </figcaption>
                   </figure>
                 ))}
-                {PRODUCTION.map((p) => (
+                {PRODUCTION.filter((p) => compare.production.includes(p.value)).map((p) => (
                   <figure key={p.value}>
                     {productionResults?.[p.value] ? (
                       <ArtCanvas bounds={bounds} draw={productionDrawers.get(p.value)!} label={p.label} pointer={pointer} />
@@ -713,9 +849,13 @@ export function VariableWidthLab() {
               </div>
               <div className="lab__row">
                 <Button variant="quiet" disabled={productionBusy} onClick={computeProduction}>
-                  {productionBusy ? 'Produktive Linien werden berechnet …' : productionResults ? 'Produktive Linien neu berechnen' : 'Produktive Linien berechnen (Orthogonal, Organisch)'}
+                  {productionBusy
+                    ? 'Produktive Linien werden berechnet …'
+                    : compare.production.every((st) => productionResults?.[st])
+                      ? 'Produktive Linien neu berechnen'
+                      : `Produktive Linien berechnen (${compare.production.map((st) => PRODUCTION.find((p) => p.value === st)!.label.replace(' (App)', '')).join(', ')})`}
                 </Button>
-                <Button variant="quiet" disabled={!variantLines || variantLines.size < ROUTES.length || measuring} onClick={runMeasure}>
+                <Button variant="quiet" disabled={!variantLines || variantLines.size < compare.variants.length || measuring} onClick={runMeasure}>
                   {measuring ? 'Messe …' : 'Alle messen'}
                 </Button>
               </div>
@@ -746,7 +886,7 @@ export function VariableWidthLab() {
               </dd>
               <dt>Linienführung</dt>
               <dd>
-                {[...ROUTES, ...EXTRA_ROUTES].find((r) => r.value === line.parameters.route)?.label} · {line.diagnostics.lines} {line.parameters.route === 'spiral' ? 'Windungen' : 'Bahnen'}
+                {[...ROUTES, ...EXTRA_ROUTES].find((r) => r.value === line.parameters.route)?.label} · {line.diagnostics.lines} {line.parameters.route === 'spiral' ? 'Windungen' : isLatticeRoute(line.parameters.route) ? 'Labyrinth-Zellen' : 'Bahnen'}
                 {line.diagnostics.curved && ` · geteilte Bahnen ${line.diagnostics.curved.splitRows}, Spitzen ${line.diagnostics.curved.cusps}, an den Rand gesetzt ${line.diagnostics.curved.clamped}`}
               </dd>
               <dt>Abstand</dt>
@@ -759,6 +899,15 @@ export function VariableWidthLab() {
                   </Button>
                 )}
               </dd>
+              {segments && (
+                <>
+                  <dt>Segmente</dt>
+                  <dd>
+                    {segments.count.toLocaleString('de-DE')} gerade Stücke · Mittel {n1(segments.mean)} · Median {n1(segments.median, 1)} × Abstand · 1× {pct(segments.atMost1)} · ≤ 2× {pct(segments.atMost2)} · ≤ 3×{' '}
+                    {pct(segments.atMost3)} · Treppenstufen {pct(segments.stairShare)} · {n1(segments.turnsPer100, 1)} Knicke je 100 Abstände
+                  </dd>
+                </>
+              )}
               <dt>Liniendicke</dt>
               <dd>{widthRange && `${widthRange.min.toFixed(2)} … ${widthRange.max.toFixed(2)} px (erlaubt ${line.parameters.minWidth.toFixed(2)} … ${line.parameters.maxWidth.toFixed(2)})`}</dd>
               <dt>Punkte</dt>

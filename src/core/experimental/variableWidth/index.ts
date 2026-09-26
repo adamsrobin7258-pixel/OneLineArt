@@ -13,3 +13,4 @@ export * from './metrics';
 export * from './curvedRoutes';
 export * from './orthogonalMaze';
 export * from './spacing';
+export * from './segments';

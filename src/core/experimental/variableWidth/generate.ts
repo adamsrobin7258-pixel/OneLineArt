@@ -1,7 +1,7 @@
 import type { OneLinePath, RasterImage, Size } from '../../models';
 import { sanitizeVariableWidthParameters, type VariableWidthIssue, type VariableWidthParameters } from './parameters';
 import { arcSpiral, flowCurve, organicMeander, type CurvedRouteDiagnostics } from './curvedRoutes';
-import { orthogonalMaze } from './orthogonalMaze';
+import { grownMaze, orthogonalMaze } from './orthogonalMaze';
 import { meanderColumns, meanderRows, spiral, type Route, type RouteOptions } from './routes';
 import { buildToneField, sampleField, type ToneField } from './toneField';
 import { createWidthTransfer } from './transfer';
@@ -68,6 +68,9 @@ export function variableWidthRoute(size: Size, p: VariableWidthParameters): Rout
   if (p.route === 'organic-meander') return organicMeander(size, options, p.bend);
   if (p.route === 'flow') return flowCurve(size, options, { ...FLOW_SHAPE, bend: p.bend });
   if (p.route === 'free-orthogonal') return orthogonalMaze(size, options, { seed: p.mazeSeed, order: p.mazeOrder, scale: p.mazeScale });
+  if (p.route === 'free-orthogonal-grown') {
+    return grownMaze(size, options, { seed: p.mazeSeed, run: p.mazeRun, straight: p.mazeStraight, stairs: p.mazeStairs, hairpins: p.mazeHairpins, variation: p.mazeVariation, scale: p.mazeScale });
+  }
   if (p.route === 'spiral') return spiral(size, options);
   if (p.route === 'meander-columns') return meanderColumns(size, options);
   return meanderRows(size, options);

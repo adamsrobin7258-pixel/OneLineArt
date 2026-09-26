@@ -1,5 +1,5 @@
 import { DEFAULT_RENDER_SETTINGS, resolveOneLineSettings, type OneLinePath, type ProcessedImage, type Size } from '../../core';
-import { compareRendering, measureLineGeometry, type LineGeometry, type RenderingComparison, type VariableWidthLine } from '../../core/experimental/variableWidth';
+import { compareRendering, measureLineGeometry, segmentStats, type LineGeometry, type RenderingComparison, type SegmentStats, type VariableWidthLine } from '../../core/experimental/variableWidth';
 import { runAnalysis } from '../../platform/browser/analysisRunner';
 import { renderArtworkSurface, freeSurface } from '../../platform/browser/artworkRenderer';
 import { runPathGeneration } from '../../platform/browser/pathRunner';
@@ -47,7 +47,12 @@ export interface VariantMeasurement {
   readonly geometry: LineGeometry | null;
   readonly tone: RenderingComparison;
   readonly durationMs: number | null;
+  /** Phase 15.4: straight-segment statistics (orthogonal lattice routes only). */
+  readonly segments: SegmentStats | null;
 }
+
+/** Routes on the orthogonal lattice (segment statistics are meaningful). */
+export const isLatticeRoute = (route: string) => route === 'free-orthogonal' || route === 'free-orthogonal-grown';
 
 /**
  * Every drawing at MEASURE_EDGE, compared with the original at the line
@@ -67,14 +72,19 @@ export function measureVariants(
   for (const { key, line, durationMs } of lines) {
     const a = canvasOf(size);
     drawLine(a.ctx, line, size);
-    out.set(key, { geometry: measureLineGeometry(line), tone: compareRendering(original, lightnessOfCanvas(a.ctx, size), spacingPx), durationMs });
+    out.set(key, {
+      geometry: measureLineGeometry(line),
+      tone: compareRendering(original, lightnessOfCanvas(a.ctx, size), spacingPx),
+      durationMs,
+      segments: isLatticeRoute(line.parameters.route) ? segmentStats(line.path.coords, line.spacing) : null,
+    });
   }
   for (const [key, path] of production) {
     const b = canvasOf(size);
     b.ctx.fillStyle = '#ffffff';
     b.ctx.fillRect(0, 0, size.width, size.height);
     drawOrganic(b.ctx, path, size);
-    out.set(key, { geometry: null, tone: compareRendering(original, lightnessOfCanvas(b.ctx, size), spacingPx), durationMs: null });
+    out.set(key, { geometry: null, tone: compareRendering(original, lightnessOfCanvas(b.ctx, size), spacingPx), durationMs: null, segments: null });
   }
   return out;
 }

@@ -72,10 +72,9 @@ function find(parent: Int32Array, i: number): number {
 export function orthogonalMaze(size: Size, o: RouteOptions, m: MazeOptions): MazeRoute | (Route & { maze: null }) {
   const { width: W, height: H } = size;
   const s = o.spacing;
-  const cw = Math.floor(W / (2 * s)), ch = Math.floor(H / (2 * s));
-  if (cw < 1 || ch < 1 || cw * ch < 2) return { ...meanderRows(size, o), maze: null };
-  const fw = 2 * cw, fh = 2 * ch;
-  const marginX = (W - fw * s) / 2, marginY = (H - fh * s) / 2;
+  const g = coarseGrid(size, s);
+  if (!g) return { ...meanderRows(size, o), maze: null };
+  const { cw, ch, marginX, marginY } = g;
 
   // Smooth direction field: angle of the preferred corridor direction at (x, y).
   const rng = createRandom(Math.floor(m.seed) >>> 0);
@@ -110,6 +109,52 @@ export function orthogonalMaze(size: Size, o: RouteOptions, m: MazeOptions): Maz
   // Stable order: weight, then index (deterministic ties).
   const index = edges.map((_, k) => k).sort((p, q) => edges[p]!.w - edges[q]!.w || p - q);
   const parent = Int32Array.from({ length: n }, (_, k) => k);
+  // Accepted tree edges in acceptance order (the loop merges follow this order).
+  const tree = new Int32Array((n - 1) * 2);
+  let treeEdges = 0;
+  for (const k of index) {
+    const { a, b } = edges[k]!;
+    const ra = find(parent, a), rb = find(parent, b);
+    if (ra === rb) continue;
+    parent[ra] = rb;
+    tree[treeEdges * 2] = a;
+    tree[treeEdges * 2 + 1] = b;
+    treeEdges++;
+    if (treeEdges === n - 1) break;
+  }
+  return treeLoop(size, o, { cw, ch, marginX, marginY }, tree.subarray(0, treeEdges * 2));
+}
+
+interface CoarseGrid {
+  /** Coarse cells per row / column. */
+  readonly cw: number;
+  readonly ch: number;
+  readonly marginX: number;
+  readonly marginY: number;
+}
+
+/**
+ * Coarse grid of 2 × spacing cells, centred on the canvas; null when fewer
+ * than two cells fit.
+ */
+function coarseGrid(size: Size, s: number): CoarseGrid | null {
+  const cw = Math.floor(size.width / (2 * s)), ch = Math.floor(size.height / (2 * s));
+  if (cw < 1 || ch < 1 || cw * ch < 2) return null;
+  return { cw, ch, marginX: (size.width - 2 * cw * s) / 2, marginY: (size.height - 2 * ch * s) / 2 };
+}
+
+/**
+ * Steps 3 and 4: the lattice loop around a spanning tree of the coarse grid,
+ * opened at the start point. `tree` holds the tree edges as pairs of coarse
+ * cell indices (a < b, neighbours); the merges are applied in this order,
+ * which fixes the walking direction deterministically.
+ */
+function treeLoop(size: Size, o: RouteOptions, g: CoarseGrid, tree: Int32Array): MazeRoute {
+  const { width: W, height: H } = size;
+  const s = o.spacing;
+  const { cw, ch, marginX, marginY } = g;
+  const n = cw * ch;
+  const fw = 2 * cw, fh = 2 * ch;
   // Fine-loop links: for every fine node its two neighbours (−1 = unset).
   const link = new Int32Array(fw * fh * 2).fill(-1);
   const id = (fx: number, fy: number) => fy * fw + fx;
@@ -134,15 +179,11 @@ export function orthogonalMaze(size: Size, o: RouteOptions, m: MazeOptions): Maz
       connect(d, a);
     }
   }
-  let treeEdges = 0;
-  for (const k of index) {
-    const { a, b } = edges[k]!;
-    const ra = find(parent, a), rb = find(parent, b);
-    if (ra === rb) continue;
-    parent[ra] = rb;
-    treeEdges++;
+  const treeEdges = tree.length >> 1;
+  for (let e = 0; e < treeEdges; e++) {
+    const a = tree[e * 2]!, b = tree[e * 2 + 1]!;
     const ai = a % cw, aj = Math.floor(a / cw);
-    if (b === a + 1) {
+    if (b === a + 1 && b % cw !== 0) {
       // Horizontal: replace A's right side and B's left side by two bridges.
       const ar0 = id(2 * ai + 1, 2 * aj), ar1 = id(2 * ai + 1, 2 * aj + 1), bl0 = id(2 * ai + 2, 2 * aj), bl1 = id(2 * ai + 2, 2 * aj + 1);
       disconnect(ar0, ar1);
@@ -157,7 +198,6 @@ export function orthogonalMaze(size: Size, o: RouteOptions, m: MazeOptions): Maz
       connect(ab0, bt0);
       connect(ab1, bt1);
     }
-    if (treeEdges === n - 1) break;
   }
 
   // Open the loop at the fine cell nearest to the start point and walk it.
@@ -204,3 +244,164 @@ export function orthogonalMaze(size: Size, o: RouteOptions, m: MazeOptions): Maz
     maze: { coarseCells: n, fineCells: total, marginX, marginY },
   };
 }
+
+/**
+ * Phase 15.4 "Free Orthogonal – grown": the same lattice loop (steps 1, 3, 4
+ * above, so the same guarantees), but the spanning tree GROWS like a maze
+ * carved by hand instead of being assembled from random edges (Kruskal).
+ *
+ * Growing tree: a list of active cells starts at one seeded root cell. Each
+ * step takes the newest active cell (share `run`, carves long winding
+ * corridors) or a random active cell (branches), and carves into one of its
+ * unvisited neighbours; a cell without unvisited neighbours leaves the list.
+ * The direction is chosen by weights:
+ * - `straight`: continuing the incoming direction is preferred (longer runs);
+ * - `stairs`: turning straight back after a turn (the ┐└┐└ staircase: east,
+ *   south, east …) is avoided;
+ * - `hairpins`: turning the same way twice in a row (a U-bend around a wall
+ *   one cell long, which ends in a one-spacing cap) is avoided;
+ * - `variation`: run and straight vary over the canvas with a smooth seeded
+ *   field (wavelength `scale` long edges): tighter and looser regions.
+ * All randomness comes from the seed; nothing depends on the image, and the
+ * start point only chooses where the loop is opened.
+ *
+ * Why: at order 0 the 15.3 tree (Kruskal on random weights = a uniform-like
+ * random tree) has many dead ends and zig-zags; every dead end and every wall
+ * end is a one-spacing cap in the line (≈ 35 % of all segments), which reads
+ * as grain. The grown tree keeps the labyrinth but halves the short segments.
+ */
+export interface GrownMazeOptions {
+  readonly seed: number;
+  /** 0…1: share of "newest cell" steps (1 = one long winding corridor with few dead ends). */
+  readonly run: number;
+  /** 0…1: preference for going straight on. */
+  readonly straight: number;
+  /** 0…1: avoidance of immediate turn-backs (staircases). */
+  readonly stairs: number;
+  /** 0…1: avoidance of immediate hairpins (turning twice the same way: the wall between ends in a one-spacing cap). */
+  readonly hairpins: number;
+  /** 0…1: how strongly run and straight vary over the canvas. */
+  readonly variation: number;
+  /** Wavelength of the variation field in canvas long edges. */
+  readonly scale: number;
+}
+
+/** Direction i: east, south, west, north. */
+const DX = [1, 0, -1, 0] as const;
+const DY = [0, 1, 0, -1] as const;
+
+export function grownMaze(size: Size, o: RouteOptions, m: GrownMazeOptions): MazeRoute | (Route & { maze: null }) {
+  const s = o.spacing;
+  const g = coarseGrid(size, s);
+  if (!g) return { ...meanderRows(size, o), maze: null };
+  const { cw, ch, marginX, marginY } = g;
+  const n = cw * ch;
+  const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+
+  const rng = createRandom((Math.floor(m.seed) ^ 0x2545f491) >>> 0);
+  // Smooth variation field in [0, 1] (three long waves, phases from the seed).
+  const L = Math.max(size.width, size.height) * Math.max(0.05, m.scale);
+  const waves = [0, 1, 2].map(() => ({ a: rng.range(0, Math.PI), phase: rng.range(0, 2 * Math.PI), weight: rng.range(0.6, 1) }));
+  const variation = clamp01(m.variation);
+  const runOf = new Float32Array(n), straightOf = new Float32Array(n);
+  for (let j = 0; j < ch; j++) {
+    for (let i = 0; i < cw; i++) {
+      const x = marginX + (2 * i + 1) * s, y = marginY + (2 * j + 1) * s;
+      let v = 0;
+      for (const w of waves) v += w.weight * Math.sin((2 * Math.PI * (x * Math.cos(w.a) + y * Math.sin(w.a))) / L + w.phase);
+      const f = 0.5 + 0.5 * Math.tanh(v);
+      runOf[j * cw + i] = clamp01(m.run) * (1 - variation) + f * variation;
+      straightOf[j * cw + i] = clamp01(m.straight) * (1 - variation) + f * variation;
+    }
+  }
+  const stairs = clamp01(m.stairs);
+  const hairpins = clamp01(m.hairpins);
+
+  // Direction the cell was entered from its parent (−1: root) and the parent's.
+  const inDir = new Int8Array(n).fill(-1);
+  const parentDir = new Int8Array(n).fill(-1);
+  const visited = new Uint8Array(n);
+  // Active list with tombstones (keeps the "newest" order; compacted when half dead).
+  let active = new Int32Array(n);
+  let size_ = 0, dead = 0;
+  const alive = new Uint8Array(n);
+  const tree = new Int32Array((n - 1) * 2);
+  let edges = 0;
+
+  const root = rng.int(0, n - 1);
+  visited[root] = 1;
+  active[size_++] = root;
+  alive[root] = 1;
+  const weights = [0, 0, 0, 0];
+  while (size_ - dead > 0) {
+    while (size_ > 0 && !alive[active[size_ - 1]!]) {
+      size_--;
+      dead--;
+    }
+    if (dead * 2 > size_) {
+      let k = 0;
+      for (let q = 0; q < size_; q++) if (alive[active[q]!]) active[k++] = active[q]!;
+      size_ = k;
+      dead = 0;
+    }
+    const newest = active[size_ - 1]!;
+    let cell = newest;
+    if (rng.next() >= runOf[newest]!) {
+      do cell = active[Math.floor(rng.next() * size_)]!;
+      while (!alive[cell]);
+    }
+    const ci = cell % cw, cj = Math.floor(cell / cw);
+    const din = inDir[cell]!, dpar = parentDir[cell]!;
+    const turned = din >= 0 && dpar >= 0 && din !== dpar;
+    let total = 0, options = 0;
+    for (let d = 0; d < 4; d++) {
+      const ni = ci + DX[d]!, nj = cj + DY[d]!;
+      weights[d] = 0;
+      if (ni < 0 || nj < 0 || ni >= cw || nj >= ch || visited[nj * cw + ni]) continue;
+      options++;
+      let w = 1;
+      if (d === din) w /= 1 - 0.95 * straightOf[cell]!;
+      if (turned && d === dpar) w *= 1 - stairs;
+      if (turned && d !== din && d !== dpar) w *= 1 - hairpins;
+      weights[d] = w;
+      total += w;
+    }
+    if (options === 0) {
+      alive[cell] = 0;
+      dead++;
+      continue;
+    }
+    let pick = -1;
+    if (total > 0) {
+      let r = rng.next() * total;
+      for (let d = 0; d < 4 && pick < 0; d++) {
+        if (weights[d]! <= 0) continue;
+        r -= weights[d]!;
+        if (r < 0) pick = d;
+      }
+      if (pick < 0) for (let d = 3; d >= 0 && pick < 0; d--) if (weights[d]! > 0) pick = d;
+    } else {
+      // Only a staircase step is possible (stairs = 1): take it rather than leave a gap.
+      for (let d = 0; d < 4 && pick < 0; d++) {
+        const ni = ci + DX[d]!, nj = cj + DY[d]!;
+        if (ni >= 0 && nj >= 0 && ni < cw && nj < ch && !visited[nj * cw + ni]) pick = d;
+      }
+    }
+    const next = (cj + DY[pick]!) * cw + ci + DX[pick]!;
+    visited[next] = 1;
+    inDir[next] = pick;
+    parentDir[next] = din;
+    tree[edges * 2] = Math.min(cell, next);
+    tree[edges * 2 + 1] = Math.max(cell, next);
+    edges++;
+    if (size_ === active.length) {
+      const grown = new Int32Array(active.length * 2);
+      grown.set(active);
+      active = grown;
+    }
+    active[size_++] = next;
+    alive[next] = 1;
+  }
+  return treeLoop(size, o, g, tree.subarray(0, edges * 2));
+}
+

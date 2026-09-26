@@ -11,8 +11,9 @@
  * How the one line covers the picture. Phase 15.1: meander rows (reference),
  * meander columns, spiral (with frame). Phase 15.2: arc spiral, organic meander,
  * flowing curve (curvedRoutes.ts). Phase 15.3: free orthogonal (orthogonalMaze.ts).
+ * Phase 15.4: free orthogonal grown (growing-tree labyrinth, same lattice loop).
  */
-export const VARIABLE_WIDTH_ROUTES = ['meander-rows', 'meander-columns', 'spiral', 'arc-spiral', 'organic-meander', 'flow', 'free-orthogonal'] as const;
+export const VARIABLE_WIDTH_ROUTES = ['meander-rows', 'meander-columns', 'spiral', 'arc-spiral', 'organic-meander', 'flow', 'free-orthogonal', 'free-orthogonal-grown'] as const;
 export type VariableWidthRoute = (typeof VARIABLE_WIDTH_ROUTES)[number];
 
 /**
@@ -60,6 +61,16 @@ export interface VariableWidthParameters {
   readonly mazeOrder: number;
   /** Free orthogonal: wavelength of the direction field in canvas long edges. */
   readonly mazeScale: number;
+  /** Free orthogonal grown (15.4): 0…1 share of steps that extend the newest corridor (1 = few dead ends). */
+  readonly mazeRun: number;
+  /** Free orthogonal grown: 0…1 preference for going straight on. */
+  readonly mazeStraight: number;
+  /** Free orthogonal grown: 0…1 avoidance of ┐└┐└ staircases. */
+  readonly mazeStairs: number;
+  /** Free orthogonal grown: 0…1 avoidance of hairpins (two turns the same way in a row). */
+  readonly mazeHairpins: number;
+  /** Free orthogonal grown: 0…1 how strongly run and straight vary over the canvas (wavelength mazeScale). */
+  readonly mazeVariation: number;
 }
 
 /** Largest width as a share of the spacing in the safe mode: keeps a visible gap between neighbouring lines. */
@@ -85,6 +96,11 @@ export const DEFAULT_VARIABLE_WIDTH_PARAMETERS: VariableWidthParameters = {
   mazeSeed: 1,
   mazeOrder: 0.8,
   mazeScale: 0.6,
+  mazeRun: 0.9,
+  mazeStraight: 0.2,
+  mazeStairs: 1,
+  mazeHairpins: 0.7,
+  mazeVariation: 0,
 };
 
 export interface NumericLimit {
@@ -106,6 +122,11 @@ export const VARIABLE_WIDTH_LIMITS = {
   mazeSeed: { min: 0, max: 99999 },
   mazeOrder: { min: 0, max: 1 },
   mazeScale: { min: 0.1, max: 3 },
+  mazeRun: { min: 0, max: 1 },
+  mazeStraight: { min: 0, max: 1 },
+  mazeStairs: { min: 0, max: 1 },
+  mazeHairpins: { min: 0, max: 1 },
+  mazeVariation: { min: 0, max: 1 },
 } as const satisfies Record<string, NumericLimit>;
 
 export interface VariableWidthIssue {
@@ -194,6 +215,11 @@ export function sanitizeVariableWidthParameters(input: Partial<VariableWidthPara
       mazeSeed: Math.round(num('mazeSeed')),
       mazeOrder: num('mazeOrder'),
       mazeScale: num('mazeScale'),
+      mazeRun: num('mazeRun'),
+      mazeStraight: num('mazeStraight'),
+      mazeStairs: num('mazeStairs'),
+      mazeHairpins: num('mazeHairpins'),
+      mazeVariation: num('mazeVariation'),
     },
     issues,
   };
