@@ -1,9 +1,11 @@
-# Publishes ONLY the Phase 15.1 prototype test page (prototype/variable-width.html) to GitHub Pages,
-# for manual tests in a normal mobile browser. Started by hand via "Run workflow".
+# Publishes ONLY the experimental prototype test pages to GitHub Pages, for manual tests in a
+# normal mobile browser: prototype/variable-width.html (Phase 15.1–15.4) and
+# prototype/organic-spacing.html (Phase 15.5). Started by hand via "Run workflow".
 # Separate from the app: builds with vite.prototype.config.ts into dist-prototype/;
 # the app build (dist/), the APK workflow and Android are not touched.
 # The page processes images locally in the browser; nothing is uploaded anywhere.
-# URL: https://<owner>.github.io/<repository>/prototype/variable-width.html
+# URLs: https://<owner>.github.io/<repository>/prototype/variable-width.html
+#       https://<owner>.github.io/<repository>/prototype/organic-spacing.html
 name: Prototype test page (GitHub Pages)
 
 on:
@@ -37,16 +39,21 @@ jobs:
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
 
-      - name: Build the prototype page only
+      - name: Build the prototype pages only
         run: npx vite build -c vite.prototype.config.ts
 
       - name: Check the published files
         run: |
           test -f dist-prototype/prototype/variable-width.html
-          ls dist-prototype/assets/variable-width-*.js dist-prototype/assets/variable-width-*.css
+          test -f dist-prototype/prototype/organic-spacing.html
+          ls dist-prototype/assets/variable-width-*.js dist-prototype/assets/organic-spacing-*.js
+          # Shared styles land in a shared chunk (its name depends on the bundler), so only require one.
+          ls dist-prototype/assets/*.css
           ls dist-prototype/assets/variableWidth.worker-*.js dist-prototype/assets/analysis.worker-*.js dist-prototype/assets/pathGeneration.worker-*.js
+          # Only the prototype pages: no app entry point.
+          test ! -f dist-prototype/index.html
           # All asset URLs must be relative (GitHub Pages serves under /<repository>/).
-          ! grep -E '(src|href)="/' dist-prototype/prototype/variable-width.html
+          ! grep -E '(src|href)="/' dist-prototype/prototype/*.html
           find dist-prototype -type f | sort
 
       - name: Upload Pages artifact
