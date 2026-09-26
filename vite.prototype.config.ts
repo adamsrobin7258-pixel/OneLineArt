@@ -2,7 +2,8 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 /**
- * Build of the Phase 15.1 prototype test page ONLY (prototype/variable-width.html),
+ * Build of the prototype test pages ONLY (prototype/variable-width.html since
+ * Phase 15.1, prototype/organic-spacing.html since Phase 15.5),
  * for the manual GitHub Pages workflow (.github/workflows/prototype-pages.yml).
  * The app's own build (vite.config.ts → dist/) is untouched by this file.
  *
@@ -15,6 +16,6 @@ export default defineConfig({
   build: {
     outDir: 'dist-prototype',
     emptyOutDir: true,
-    rollupOptions: { input: 'prototype/variable-width.html' },
+    rollupOptions: { input: ['prototype/variable-width.html', 'prototype/organic-spacing.html'] },
   },
 });
