@@ -21,7 +21,9 @@ export interface RenderContext2D extends PathSink {
   imageSmoothingEnabled: boolean;
   setTransform(a: number, b: number, c: number, d: number, e: number, f: number): void;
   beginPath(): void;
+  closePath(): void;
   stroke(): void;
+  fill(): void;
   fillRect(x: number, y: number, w: number, h: number): void;
   clearRect(x: number, y: number, w: number, h: number): void;
   drawImage(image: never, dx: number, dy: number, dw: number, dh: number): void;
@@ -38,6 +40,12 @@ export interface ArtworkPlan {
   readonly scaleX: number;
   readonly scaleY: number;
   readonly lineWidthPx: number;
+  /**
+   * Phase 16: render px per image px of the path's own widths (paths with
+   * `widths`, the Orthogonal style), including the line-width setting as a
+   * factor (1 = the widths as generated).
+   */
+  readonly widthScale: number;
   readonly lineOpacity: number;
   readonly background: { readonly kind: 'fill'; readonly color: string } | { readonly kind: 'image' } | { readonly kind: 'transparent' };
   readonly stroke:
@@ -86,6 +94,9 @@ function checkPath(path: OneLinePath): void {
   const c = path.coords;
   if (!(c instanceof Float32Array) || c.length < 4 || c.length % 2 !== 0) throw new RenderError('invalid-input', 'A path with at least two points is required');
   for (let i = 0; i < c.length; i++) if (!Number.isFinite(c[i])) throw new RenderError('invalid-input', `Non-finite coordinate at ${i >> 1}`);
+  if (path.widths !== undefined && (path.widths.length !== c.length >> 1 || path.widths.some((w) => !(Number.isFinite(w) && w > 0)))) {
+    throw new RenderError('invalid-input', 'Widths must be one finite, positive value per point');
+  }
   if (!(path.bounds.width > 0 && path.bounds.height > 0)) throw new RenderError('invalid-input', 'Path bounds must be positive');
 }
 
@@ -145,6 +156,7 @@ export function planArtwork({ path, settings, width, height, lineColors }: Artwo
     scaleX: width / path.bounds.width,
     scaleY: height / path.bounds.height,
     lineWidthPx: settings.lineWidth * (Math.max(width, height) / REFERENCE_RENDER_EDGE),
+    widthScale: ((width / path.bounds.width + height / path.bounds.height) / 2) * settings.lineWidth,
     lineOpacity: settings.lineOpacity,
     background,
     stroke,
@@ -178,6 +190,80 @@ export function drawArtworkLine(plan: ArtworkPlan, path: OneLinePath, ctx: Rende
   drawArtworkLineRange(plan, path, ctx, null, cursor);
 }
 
+/**
+ * Phase 16: the same range for a path with a width per point (Orthogonal).
+ * Every segment is filled as a quad from its start width to its end width,
+ * extended by half the width at both ends (a square cap): consecutive
+ * axis-parallel segments then meet in exact square corners, as in the tested
+ * prototype. All quads have the same orientation, so one nonzero fill per
+ * colour run draws their union. Draw order, cursors and colour runs are
+ * exactly those of the stroked line.
+ */
+function drawWidthLineRange(plan: ArtworkPlan, path: OneLinePath, widths: Float32Array, ctx: RenderContext2D, from: PathCursor | null, to: PathCursor): void {
+  const c = path.coords;
+  const n = c.length >> 1;
+  const fromIndex = from ? Math.max(1, Math.min(n, from.index)) : 1;
+  const fromTip = from?.tip ?? null;
+  const toIndex = Math.max(1, Math.min(n, to.index));
+  const toTip = to.tip;
+  if (toIndex < fromIndex || (toIndex === fromIndex && (!toTip || (fromTip && fromTip.x === toTip.x && fromTip.y === toTip.y)))) return;
+
+  const { scaleX: sx, scaleY: sy, widthScale: ws } = plan;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  const runs = plan.stroke.kind === 'runs' ? plan.stroke : null;
+  let run = runs ? runOf(runs.starts, fromIndex - 1) : 0;
+  ctx.fillStyle = runs ? runs.colors[run]! : (plan.stroke as { color: string }).color;
+  ctx.beginPath();
+
+  /** Width at a point on segment k (linear between its end points). */
+  const widthOn = (k: number, x: number, y: number) => {
+    const ax = c[k * 2]!, ay = c[k * 2 + 1]!, bx = c[k * 2 + 2]!, by = c[k * 2 + 3]!;
+    const len = Math.hypot(bx - ax, by - ay);
+    const t = len > 0 ? Math.min(1, Math.hypot(x - ax, y - ay) / len) : 0;
+    return widths[k]! + (widths[k + 1]! - widths[k]!) * t;
+  };
+  const quad = (ax: number, ay: number, wa: number, bx: number, by: number, wb: number) => {
+    const x0 = ax * sx, y0 = ay * sy, x1 = bx * sx, y1 = by * sy;
+    const len = Math.hypot(x1 - x0, y1 - y0);
+    if (!(len > 0)) return;
+    const dx = (x1 - x0) / len, dy = (y1 - y0) / len;
+    const ha = (wa * ws) / 2, hb = (wb * ws) / 2;
+    // Square caps; normal (−dy, dx). The vertex order gives every quad the same orientation.
+    const sax = x0 - dx * ha, say = y0 - dy * ha, ebx = x1 + dx * hb, eby = y1 + dy * hb;
+    ctx.moveTo(sax + dy * ha, say - dx * ha);
+    ctx.lineTo(ebx + dy * hb, eby - dx * hb);
+    ctx.lineTo(ebx - dy * hb, eby + dx * hb);
+    ctx.lineTo(sax - dy * ha, say + dx * ha);
+    ctx.closePath();
+  };
+  const piece = (segment: number, x0: number, y0: number, w0: number, x1: number, y1: number, w1: number) => {
+    if (runs && run + 1 < runs.starts.length && runs.starts[run + 1]! <= segment) {
+      // Colour changes: fill what is collected and continue with the next colour.
+      ctx.fill();
+      run = runOf(runs.starts, segment);
+      ctx.fillStyle = runs.colors[run]!;
+      ctx.beginPath();
+    }
+    quad(x0, y0, w0, x1, y1, w1);
+  };
+
+  // The first piece may start at the previous tip, inside segment fromIndex − 1.
+  let k = fromIndex - 1;
+  let x = fromTip ? fromTip.x : c[k * 2]!;
+  let y = fromTip ? fromTip.y : c[k * 2 + 1]!;
+  let w = fromTip ? widthOn(k, x, y) : widths[k]!;
+  for (; k <= toIndex - 2; k++) {
+    const nx = c[(k + 1) * 2]!, ny = c[(k + 1) * 2 + 1]!, nw = widths[k + 1]!;
+    piece(k, x, y, w, nx, ny, nw);
+    x = nx;
+    y = ny;
+    w = nw;
+  }
+  if (toTip && toIndex - 1 < n - 1) piece(toIndex - 1, x, y, w, toTip.x, toTip.y, widthOn(toIndex - 1, toTip.x, toTip.y));
+  ctx.fill();
+}
+
 /** Index of the colour run containing segment k (binary search over run starts). */
 function runOf(starts: Int32Array, k: number): number {
   let lo = 0;
@@ -205,6 +291,10 @@ function runOf(starts: Int32Array, k: number): number {
  * No point is added, moved or dropped — the geometry is the one OneLinePath.
  */
 export function drawArtworkLineRange(plan: ArtworkPlan, path: OneLinePath, ctx: RenderContext2D, from: PathCursor | null, to: PathCursor): void {
+  if (path.widths) {
+    drawWidthLineRange(plan, path, path.widths, ctx, from, to);
+    return;
+  }
   const c = path.coords;
   const n = c.length >> 1;
   const fromIndex = from ? Math.max(1, Math.min(n, from.index)) : 1;

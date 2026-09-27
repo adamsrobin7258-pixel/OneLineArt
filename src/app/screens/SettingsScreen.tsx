@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react';
-import { isCustomDrawing, type ImageSession, type OneLinePath } from '../../core';
+import { isCustomDrawing, styleUsesDetail, type ImageSession, type OneLinePath } from '../../core';
 import { Button } from '../../ui/components/Button';
 import { ImageViewer } from '../../ui/components/ImageViewer';
 import { Icon } from '../../ui/components/Icon';
@@ -97,7 +97,10 @@ export function SettingsScreen({ session, controller, render, onBack, onContinue
         <div className="controlbar__options">
           <StyleChoice value={oneLine.drawing.style} onChange={(style) => setDrawing({ style })} fill />
           {/* A preset sets all line parameters (continuous detail and smoothing back to the preset). */}
-          <DetailChoice value={level} custom={custom} onChange={(detailLevel) => setDrawing({ detailLevel, detail: null, smoothing: null })} fill />
+          {/* Orthogonal draws at one fixed spacing: its line does not depend on the detail level. */}
+          {styleUsesDetail(oneLine.drawing.style) && (
+            <DetailChoice value={level} custom={custom} onChange={(detailLevel) => setDrawing({ detailLevel, detail: null, smoothing: null })} fill />
+          )}
           <DisplayChoice render={render} fill />
         </div>
         <div className="controlbar__nav">

@@ -36,6 +36,9 @@ export const DETAIL_PROFILES: Readonly<Record<OneLineDetailLevel, DetailProfile>
       // Phase 14.1: flat areas keep 70 % of their tone (effective flat tone weight 0.7 · 0.7 = 0.49):
       // Minimal is drawn by large tonal forms, so structure only nudges it.
       structureToneBalance: 0.3,
+      // Phase 16 (tested in phase 15.5 on a Xiaomi 15 Ultra): 40 % closer lines, never closer than 1 px at 800 px.
+      spacingFactor: 0.6,
+      spacingFloor: 1,
     },
   },
   balanced: {
@@ -43,7 +46,8 @@ export const DETAIL_PROFILES: Readonly<Record<OneLineDetailLevel, DetailProfile>
     // = the engine default; since phase 14.1 incl. structureToneBalance 0.6 (flat areas keep
     // 40 % of their tone, 0.6 · 0.4 = 0.24: a flat dark sky, wall or blurred background no
     // longer competes with the structured motif merely by being dark).
-    parameters: {},
+    // Phase 16 (tested in phase 15.5 on a Xiaomi 15 Ultra): 40 % closer lines, never closer than 1 px at 800 px.
+    parameters: { spacingFactor: 0.6, spacingFloor: 1 },
   },
   detail: {
     detail: 1,
@@ -64,6 +68,14 @@ export const DETAIL_PROFILES: Readonly<Record<OneLineDetailLevel, DetailProfile>
       lightDetail: 0.8,
       // Phase 14.1: flat areas keep 25 % of their tone (0.4 · 0.25 = 0.10) — Detail weighs structure most.
       structureToneBalance: 0.75,
+      // Phase 16 (tested in phase 15.5 on a Xiaomi 15 Ultra): 30 % closer lines, never closer than 1 px at 800 px.
+      spacingFactor: 0.7,
+      spacingFloor: 1,
+      // Phase 16: on dense motifs the floor would bring Detail down to about Balanced; it keeps at least
+      // 20 % more points than Balanced (its budget at detail 0.5, spacing 0.6, same floor).
+      spacingLead: 1.2,
+      spacingLeadDetail: 0.5,
+      spacingLeadFactor: 0.6,
     },
   },
 };

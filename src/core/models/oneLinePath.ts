@@ -15,6 +15,12 @@ export interface OneLinePath {
   readonly bounds: Size;
   /** Provenance, needed to reproduce the path. */
   readonly meta: OneLinePathMeta;
+  /**
+   * Phase 16: line width per point in image px (length = pointCount), for
+   * styles whose WIDTH carries the tone (Orthogonal). Absent = the render
+   * settings' constant line width (Organic and every path made before).
+   */
+  readonly widths?: Float32Array;
 }
 
 export interface OneLinePathMeta {

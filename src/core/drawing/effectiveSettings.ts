@@ -13,7 +13,7 @@ import { DEFAULT_ONE_LINE_SETTINGS, type OneLineSettings } from '../models';
 import { hashString } from '../utils';
 import { DETAIL_LEVELS, DETAIL_PROFILES, detailLevelAt, interpolateDetailParameters, type OneLineDetailLevel } from './detailLevels';
 import { CROSSING_STYLE_PROFILES, CROSSING_STYLES, LINE_CHARACTER_PROFILES, LINE_CHARACTERS } from './drawingOptions';
-import { DRAWING_STYLE_PROFILES, DRAWING_STYLES } from './drawingStyles';
+import { DRAWING_STYLE_PROFILES, KNOWN_DRAWING_STYLES, currentDrawingStyle } from './drawingStyles';
 import { DEFAULT_DRAWING_SETTINGS, type DrawingSettings } from './drawingSettings';
 import { applyParameterPatches } from './parameterPatch';
 
@@ -63,8 +63,10 @@ function optionalValue(value: unknown, range: { min: number; max: number }, inte
  * Whether the drawing deviates from its preset (shown as "custom" in the UI).
  * A smoothing value only counts for styles that smooth (it is kept for them).
  */
-export const isCustomDrawing = (drawing: Pick<DrawingSettings, 'style' | 'detail' | 'smoothing'>): boolean =>
-  drawing.detail !== null || (drawing.smoothing !== null && DRAWING_STYLE_PROFILES[drawing.style].smoothing);
+export const isCustomDrawing = (drawing: Pick<DrawingSettings, 'style' | 'detail' | 'smoothing'>): boolean => {
+  const profile = DRAWING_STYLE_PROFILES[currentDrawingStyle(drawing.style)];
+  return (drawing.detail !== null && profile.detail) || (drawing.smoothing !== null && profile.smoothing);
+};
 
 /** Canonical JSON (sorted keys) so equal configurations always hash equally. */
 function canonical(value: unknown): string {
@@ -102,7 +104,10 @@ export function resolveOneLineSettings(
   const crossingStyle = oneOf(merged.crossingStyle, availableCrossings, DEFAULT_DRAWING_SETTINGS.crossingStyle, 'crossingStyle', issues);
   const startPoint = merged.startPoint?.mode === 'fixed' ? merged.startPoint : { mode: 'auto' as const };
 
-  const style = oneOf(merged.style, DRAWING_STYLES, DEFAULT_DRAWING_SETTINGS.style, 'style', issues);
+  // Phase 16: a style of an older project (Geometric) is drawn in its replacement style.
+  const knownStyle = oneOf(merged.style, KNOWN_DRAWING_STYLES, DEFAULT_DRAWING_SETTINGS.style, 'style', issues);
+  const style = currentDrawingStyle(knownStyle);
+  if (style !== knownStyle) issues.push({ name: 'style', value: knownStyle, message: `style ${knownStyle} is no longer drawn; using ${style}` });
   const styleProfile = DRAWING_STYLE_PROFILES[style];
   const engine = oneLineEngine(styleProfile.engineId);
 

@@ -71,3 +71,13 @@ describe('path metrics', () => {
     expect(both.demandCovered).toBe(1);
   });
 });
+
+describe('16 validation of per-point widths', () => {
+  const base = { coords: new Float32Array([0, 0, 10, 0, 10, 10]), bounds: { width: 20, height: 20 }, meta: { generatorId: 't', generatorVersion: '1', seed: 0 } };
+  it('accepts one finite, positive width per point; refuses anything else', () => {
+    expect(validateOneLinePath({ ...base, widths: new Float32Array([1, 2, 3]) }).errors).toEqual([]);
+    for (const widths of [[1, 2], [1, 0, 1], [1, Number.NaN, 1], [1, -1, 1]]) {
+      expect(validateOneLinePath({ ...base, widths: Float32Array.from(widths) }).valid, String(widths)).toBe(false);
+    }
+  });
+});

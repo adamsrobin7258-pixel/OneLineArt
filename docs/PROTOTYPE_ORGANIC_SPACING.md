@@ -1,5 +1,7 @@
 # Phase 15.5: Organisch – Mindestabstand optimieren (experimentell)
 
+> **Phase 16:** Die Varianten „−40 %, Boden 1 px“ (Minimal/Ausgewogen) und „−30 %, Boden 1 px“ (Detail) sind jetzt die Produktionspresets (`engine/oneLine/lineSpacing.ts`, s. ARCHITECTURE „Finale Zeichenstile (Phase 16)“). Detail hat zusätzlich den Vorsprung 1,2 × Ausgewogen. Die Referenz der Seite heißt jetzt „Referenz (vor Phase 16)“, und die Seite rechnet mit den Produktionsfunktionen.
+
 Die Testseite ist `prototype/organic-spacing.html` (Dev-Server:
 `npm run dev` → `/prototype/organic-spacing.html`; Pages: `npx vite build -c
 vite.prototype.config.ts` baut sie zusammen mit der Variable-Width-Seite).

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { colourfulness, createArtwork, exportAndDownload, exportScreen, goToExport, imagePanel, probeVideo, settingsScreen, trackWorkers, videoPanel, workers } from './exportHelpers';
+import { colourfulness, createArtwork, exportAndDownload, exportScreen, goToExport, imagePanel, probeVideo, settingsScreen, trackWorkers, workers } from './exportHelpers';
 import { createImage, pickFile } from './helpers';
 
 test.beforeEach(async ({ page }) => trackWorkers(page));
@@ -31,19 +31,23 @@ const inkOnPaper = (page: Page, buffer: Buffer) =>
     return { paper, ink: ink / (data.length / 20) };
   }, buffer.toString('base64'));
 
-test('style: Organic by default; Geometric draws its own line; switching back is instant', async ({ page }) => {
+test('style: Organic by default; only Organic and Orthogonal are offered; Orthogonal draws its own line; switching back is instant', async ({ page }) => {
   test.setTimeout(120_000);
   await createArtwork(page, { width: 900, height: 700 });
   const style = page.getByRole('radiogroup', { name: 'Stil' });
-  await expect(style.getByRole('radio')).toHaveText(['Organisch', 'Geometrisch', 'Orthogonal']);
+  await expect(style.getByRole('radio')).toHaveText(['Organisch', 'Orthogonal']);
+  await expect(page.getByText('Geometrisch')).toHaveCount(0);
   await expect(style.getByRole('radio', { name: 'Organisch' })).toHaveAttribute('aria-checked', 'true');
   await expect(settingsScreen(page)).toHaveAttribute('data-engine', 'importance-stipple-tour');
+  await expect(page.getByRole('radiogroup', { name: 'Detailgrad' })).toBeVisible();
 
-  await style.getByRole('radio', { name: 'Geometrisch' }).click();
-  await expect(settingsScreen(page)).toHaveAttribute('data-style', 'geometric');
-  await expect(settingsScreen(page)).toHaveAttribute('data-engine', 'geometric-stipple-tour');
+  await style.getByRole('radio', { name: 'Orthogonal' }).click();
+  await expect(settingsScreen(page)).toHaveAttribute('data-style', 'orthogonal');
+  await expect(settingsScreen(page)).toHaveAttribute('data-engine', 'orthogonal-grown-maze');
   await expectDrawing(page);
-  await expect(page.getByText('Gerade Linien mit klaren Ecken')).toBeVisible();
+  await expect(page.getByText('Nur waagerechte und senkrechte Linien, rechte Winkel')).toBeVisible();
+  // The orthogonal line has one fixed spacing: no detail choice.
+  await expect(page.getByRole('radiogroup', { name: 'Detailgrad' })).toHaveCount(0);
   expect(await workers(page, 'pathGeneration')).toBe(2);
 
   await style.getByRole('radio', { name: 'Organisch' }).click();
@@ -84,12 +88,14 @@ test('detail slider: custom state "Eigene", presets restore; smoothing only in t
   await expect(settingsScreen(page)).toHaveAttribute('data-path-status', 'ready');
   expect(await workers(page, 'pathGeneration')).toBe(computed);
 
-  // Geometric: straight lines, no smoothing.
+  // Orthogonal: straight lines, no smoothing, one fixed spacing.
   await page.getByRole('button', { name: 'Anpassen' }).click(); // close
-  await page.getByRole('radio', { name: 'Geometrisch' }).click();
+  await page.getByRole('radio', { name: 'Orthogonal' }).click();
   await openAdjust(page);
   await expect(page.getByRole('slider', { name: 'Linienglättung' })).toBeDisabled();
-  await expect(page.getByText('Im geometrischen Stil bleiben die Linien gerade')).toBeVisible();
+  await expect(page.getByText('Im orthogonalen Stil bleiben die Linien gerade')).toBeVisible();
+  await expect(page.getByRole('slider', { name: 'Detailgrad' })).toBeDisabled();
+  await expect(page.getByText('Im orthogonalen Stil bleibt der Linienabstand immer gleich')).toBeVisible();
   expect(await workers(page, 'analysis')).toBe(1);
 });
 
@@ -154,40 +160,67 @@ test('render controls change only the drawing of the same line and reach the exp
   await expect(page.getByRole('button', { name: 'Zurücksetzen' })).toBeDisabled();
 });
 
-test('geometric style: animation finishes, image and video export work', async ({ page }) => {
-  test.setTimeout(240_000);
+test('an older Geometric work (phase 16: style no longer offered) opens with its stored line; a style change draws it anew', async ({ page }) => {
+  test.setTimeout(180_000);
   await createArtwork(page, { width: 800, height: 600 });
-  await page.getByRole('radio', { name: 'Geometrisch' }).click();
+  await page.getByTestId('save-project').click();
+  await expect(page.getByTestId('save-project')).toHaveAttribute('data-save-status', 'saved');
+  // Make the stored work look like one saved by an older version in the Geometric style.
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const open = indexedDB.open('one-line-art');
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const store = open.result.transaction('projects', 'readwrite').objectStore('projects');
+          const all = store.getAll();
+          all.onsuccess = () => {
+            const record = all.result[0] as { id: string; oneLine: { key: string; engineId: string; drawing: { style: string } } };
+            // An older Geometric work has its own settings key (style and engine are part of it).
+            record.oneLine.key = 'balanced-legacygeometric';
+            record.oneLine.engineId = 'geometric-stipple-tour';
+            record.oneLine.drawing.style = 'geometric';
+            const put = store.put(record, record.id);
+            put.onsuccess = () => resolve();
+            put.onerror = () => reject(put.error);
+          };
+          all.onerror = () => reject(all.error);
+        };
+      }),
+  );
+  await page.reload();
+  await page.getByRole('button', { name: 'Meine Werke' }).click();
+  await expect(page.getByTestId('gallery-item').first()).toContainText('Geometrisch');
+  await page.getByTestId('gallery-item').first().getByRole('button', { name: /öffnen/ }).click();
   await expectDrawing(page);
-  const paths = await workers(page, 'pathGeneration');
-
+  // Opens with its stored line: nothing recomputed; no style selected, the caption says what a change does.
+  await expect(settingsScreen(page)).toHaveAttribute('data-style', 'geometric');
+  expect(await workers(page, 'pathGeneration')).toBe(0);
+  const style = page.getByRole('radiogroup', { name: 'Stil' });
+  await expect(style.getByRole('radio')).toHaveText(['Organisch', 'Orthogonal']);
+  await expect(style.getByRole('radio', { name: 'Organisch' })).toHaveAttribute('aria-checked', 'false');
+  await expect(style.getByRole('radio', { name: 'Orthogonal' })).toHaveAttribute('aria-checked', 'false');
+  await expect(page.getByText('Älterer Stil „Geometrisch“ – eine Änderung zeichnet die Linie im Stil „Organisch“ neu')).toBeVisible();
+  // Keyboard: the group is still reachable (the first option takes the focus stop).
+  await expect(style.getByRole('radio', { name: 'Organisch' })).toHaveAttribute('tabindex', '0');
+  // Animation and export still work with the stored line.
   await page.getByRole('button', { name: 'Weiter' }).click();
   const canvas = page.getByTestId('animation-canvas');
   await expect(canvas).toHaveAttribute('data-status', 'ready');
-  await page.getByRole('radio', { name: '5 s', exact: true }).click();
-  await page.getByRole('button', { name: 'Abspielen' }).click();
-  await expect(canvas).toHaveAttribute('data-status', 'finished', { timeout: 20_000 });
-  expect(Number(await canvas.getAttribute('data-progress'))).toBe(1);
-
-  await page.getByRole('button', { name: 'Weiter' }).click();
-  await expect(exportScreen(page)).toBeVisible();
-  await imagePanel(page).getByRole('radio', { name: '2048 px', exact: true }).click();
-  const image = await exportAndDownload(page, 'Bild');
-  expect((await inkOnPaper(page, image.buffer)).ink).toBeGreaterThan(0.01);
-
-  await videoPanel(page).getByRole('radio', { name: '5 s', exact: true }).click();
-  const video = await exportAndDownload(page, 'Video', 120_000);
-  const probe = await probeVideo(video.buffer);
-  expect(probe.width).toBeGreaterThan(0);
-  expect(probe.durationS).toBeGreaterThan(6);
-  expect(await workers(page, 'pathGeneration')).toBe(paths);
+  await page.getByRole('button', { name: 'Zurück', exact: true }).click();
+  // A style change draws the line anew in a current style.
+  await style.getByRole('radio', { name: 'Organisch' }).click();
+  await expect(settingsScreen(page)).toHaveAttribute('data-style', 'organic');
+  await expect(settingsScreen(page)).toHaveAttribute('data-engine', 'importance-stipple-tour');
+  await expectDrawing(page);
+  expect(await workers(page, 'pathGeneration')).toBe(1);
 });
 
 /** The stored paths of all saved projects (IndexedDB "paths" store): per path the segments that are not axis-parallel. */
 const storedPaths = (page: Page) =>
   page.evaluate(
     () =>
-      new Promise<{ points: number; diagonal: number; zero: number }[]>((resolve, reject) => {
+      new Promise<{ points: number; diagonal: number; zero: number; widths: number }[]>((resolve, reject) => {
         const open = indexedDB.open('one-line-art');
         open.onerror = () => reject(open.error);
         open.onsuccess = () => {
@@ -195,21 +228,21 @@ const storedPaths = (page: Page) =>
           all.onerror = () => reject(all.error);
           all.onsuccess = () =>
             resolve(
-              (all.result as { coords: Float32Array }[]).map(({ coords }) => {
+              (all.result as { coords: Float32Array; widths?: Float32Array }[]).map(({ coords, widths }) => {
                 let diagonal = 0, zero = 0;
                 for (let i = 2; i < coords.length; i += 2) {
                   const dx = coords[i]! - coords[i - 2]!, dy = coords[i + 1]! - coords[i - 1]!;
                   if (dx !== 0 && dy !== 0) diagonal++;
                   if (dx === 0 && dy === 0) zero++;
                 }
-                return { points: coords.length / 2, diagonal, zero };
+                return { points: coords.length / 2, diagonal, zero, widths: widths?.length ?? 0 };
               }),
             );
         };
       }),
   );
 
-test('orthogonal style: its own line with only horizontal and vertical segments, through edit, detail, colour, animation, export and projects', async ({ page }) => {
+test('orthogonal style: its own line with only horizontal and vertical segments and a width per point, through edit, colour, animation, export and projects', async ({ page }) => {
   test.setTimeout(300_000);
   await page.goto('/');
   await pickFile(page, 'Bild auswählen', { name: 'foto.jpg', mimeType: 'image/jpeg', buffer: await createImage(page, { layout: 'left-right', width: 900, height: 600 }) });
@@ -226,17 +259,14 @@ test('orthogonal style: its own line with only horizontal and vertical segments,
   const before = await workers(page, 'pathGeneration');
   await page.getByRole('radiogroup', { name: 'Stil' }).getByRole('radio', { name: 'Orthogonal' }).click();
   await expect(settingsScreen(page)).toHaveAttribute('data-style', 'orthogonal');
-  await expect(settingsScreen(page)).toHaveAttribute('data-engine', 'orthogonal-stipple-tour');
+  await expect(settingsScreen(page)).toHaveAttribute('data-engine', 'orthogonal-grown-maze');
   await expectDrawing(page);
   await expect(page.getByText('Nur waagerechte und senkrechte Linien, rechte Winkel')).toBeVisible();
-  expect(await workers(page, 'pathGeneration')).toBe(before + 1);
-
-  // Detail level: a new orthogonal line; smoothing does not apply.
-  await page.getByRole('radiogroup', { name: 'Detailgrad' }).getByRole('radio', { name: 'Detail' }).click();
-  await expectDrawing(page);
-  await expect(settingsScreen(page)).toHaveAttribute('data-engine', 'orthogonal-stipple-tour');
   const paths = await workers(page, 'pathGeneration');
-  expect(paths).toBe(before + 2);
+  expect(paths).toBe(before + 1);
+
+  // One fixed spacing: no detail choice; smoothing does not apply.
+  await expect(page.getByRole('radiogroup', { name: 'Detailgrad' })).toHaveCount(0);
   await openAdjust(page);
   await expect(page.getByRole('slider', { name: 'Linienglättung' })).toBeDisabled();
   await expect(page.getByText('Im orthogonalen Stil bleiben die Linien gerade')).toBeVisible();
@@ -277,6 +307,8 @@ test('orthogonal style: its own line with only horizontal and vertical segments,
   expect(stored).toHaveLength(1);
   expect(stored[0]!.points).toBeGreaterThan(100);
   expect(stored[0]).toMatchObject({ diagonal: 0, zero: 0 });
+  // The width (the tone) is stored with the line: one per point.
+  expect(stored[0]!.widths).toBe(stored[0]!.points);
 
   // Restart and reopen: same style, same start point, no computation; a style change computes again.
   await page.reload();

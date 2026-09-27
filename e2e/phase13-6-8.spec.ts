@@ -49,7 +49,8 @@ async function importProjectFile(page: Page, name: string, buffer: Buffer) {
 /** Everything the work shows for its settings (drawing, look, animation). */
 async function readWork(page: Page) {
   const s = settingsScreen(page);
-  const drawing = { style: await s.getAttribute('data-style'), engine: await s.getAttribute('data-engine'), detail: await checked(page, 'Detailgrad').textContent(), display: await checked(page, 'Darstellung').textContent() };
+  const drawing = { style: await s.getAttribute('data-style'), engine: await s.getAttribute('data-engine'), // Phase 16: Orthogonal offers no detail level.
+    detail: (await page.getByRole('radiogroup', { name: 'Detailgrad' }).count()) ? await checked(page, 'Detailgrad').textContent() : null, display: await checked(page, 'Darstellung').textContent() };
   await page.getByRole('button', { name: 'Anpassen' }).click();
   await radio(page, 'Bereich', 'Darstellung').click();
   const lineWidth = await page.getByRole('slider', { name: 'Linienbreite' }).getAttribute('aria-valuetext');
@@ -96,7 +97,7 @@ test('13.6 project file: export → import restores the work completely, as a ne
   await items(page).first().getByRole('button', { name: /öffnen/ }).click();
   await ready(page);
   const original = await readWork(page);
-  expect(original).toMatchObject({ style: 'orthogonal', detail: 'Minimal', display: 'Verlauf', lineWidth: '1,50', direction: 'reverse', speed: '2×', loop: 'Endlos' });
+  expect(original).toMatchObject({ style: 'orthogonal', detail: null, display: 'Verlauf', lineWidth: '1,50', direction: 'reverse', speed: '2×', loop: 'Endlos' });
   expect(original.start).not.toBe('auto');
 
   // Export the project file (export step, "Projektdatei").
@@ -237,8 +238,10 @@ test('13.8 settings: defaults for new works, remembered after a restart; saved w
 
   await page.getByRole('button', { name: 'Einstellungen' }).click();
   await expect(page.getByTestId('preferences-screen')).toBeVisible();
-  await radio(page, 'Stil', 'Orthogonal').click();
+  // Detail first: Orthogonal (phase 16) offers no detail level.
   await radio(page, 'Detailgrad', 'Detail').click();
+  await radio(page, 'Stil', 'Orthogonal').click();
+  await expect(page.getByRole('radiogroup', { name: 'Detailgrad' })).toHaveCount(0);
   await radio(page, 'Hintergrund', 'Schwarz').click();
   await page.getByRole('slider', { name: 'Linienbreite' }).focus();
   for (let i = 0; i < 10; i++) await page.keyboard.press('ArrowRight');
@@ -253,7 +256,7 @@ test('13.8 settings: defaults for new works, remembered after a restart; saved w
   await page.reload();
   await page.getByRole('button', { name: 'Einstellungen' }).click();
   await expect(checked(page, 'Stil')).toHaveText('Orthogonal');
-  await expect(checked(page, 'Detailgrad')).toHaveText('Detail');
+  await expect(page.getByRole('radiogroup', { name: 'Detailgrad' })).toHaveCount(0);
   await expect(checked(page, 'Hintergrund')).toHaveText('Schwarz');
   await expect(checked(page, 'Dauer')).toHaveText('15 s');
   await expect(checked(page, 'Wiederholen')).toHaveText('Endlos');
@@ -266,7 +269,7 @@ test('13.8 settings: defaults for new works, remembered after a restart; saved w
   await page.getByRole('button', { name: 'Weiter' }).click();
   await ready(page);
   await expect(settingsScreen(page)).toHaveAttribute('data-style', 'orthogonal');
-  await expect(checked(page, 'Detailgrad')).toHaveText('Detail');
+  await expect(page.getByRole('radiogroup', { name: 'Detailgrad' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Anpassen' }).click();
   await radio(page, 'Bereich', 'Darstellung').click();
   await expect(page.getByRole('slider', { name: 'Linienbreite' })).toHaveAttribute('aria-valuetext', '1,50');

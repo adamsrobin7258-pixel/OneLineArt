@@ -1,6 +1,6 @@
 import { AnalysisError, type AnalysisErrorCode, type ImageAnalysis } from '../imageAnalysis';
 import type { EngineErrorCode } from '../engine';
-import { DEFAULT_DRAWING_SETTINGS, resolveOneLineSettings, type DrawingSettings, type EffectiveOneLineSettings } from '../drawing';
+import { DEFAULT_DRAWING_SETTINGS, isRunnableEngine, resolveOneLineSettings, type DrawingSettings, type EffectiveOneLineSettings } from '../drawing';
 import { IDENTITY_EDIT, type ImageEdit } from '../imageEdit';
 import type { OneLinePath, OriginalImage, ProcessedImage } from '../models';
 import type { ImageImportErrorCode } from './errors';
@@ -159,13 +159,16 @@ export function importReducer<TPreview>(state: ImportState<TPreview>, action: Im
       return EMPTY_IMPORT_STATE;
     case 'edit-applied': {
       // A new input for the analysis: everything derived from the previous edit is dropped
-      // (analysis, paths); the drawing settings stay.
+      // (analysis, paths); the drawing settings stay — unless they belong to a style this app
+      // no longer draws (phase 16: Geometric, the old Orthogonal): the new line then comes from
+      // the current style, exactly as after a change of the drawing settings.
       if (state.status !== 'ready' || sessionKeyOf(state.session) !== action.imageId) return state;
       const s = state.session;
       return {
         status: 'ready',
         session: {
           ...s,
+          oneLine: isRunnableEngine(s.oneLine.engineId) ? s.oneLine : resolveOneLineSettings(s.oneLine.drawing),
           edit: action.edit,
           preview: action.preview,
           processed: action.processed,
@@ -212,7 +215,8 @@ function pathReducer<TPreview>(
   switch (action.type) {
     case 'drawing-changed': {
       const oneLine = resolveOneLineSettings({ ...session.oneLine.drawing, ...action.drawing });
-      if (oneLine.key === currentKey) return state;
+      // Settings of a style no longer drawn (phase 16) never count as unchanged: the new line comes from the current style.
+      if (oneLine.key === currentKey && isRunnableEngine(session.oneLine.engineId)) return state;
       const cached = session.paths[oneLine.key] ?? null;
       // A new drawing needs the analysis: a deferred one starts now.
       const analysisStatus = !cached && session.analysisStatus === 'deferred' ? 'pending' : session.analysisStatus;

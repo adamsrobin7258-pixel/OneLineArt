@@ -1,4 +1,4 @@
-import type { DrawingStyle, OneLineDetailLevel, PathErrorCode, RenderColorMode } from '../core';
+import { currentDrawingStyle, type DrawingStyle, type OneLineDetailLevel, type PathErrorCode, type RenderColorMode } from '../core';
 import type { UserMessage } from './importMessages';
 
 /** User-facing names of the detail levels. No technical terms. */
@@ -11,12 +11,24 @@ export const DETAIL_LEVEL_LABELS: Record<OneLineDetailLevel, { readonly label: s
 /** Shown instead of a preset when detail or smoothing were adjusted by hand. */
 export const CUSTOM_DETAIL_LABEL = { label: 'Eigene', hint: 'Eigene Einstellung unter „Anpassen“' } as const;
 
-/** User-facing names of the drawing styles; `straight` explains why smoothing is off in styles without it. */
-export const DRAWING_STYLE_LABELS: Record<DrawingStyle, { readonly label: string; readonly hint: string; readonly straight?: string }> = {
+/**
+ * User-facing names of the drawing styles; `straight` explains why smoothing is off in styles without it.
+ * Geometric (phase 16: no longer offered) keeps its name for older works in the gallery.
+ */
+export const DRAWING_STYLE_LABELS: Record<DrawingStyle, { readonly label: string; readonly hint: string; readonly straight?: string; readonly fixedDetail?: string }> = {
   organic: { label: 'Organisch', hint: 'Weiche, frei fließende Linie' },
+  orthogonal: {
+    label: 'Orthogonal',
+    hint: 'Nur waagerechte und senkrechte Linien, rechte Winkel',
+    straight: 'Im orthogonalen Stil bleiben die Linien gerade',
+    fixedDetail: 'Im orthogonalen Stil bleibt der Linienabstand immer gleich',
+  },
   geometric: { label: 'Geometrisch', hint: 'Gerade Linien mit klaren Ecken', straight: 'Im geometrischen Stil bleiben die Linien gerade' },
-  orthogonal: { label: 'Orthogonal', hint: 'Nur waagerechte und senkrechte Linien, rechte Winkel', straight: 'Im orthogonalen Stil bleiben die Linien gerade' },
 };
+
+/** Caption of the style choice for an older work in a style that is no longer offered. */
+export const legacyStyleHint = (style: DrawingStyle): string =>
+  `Älterer Stil „${DRAWING_STYLE_LABELS[style].label}“ – eine Änderung zeichnet die Linie im Stil „${DRAWING_STYLE_LABELS[currentDrawingStyle(style)].label}“ neu`;
 
 export const PATH_ERROR_MESSAGES: Record<PathErrorCode, UserMessage> = {
   'analysis-missing': { title: 'Das Bild ist noch nicht bereit', detail: 'Bitte einen Moment warten und erneut versuchen.' },

@@ -6,6 +6,7 @@ import {
   importImage,
   importReducer,
   requireAnalysisSource,
+  isRunnableEngine,
   resolveOneLineSettings,
   sessionKeyOf,
   isIdentityEdit,
@@ -237,7 +238,9 @@ export function useImageImport(options: { readonly newWorkDrawing?: () => Drawin
     (target?: EffectiveOneLineSettings): Promise<void> => {
       if (!session) return Promise.resolve();
       const id = sessionKeyOf(session);
-      const effective = target ?? session.oneLine;
+      // Settings of a style this app no longer draws (a restored older work) are drawn in the current style.
+      const requested = target ?? session.oneLine;
+      const effective = isRunnableEngine(requested.engineId) ? requested : resolveOneLineSettings(requested.drawing);
       const key = effective.key;
       if (session.paths[key]) return Promise.resolve();
       if (pathJob.current?.key === key) return pathJob.current.done;

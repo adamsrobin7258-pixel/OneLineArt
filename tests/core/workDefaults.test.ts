@@ -33,6 +33,8 @@ describe('13.8 defaults for new works', () => {
     expect(parseWorkDefaults(null)).toEqual(FACTORY_WORK_DEFAULTS);
     expect(parseWorkDefaults('kaputt')).toEqual(FACTORY_WORK_DEFAULTS);
     expect(parseWorkDefaults([1, 2])).toEqual(FACTORY_WORK_DEFAULTS);
+    // Phase 16: a stored default style that is no longer offered falls back to the app default.
+    expect(parseWorkDefaults({ style: 'geometric' }).style).toBe('organic');
     const odd = parseWorkDefaults({ style: 'cubist', detailLevel: 'ultra', background: 'pink', lineWidth: 99, durationMs: 1, speed: 3, direction: 'up', loop: 'yes' });
     expect(odd).toEqual({ ...FACTORY_WORK_DEFAULTS, lineWidth: 4, durationMs: 2_000 });
     expect(parseWorkDefaults({ lineWidth: 1.2 }).lineWidth).toBe(1.2);

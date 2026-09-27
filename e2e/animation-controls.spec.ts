@@ -337,8 +337,9 @@ test('start point after rotating and cropping: tapping the dot starts the drawin
 
 test('video export and saved project keep duration, speed, direction and start point', async ({ page }) => {
   test.setTimeout(180_000);
+  // Organic: its constant line width keeps the "first ink" detection below reliable (Orthogonal draws
+  // light areas with sub-pixel lines by design; its video export is covered in drawing-controls.spec.ts).
   await createArtwork(page, { width: 800, height: 600 }, { detail: 'Minimal' });
-  await page.getByRole('radio', { name: 'Geometrisch' }).click();
   await expect(settingsScreen(page)).toHaveAttribute('data-path-status', 'ready', { timeout: 60_000 });
   const paths = await workers(page, 'pathGeneration');
   await page.getByRole('button', { name: 'Weiter' }).click();

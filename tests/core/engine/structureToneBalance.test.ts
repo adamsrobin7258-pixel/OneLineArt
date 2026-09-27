@@ -144,8 +144,10 @@ describe('14.1 structure/tone balance', () => {
     }
   });
 
-  it('path (Balanced, every style): more line on dark structure, less on the flat dark area — which still gets line', () => {
-    for (const style of DRAWING_STYLES) {
+  it('path (Balanced, Organic): more line on dark structure, less on the flat dark area — which still gets line', () => {
+    // Phase 16: Orthogonal draws at a constant spacing independent of the image (its width carries the tone),
+    // so the demand-driven line density only applies to Organic.
+    for (const style of DRAWING_STYLES.filter((s) => s !== 'orthogonal')) {
       const before = draw(style, 'balanced', 0);
       const after = draw(style, 'balanced');
       const ratio = (p: typeof before) => lengthDensity(p, ...DARK_STRUCT) / lengthDensity(p, ...DARK_FLAT);

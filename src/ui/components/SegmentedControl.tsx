@@ -40,7 +40,8 @@ export function SegmentedControl<T extends string>({ label, options, value, onCh
           type="button"
           role="radio"
           aria-checked={option.value === value}
-          tabIndex={option.value === value ? 0 : -1}
+          // Without a selected option (e.g. a value no longer offered) the first one takes the focus stop.
+          tabIndex={option.value === value || (index < 0 && i === 0) ? 0 : -1}
           className={`segmented__option${option.value === value ? ' is-selected' : ''}`}
           onClick={() => onChange(option.value)}
         >

@@ -78,8 +78,8 @@ export function boundingBox(path: OneLinePath): BoundingBox {
 }
 
 /** Build a path directly from interleaved coordinates (no copy). */
-export function pathFromCoords(coords: Float32Array, bounds: Size, meta: OneLinePathMeta): OneLinePath {
-  return { coords, bounds, meta };
+export function pathFromCoords(coords: Float32Array, bounds: Size, meta: OneLinePathMeta, widths?: Float32Array): OneLinePath {
+  return widths ? { coords, bounds, meta, widths } : { coords, bounds, meta };
 }
 
 export interface PathValidation {
@@ -100,6 +100,15 @@ export function validatePath(path: OneLinePath): PathValidation {
     if (!Number.isFinite(path.coords[i])) {
       errors.push(`Non-finite coordinate at index ${i}.`);
       break;
+    }
+  }
+  if (path.widths !== undefined) {
+    if (path.widths.length !== path.coords.length >> 1) errors.push('Widths must have one value per point.');
+    for (let i = 0; i < path.widths.length; i++) {
+      if (!(Number.isFinite(path.widths[i]) && path.widths[i]! > 0)) {
+        errors.push(`Width at point ${i} must be finite and positive.`);
+        break;
+      }
     }
   }
   return { valid: errors.length === 0, errors };

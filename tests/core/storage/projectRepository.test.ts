@@ -10,6 +10,7 @@ import {
   createProjectRepository,
   resolveOneLineSettings,
   type ArtworkProject,
+  type ProjectRecord,
   type ProjectThumbnail,
 } from '../../../src/core';
 
@@ -166,10 +167,53 @@ describe('damaged and incompatible data', () => {
 
   it('stores style and custom detail and shows them in the gallery data', async () => {
     const repo = createProjectRepository(createMemoryStorageBackend());
-    const p = { ...project('g'), oneLine: resolveOneLineSettings({ style: 'geometric', detail: 0.7, seed: 42 }) };
+    const p = { ...project('g'), oneLine: resolveOneLineSettings({ style: 'orthogonal', seed: 42 }) };
     await repo.save(p, null);
     expect((await repo.load('g')).project.oneLine).toEqual(p.oneLine);
-    expect((await repo.list())[0]).toMatchObject({ style: 'geometric', custom: true });
+    expect((await repo.list())[0]).toMatchObject({ style: 'orthogonal', custom: false });
+    const c = { ...project('c'), oneLine: resolveOneLineSettings({ style: 'organic', detail: 0.7, seed: 42 }) };
+    await repo.save(c, null);
+    expect((await repo.list()).find((i) => i.id === 'c')).toMatchObject({ style: 'organic', custom: true });
+  });
+
+  it('phase 16: a stored Geometric project (legacy style and engine) still loads unchanged, with its line, and is listed as Geometric', async () => {
+    const backend = createMemoryStorageBackend();
+    const repo = createProjectRepository(backend);
+    const p = project('legacy');
+    await repo.save(p, null);
+    // As saved by an older app version: style 'geometric', its engine and a custom detail value.
+    const record = backend.stores.get('projects')!.get('legacy') as ProjectRecord;
+    const legacy = {
+      ...record,
+      oneLine: { ...record.oneLine, engineId: 'geometric-stipple-tour', drawing: { ...record.oneLine.drawing, style: 'geometric', detail: 0.7 } },
+    };
+    backend.stores.get('projects')!.set('legacy', legacy);
+    const { project: loaded } = await repo.load('legacy');
+    expect(loaded.oneLine.drawing.style).toBe('geometric');
+    expect(loaded.oneLine.engineId).toBe('geometric-stipple-tour');
+    expect(loaded.path.coords).toEqual(p.path.coords);
+    expect((await repo.list())[0]).toMatchObject({ status: 'ok', style: 'geometric', custom: true });
+    // Opening it again as a new line draws it as Organic.
+    expect(resolveOneLineSettings(loaded.oneLine.drawing)).toMatchObject({ engineId: 'importance-stipple-tour', drawing: { style: 'organic' } });
+  });
+
+  it('phase 16: an Orthogonal path keeps its width per point through save, load and duplicate', async () => {
+    const backend = createMemoryStorageBackend();
+    const repo = createProjectRepository(backend);
+    const base = project('w');
+    const widths = new Float32Array([0.5, 1.25, 2, 0.75]);
+    const p = { ...base, path: { ...base.path, widths } };
+    await repo.save(p, null);
+    expect((await repo.load('w')).project.path.widths).toEqual(widths);
+    await repo.duplicate('w', 'w2', 'Kopie');
+    expect((await repo.load('w2')).project.path.widths).toEqual(widths);
+    // A path without widths (Organic, older projects) is stored exactly as before: no widths entry.
+    await repo.save(project('o'), null);
+    expect(Object.keys(backend.stores.get('paths')!.get('o') as object)).toEqual(['coords']);
+    // Damaged widths are refused like damaged coordinates.
+    backend.stores.get('paths')!.set('w', { coords: base.path.coords, widths: new Float32Array([1, Number.NaN, 1, 1]) });
+    await expect(repo.load('w')).rejects.toMatchObject({ code: 'damaged' });
+    await expect(repo.save({ ...base, path: { ...base.path, widths: new Float32Array([1, 1]) } }, null)).rejects.toMatchObject({ code: 'invalid-project' });
   });
 
   it('the image edit is stored and restored; older projects are unedited', async () => {

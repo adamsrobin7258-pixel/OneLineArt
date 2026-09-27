@@ -9,6 +9,7 @@ import {
   pathFromCoords,
   pointBudgetFor,
   resolveOneLineSettings,
+  withoutLineSpacing,
   type OneLineEngineParameters,
 } from '../../../src/core';
 import * as core from '../../../src/core';
@@ -30,7 +31,9 @@ const hashOf = (a: Float32Array) => hashBytes(new Uint8Array(a.buffer, a.byteOff
 function organic(parameters: OneLineEngineParameters, seed = 7) {
   const image = portrait();
   const analysis = analyzeImage(image, undefined, 'img-golden');
-  const e = resolveOneLineSettings({ detailLevel: 'balanced', seed }, parameters);
+  const resolved = resolveOneLineSettings({ detailLevel: 'balanced', seed }, parameters);
+  // Phase 15.5 worked on the presets before phase 16 (which now carry the chosen spacing themselves).
+  const e = { ...resolved, parameters: withoutLineSpacing(resolved.parameters) };
   return { e, analysis, image, run: (p: OneLineEngineParameters) => generateOneLine({ image, analysis, settings: e.settings }, p, { rng: createRandom(e.settings.seed) }) };
 }
 
@@ -39,6 +42,7 @@ describe('15.5 organic spacing: parameter patch', () => {
     const e = resolveOneLineSettings({ detailLevel: 'balanced', seed: 1 });
     const patch = organicSpacingParameters(e.parameters, 1, e.settings.detail);
     expect(patch.parameters).toBe(e.parameters);
+    expect(withoutLineSpacing(e.parameters)).toEqual(DEFAULT_ENGINE_PARAMETERS);
     expect(patch.points).toBe(pointBudgetFor(e.parameters, e.settings.detail));
     expect(patch.limited).toBe(false);
   });

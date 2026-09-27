@@ -4,3 +4,4 @@ export * from './pipeline';
 export * from './validation';
 export * from './metrics';
 export * from './oneLine';
+export * from './maze';

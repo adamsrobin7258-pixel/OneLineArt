@@ -17,9 +17,9 @@ export interface SpacingVariant {
   readonly spec: SpacingSpec;
 }
 
-/** The stages examined in Phase 15.5 (first = the unchanged production baseline). */
+/** The stages examined in Phase 15.5 (first = the production baseline before phase 16, i.e. the presets without line spacing). */
 export const SPACING_VARIANTS: readonly SpacingVariant[] = [
-  { key: 'ref', label: 'Referenz (heute)', spec: { kind: 'factor', factor: 1 } },
+  { key: 'ref', label: 'Referenz (vor Phase 16)', spec: { kind: 'factor', factor: 1 } },
   { key: 'f90', label: '−10 %', spec: { kind: 'factor', factor: 0.9 } },
   { key: 'f80', label: '−20 %', spec: { kind: 'factor', factor: 0.8 } },
   { key: 'f70', label: '−30 %', spec: { kind: 'factor', factor: 0.7 } },

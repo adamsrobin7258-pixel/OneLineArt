@@ -533,6 +533,36 @@ describe('13.8 defaults for a new image', () => {
     expect(state.session.oneLine.key).toBe(resolveOneLineSettings().key);
   });
 
+  it('phase 16: a restored work in a style that is no longer drawn keeps its line; a new line after an image edit uses the current style', () => {
+    // As stored by an older version: Geometric (engine removed), its stored line.
+    const current = resolveOneLineSettings({ detailLevel: 'minimal' });
+    const stored = { ...current, engineId: 'geometric-stipple-tour', drawing: { ...current.drawing, style: 'geometric' as const } };
+    const path = { coords: new Float32Array([0, 0, 4, 3]), bounds: { width: 4, height: 3 }, meta: { generatorId: 'geometric-stipple-tour', generatorVersion: '1.1.0', seed: 1, sourceImageId: 'a' } };
+    const restored = run([
+      { type: 'import-started', requestId: 1, fileName: 'a.jpg' },
+      { type: 'import-succeeded', requestId: 1, image: imported('a'), restore: { oneLine: stored, path } },
+    ]);
+    if (restored.status !== 'ready') throw new Error('not ready');
+    expect(restored.session.oneLine).toBe(stored);
+    expect(restored.session.path).toBe(path);
+    const edited = run(
+      [{ type: 'edit-applied', imageId: 'a', edit: { rotation: 90, crop: { x: 0, y: 0, width: 1, height: 1 } }, preview: { tag: 'r' }, processed: { sourceImageId: 'a', pixels: { width: 3, height: 4, data: new Uint8ClampedArray(48) }, scale: 1 } }],
+      restored,
+    );
+    if (edited.status !== 'ready') throw new Error('not ready');
+    expect(edited.session.oneLine.drawing.style).toBe('organic');
+    expect(edited.session.oneLine.engineId).toBe('importance-stipple-tour');
+    expect(edited.session.oneLine.key).toBe(resolveOneLineSettings({ detailLevel: 'minimal', style: 'organic' }).key);
+    // A current style keeps its settings through an edit.
+    const organic = run([
+      { type: 'import-started', requestId: 1, fileName: 'a.jpg' },
+      { type: 'import-succeeded', requestId: 1, image: imported('a'), restore: { oneLine: current, path } },
+      { type: 'edit-applied', imageId: 'a', edit: { rotation: 90, crop: { x: 0, y: 0, width: 1, height: 1 } }, preview: { tag: 'r' }, processed: { sourceImageId: 'a', pixels: { width: 3, height: 4, data: new Uint8ClampedArray(48) }, scale: 1 } },
+    ]);
+    if (organic.status !== 'ready') throw new Error('not ready');
+    expect(organic.session.oneLine).toBe(current);
+  });
+
   it('a restored drawing (reopened work) always wins over the defaults', () => {
     const stored = resolveOneLineSettings({ style: 'geometric', detailLevel: 'minimal' });
     const path = { coords: new Float32Array([0, 0, 4, 3]), bounds: { width: 4, height: 3 }, meta: { generatorId: 'g', generatorVersion: '1', seed: 1, sourceImageId: 'a' } };

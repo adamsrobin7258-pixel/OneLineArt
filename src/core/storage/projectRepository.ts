@@ -29,6 +29,11 @@ export interface ProjectRepositoryOptions {
   readonly now?: () => Date;
 }
 
+
+/** Stored copy of a path: coordinates, plus the widths when the style has them (Orthogonal, phase 16). */
+const pathRecordOf = (path: { readonly coords: Float32Array; readonly widths?: Float32Array }): PathRecord =>
+  path.widths ? { coords: new Float32Array(path.coords), widths: new Float32Array(path.widths) } : { coords: new Float32Array(path.coords) };
+
 /**
  * Project persistence on top of a key-value backend. Layout:
  *  - projects   id → settings, metadata, versions (small; read for the gallery)
@@ -66,7 +71,7 @@ export function createProjectRepository(backend: StorageBackend, options: Projec
       const record = toProjectRecord(project, thumbnail, stored?.favorite === true);
       const ops: StorageOp[] = [
         { type: 'put', store: 'projects', key: project.id, value: record },
-        { type: 'put', store: 'paths', key: project.id, value: { coords: new Float32Array(project.path.coords) } satisfies PathRecord },
+        { type: 'put', store: 'paths', key: project.id, value: pathRecordOf(project.path) },
         thumbnail
           ? { type: 'put', store: 'thumbnails', key: project.id, value: { data: thumbnail.data } satisfies ThumbnailRecord }
           : { type: 'delete', store: 'thumbnails', key: project.id },
@@ -181,7 +186,7 @@ export function createProjectRepository(backend: StorageBackend, options: Projec
       const copy: ProjectRecord = { ...record, id: newId, name: trimmed, createdAt: date, updatedAt: date, favorite: false, thumbnail: thumb?.data ? record.thumbnail : null };
       const ops: StorageOp[] = [
         { type: 'put', store: 'projects', key: newId, value: copy },
-        { type: 'put', store: 'paths', key: newId, value: { coords: new Float32Array(path.coords) } satisfies PathRecord },
+        { type: 'put', store: 'paths', key: newId, value: pathRecordOf(path) },
       ];
       if (thumb?.data) ops.push({ type: 'put', store: 'thumbnails', key: newId, value: { data: thumb.data } satisfies ThumbnailRecord });
       await backend.commit(ops);
@@ -207,7 +212,7 @@ export function createProjectRepository(backend: StorageBackend, options: Projec
         oneLine: record.oneLine,
         render: record.render,
         animation: record.animation,
-        path: { coords: file.coords, bounds: record.path.bounds, meta: { ...record.path.meta, sourceImageId: imageId } },
+        path: { coords: file.coords, bounds: record.path.bounds, meta: { ...record.path.meta, sourceImageId: imageId }, ...(file.widths ? { widths: file.widths } : {}) },
         versions: record.versions,
       };
       const thumbnail = file.thumbnail ? { data: toBinary(file.thumbnail.bytes, file.thumbnail.mimeType), mimeType: file.thumbnail.mimeType, width: file.thumbnail.width, height: file.thumbnail.height } : null;

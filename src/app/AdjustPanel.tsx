@@ -2,7 +2,9 @@ import { useState } from 'react';
 import {
   COLOR_PALETTES,
   DEFAULT_RENDER_SETTINGS,
-  DRAWING_STYLE_PROFILES,
+  currentDrawingStyle,
+  styleUsesDetail,
+  styleUsesSmoothing,
   RENDER_CONTROLS,
   SMOOTHING_RANGE,
   backgroundColorPatch,
@@ -60,7 +62,8 @@ export function AdjustPanel({ id, oneLine, setDrawing, render }: AdjustPanelProp
   const { renderSettings: rs, updateRenderSettings } = render;
   const [section, setSection] = useState<Section>('line');
   const [ownBackground, setOwnBackground] = useState(backgroundChoiceOf(rs) === 'own');
-  const smooths = DRAWING_STYLE_PROFILES[oneLine.drawing.style].smoothing;
+  const smooths = styleUsesSmoothing(oneLine.drawing.style);
+  const usesDetail = styleUsesDetail(oneLine.drawing.style);
   const d = DEFAULT_RENDER_SETTINGS;
   const background = ownBackground ? 'own' : backgroundChoiceOf(rs);
   const renderChanged =
@@ -112,7 +115,17 @@ export function AdjustPanel({ id, oneLine, setDrawing, render }: AdjustPanelProp
 
       {section === 'line' && (
         <div className="adjust__group" role="group" aria-label="Linie">
-          <Slider label="Detailgrad" value={oneLine.settings.detail} min={0} max={1} step={0.01} format={percent} onCommit={(detail) => setDrawing({ detail })} />
+          <Slider
+            label="Detailgrad"
+            value={oneLine.settings.detail}
+            min={0}
+            max={1}
+            step={0.01}
+            format={percent}
+            onCommit={(detail) => setDrawing({ detail })}
+            disabled={!usesDetail}
+            hint={usesDetail ? undefined : DRAWING_STYLE_LABELS[currentDrawingStyle(oneLine.drawing.style)].fixedDetail}
+          />
           <Slider
             label="Linienglättung"
             value={oneLine.parameters.smoothingIterations}
@@ -122,7 +135,7 @@ export function AdjustPanel({ id, oneLine, setDrawing, render }: AdjustPanelProp
             format={(v) => (v === 0 ? 'Aus' : String(v))}
             onCommit={(smoothing) => setDrawing({ smoothing })}
             disabled={!smooths}
-            hint={smooths ? undefined : DRAWING_STYLE_LABELS[oneLine.drawing.style].straight}
+            hint={smooths ? undefined : DRAWING_STYLE_LABELS[currentDrawingStyle(oneLine.drawing.style)].straight}
           />
         </div>
       )}

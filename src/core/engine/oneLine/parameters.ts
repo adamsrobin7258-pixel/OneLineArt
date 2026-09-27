@@ -56,6 +56,28 @@ export interface OneLineEngineParameters {
    * the pre-14.1 value (see buildDemandField).
    */
   readonly structureToneBalance?: number;
+  /**
+   * Line spacing (0.3…1, optional; absent = 1, the pre-16 behaviour). Every
+   * distance between neighbouring passes × this factor: the point budget grows
+   * by 1/factor² (see lineSpacing.ts). Phase 16: Minimal/Balanced 0.6, Detail 0.7.
+   */
+  readonly spacingFactor?: number;
+  /**
+   * Floor of the line spacing (px at an 800 px long edge, optional; absent = no
+   * floor): the densest area never gets closer than this, predicted from the
+   * demand before the run. Only with spacingFactor. Phase 16: 1.
+   */
+  readonly spacingFloor?: number;
+  /**
+   * Lead over a lower level (optional, only with spacingFactor; ignored below 1):
+   * at least this many times the points of the reference level given by
+   * spacingLeadDetail (its position on the detail axis, i.e. its budget) and
+   * spacingLeadFactor (its spacing factor), with the same floor.
+   * Phase 16, Detail: 1.2 over Balanced (detail 0.5, factor 0.6).
+   */
+  readonly spacingLead?: number;
+  readonly spacingLeadDetail?: number;
+  readonly spacingLeadFactor?: number;
 
   // --- Line budget ---------------------------------------------------------
   /** Number of demand points (≈ line budget) at detail 0 and detail 1. */

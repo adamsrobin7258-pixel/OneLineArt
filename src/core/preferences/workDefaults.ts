@@ -1,5 +1,5 @@
 import { ANIMATION_DIRECTIONS, SPEED_PRESETS, clampDurationMs, isPresetDuration } from '../animation/animationSettings';
-import { DETAIL_LEVELS, DRAWING_STYLES, DEFAULT_DRAWING_SETTINGS, type DrawingSettings, type DrawingStyle, type OneLineDetailLevel } from '../drawing';
+import { DETAIL_LEVELS, DRAWING_STYLES, DEFAULT_DRAWING_SETTINGS, DEFAULT_DRAWING_STYLE, type DrawingSettings, type OneLineDetailLevel, type SelectableDrawingStyle } from '../drawing';
 import { DEFAULT_ANIMATION_SETTINGS, type AnimationDirection, type AnimationSettings } from '../models';
 import { RENDER_CONTROLS, backgroundColorPatch } from '../rendering/renderControls';
 import { DEFAULT_RENDER_SETTINGS, sanitizeRenderSettings, type RenderSettings } from '../rendering/renderSettings';
@@ -12,7 +12,8 @@ export type DefaultBackground = (typeof DEFAULT_BACKGROUNDS)[number];
  * project: opening a work always uses its own saved values.
  */
 export interface WorkDefaults {
-  readonly style: DrawingStyle;
+  /** Only styles offered for new drawings (a stored Geometric default falls back to the default style). */
+  readonly style: SelectableDrawingStyle;
   readonly detailLevel: OneLineDetailLevel;
   readonly background: DefaultBackground;
   /** Line width in px at the reference edge (as in RenderSettings). */
@@ -26,7 +27,7 @@ export interface WorkDefaults {
 
 /** The app's own starting values (what a new work got before 13.8). */
 export const FACTORY_WORK_DEFAULTS: WorkDefaults = {
-  style: DEFAULT_DRAWING_SETTINGS.style,
+  style: DEFAULT_DRAWING_STYLE,
   detailLevel: DEFAULT_DRAWING_SETTINGS.detailLevel,
   background: 'white',
   lineWidth: DEFAULT_RENDER_SETTINGS.lineWidth,

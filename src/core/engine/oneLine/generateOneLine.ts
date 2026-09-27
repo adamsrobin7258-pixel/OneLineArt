@@ -4,6 +4,7 @@ import type { Random } from '../../utils';
 import { pathFromCoords } from '../path';
 import { validateOneLinePath, type PathValidationOptions } from '../validation';
 import { buildAdaptiveDemandField } from './demandField';
+import { applyLineSpacing } from './lineSpacing';
 import { sanitizeEngineParameters, sanitizeOneLineSettings } from './parameterLimits';
 import { buildOrientationField, contourAwareCost } from './orientationField';
 import { EngineError } from './errors';
@@ -140,8 +141,9 @@ export const ORGANIC_LINE_SHAPE: LineShape = {
 export function runOneLineEngine(shape: LineShape, input: OneLineRunInput, rawParameters: OneLineEngineParameters, hooks: OneLineRunHooks): OneLineRunResult {
   const { image, analysis } = input;
   // Central validation: rejects non-finite values, clamps to the safety limits.
-  const parameters = sanitizeEngineParameters(rawParameters).value;
   const settings = sanitizeOneLineSettings(input.settings).value;
+  // 0. Line spacing (phase 16): the optional spacing factor and floor become budget and grid limits.
+  const parameters = applyLineSpacing(sanitizeEngineParameters(rawParameters).value, analysis, settings.detail);
   const shouldAbort = hooks.shouldAbort ?? (() => false);
   const progress = (value: number) => hooks.onProgress?.(value);
   const checkAbort = () => {

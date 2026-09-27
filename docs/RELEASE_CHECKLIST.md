@@ -147,3 +147,17 @@ Stand: Teil 10. ✅ = automatisiert oder im Browser geprüft · ⚠️ = eingesc
 - [x] ✅ Responsive 360 / 390 / 430 / 768 / 1024 / 1280 px: Phase-13-Bedienelemente erreichbar und nicht verdeckt — `phase13-release.spec`
 - [x] ✅ Realgerätetest Xiaomi 15 Ultra für 13.1–13.8 (inkl. Speichern/Teilen/Import `.onelineart`) bestanden
 - [x] ⚠️ Bekannt und akzeptiert (13.3): bei 430 px liegen im Anpassen-Panel beim Scrollen drei Farbfelder unter der festen Leiste (nur dokumentiert, nicht umgebaut)
+
+## Phase 16 – Finale Zeichenstile
+- [ ] Automatisch: Unit, E2E, Typecheck, Lint, Production-Build, Capacitor Sync, Android-Bundle-Smoke, Prototyp-Build
+- [ ] Realgerätetest Xiaomi 15 Ultra (offen, durch den Nutzer):
+  - [ ] Stilauswahl zeigt nur „Organisch“ und „Orthogonal“, ohne Reste von „Geometrisch“
+  - [ ] Organisch Minimal / Ausgewogen / Detail: sichtbar abgestuft; Detail deutlich dichter als Ausgewogen
+  - [ ] Bild mit wenig Dunklem (Objekt auf Weiß): Wirkt Ausgewogen dichter als Minimal? (bekannter Grenzfall)
+  - [ ] Orthogonal: exakte rechte Winkel, Ton über die Strichdicke, gleichmäßiger Abstand; kein Detailgrad angeboten, Detailregler im Anpassen-Panel gesperrt
+  - [ ] Orthogonal mit gesetztem Startpunkt und neuem Seed (Anpassen)
+  - [ ] Animation beider Stile (gewählte Dauer bleibt, Stift schneller), Endlos, Rückwärts
+  - [ ] Export Bild und Video, Speichern in der Galerie, Teilen, `.onelineart` exportieren und wieder importieren (Orthogonal behält die Dicke)
+  - [ ] Altes Werk (vor Phase 16, Geometrisch oder altes Orthogonal) öffnen: gespeicherte Linie unverändert; nach einer Änderung neu im neuen Stil
+  - [ ] Einstellungen: Standardstil Orthogonal; kein Detailgrad angeboten
+  - [ ] Rechenzeit Organisch Ausgewogen/Detail auf dem Gerät akzeptabel

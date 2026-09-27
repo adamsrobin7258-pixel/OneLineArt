@@ -80,7 +80,8 @@ describe('13.6 project file (.onelineart)', () => {
     const p = project('a');
     const file = await encodeProjectFile(p, thumb());
     expect(decodeUtf8(file.subarray(0, 10))).toBe('ONELINEART');
-    expect(file[10]).toBe(PROJECT_FILE_VERSION);
+    // Paths without per-point widths keep format version 1 (byte for byte as before phase 16).
+    expect(file[10]).toBe(1);
     const read = decodeProjectFile(file);
     expect(read.record).toMatchObject({ name: 'Oma am Meer', createdAt: '2026-03-01T08:00:00.000Z', edit: p.edit, render: p.render, animation: p.animation, versions: p.versions, favorite: false });
     expect(read.record.oneLine.drawing).toMatchObject({ style: 'orthogonal', detailLevel: 'detail', seed: 42 });
@@ -232,5 +233,57 @@ describe('utf-8 helpers', () => {
     expect(() => decodeUtf8(new Uint8Array([0xc3]))).toThrow(RangeError);
     expect(() => decodeUtf8(new Uint8Array([0xc0, 0x80]))).toThrow(RangeError);
     expect(() => decodeUtf8(new Uint8Array([0xed, 0xa0, 0x80]))).toThrow(RangeError);
+  });
+});
+
+describe('16 project file with widths (Orthogonal)', () => {
+  const widths = new Float32Array([0.5, 1.25, 2, 0.75]);
+  const withWidths = (id: string) => {
+    const p = project(id, { style: 'orthogonal' });
+    return { ...p, path: { ...p.path, widths } };
+  };
+
+  it('a path with widths is written as version 2 and comes back exactly (coordinates and widths)', async () => {
+    const file = await encodeProjectFile(withWidths('w'), thumb());
+    expect(file[10]).toBe(2);
+    expect(PROJECT_FILE_VERSION).toBe(2);
+    const read = decodeProjectFile(file);
+    expect(read.widths).toEqual(widths);
+    expect(read.coords).toEqual(withWidths('w').path.coords);
+    expect(read.thumbnail).not.toBeNull();
+  });
+
+  it('a path without widths is still a version-1 file, byte for byte as before (no widths section)', async () => {
+    const file = await encodeProjectFile(project('o'), null);
+    expect(file[10]).toBe(1);
+    const length = new DataView(file.buffer, file.byteOffset).getUint32(12, true);
+    const manifest = JSON.parse(decodeUtf8(file.subarray(16, 16 + length))) as { sections: Record<string, unknown> };
+    expect(Object.keys(manifest.sections).sort()).toEqual(['image', 'path', 'thumbnail']);
+    expect(decodeProjectFile(file).widths).toBeUndefined();
+  });
+
+  it('damaged widths or sections that do not fit the version are refused', async () => {
+    const good = await encodeProjectFile(withWidths('w'), null);
+    // A version-2 file without its widths section, a version-1 file with one.
+    rejects(withManifest(good, (m) => delete (m.sections as Record<string, unknown>).widths), 'damaged');
+    const plain = await encodeProjectFile(project('o'), null);
+    rejects(withManifest(plain, (m) => ((m.sections as Record<string, unknown>).widths = { length: 16 })), 'damaged');
+    // A width that is not finite and positive.
+    const bad = good.slice();
+    const length = new DataView(bad.buffer).getUint32(12, true);
+    const imageLength = 64;
+    const widthsStart = 16 + length + imageLength + 4 * 8;
+    new DataView(bad.buffer).setFloat32(widthsStart + 4, -1, true);
+    rejects(bad, 'damaged');
+    // Cut off.
+    rejects(good.slice(0, good.length - 2), 'damaged');
+  });
+
+  it('importing a version-2 file keeps the widths in the stored project', async () => {
+    const backend = createMemoryStorageBackend();
+    const repo = createProjectRepository(backend);
+    const file = decodeProjectFile(await encodeProjectFile(withWidths('w'), null));
+    const { id } = await repo.importProject(file, { id: 'imp', imageId: 'img-imp', toBinary });
+    expect((await repo.load(id)).project.path.widths).toEqual(widths);
   });
 });

@@ -45,6 +45,11 @@ export const ENGINE_PARAMETER_LIMITS: Readonly<Record<ScalarKey, NumericLimit>> 
 export const OPTIONAL_PARAMETER_LIMITS = {
   lightDetail: { min: 0, max: 1 },
   structureToneBalance: { min: 0, max: 1 },
+  spacingFactor: { min: 0.3, max: 1 },
+  spacingFloor: { min: 0, max: 10 },
+  spacingLead: { min: 0, max: 4 },
+  spacingLeadDetail: { min: 0, max: 1 },
+  spacingLeadFactor: { min: 0, max: 1 },
 } as const satisfies Record<string, NumericLimit>;
 
 /** Line budget bounds (demand points). */

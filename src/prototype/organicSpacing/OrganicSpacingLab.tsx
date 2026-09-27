@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
-import { DETAIL_LEVELS, importImage, resolveOneLineSettings, type ImageAnalysis, type OneLinePath, type ProcessedImage, type Size } from '../../core';
+import { DETAIL_LEVELS, importImage, resolveOneLineSettings, withoutLineSpacing, type ImageAnalysis, type OneLinePath, type ProcessedImage, type Size } from '../../core';
 import { MEASURE_LONG_EDGE, RECOMMENDED_SPACING_VARIANT, SPACING_VARIANTS, measurePassSpacing, spacingPatch, type PassSpacing, type SpacingVariant } from '../../core/experimental/organicSpacing';
 import { compareRendering, type RenderingComparison } from '../../core/experimental/variableWidth';
 import { runAnalysis } from '../../platform/browser/analysisRunner';
@@ -16,6 +16,8 @@ import { TEST_IMAGES } from '../variableWidth/testImages';
  * Phase 15.5 experimental test page: the PRODUCTION Organic engine (app
  * worker, unchanged) with a smaller minimum spacing, passed in as a parameter
  * patch (see src/core/experimental/organicSpacing). Not part of the app.
+ * Since phase 16 the presets carry the spacing themselves; the page starts
+ * from the presets WITHOUT it (the reference before phase 16).
  */
 
 type DetailLevel = (typeof DETAIL_LEVELS)[number];
@@ -199,7 +201,7 @@ export function OrganicSpacingLab() {
           const variant = SPACING_VARIANTS.find((v) => v.key === key)!;
           if (!map.has(key)) {
             setBusy(variant.label);
-            const patch = spacingPatch(variant.spec, { analysis: imageAnalysis, base: effective.parameters, detail: effective.settings.detail, baselineMedian });
+            const patch = spacingPatch(variant.spec, { analysis: imageAnalysis, base: withoutLineSpacing(effective.parameters), detail: effective.settings.detail, baselineMedian });
             job = runPathGeneration(source.processed, imageAnalysis, effective.settings, patch.parameters, effective.engineId);
             try {
               const o = await job.promise;

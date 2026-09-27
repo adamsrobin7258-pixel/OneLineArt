@@ -1,5 +1,7 @@
 # Prototyp: Konstanter Linienabstand, variable Liniendicke (Phase 15.1)
 
+> **Phase 16:** „Free Orthogonal – gewachsen (15.4)“ mit 3 px im Modus „sicher“ ist jetzt der Produktionsstil Orthogonal. Der Code liegt in `src/core/engine/maze/`, und die experimentellen Module re-exportieren ihn. Die Aussagen unten über die „unveränderte Produktion“ beziehen sich auf den Stand der Phasen 15.1–15.4.
+
 **Experimentell.** Nicht Teil der App, der Zeichenstile, der Projekte oder des
 Produktionsbuilds. Die bestehenden Engines (Organisch, Geometrisch, Orthogonal),
 ihre Golden-Referenzen und die Oberfläche sind unverändert. Der Produktionsbuild

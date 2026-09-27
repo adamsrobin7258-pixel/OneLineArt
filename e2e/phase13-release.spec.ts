@@ -84,10 +84,12 @@ test('13.9 whole workflow: photo → edit → Orthogonal/Detail → start point 
   await expect(page.getByTestId('image-toolbar')).toHaveAttribute('data-analysis-status', 'ready', { timeout: 30_000 });
   await page.getByRole('button', { name: 'Weiter' }).click();
   await ready(page);
-  // 3–5. Style Orthogonal, level Detail → the one line.
-  await page.getByRole('radio', { name: 'Orthogonal' }).click();
+  // 3–5. Level Detail, then style Orthogonal → the one line (phase 16: Orthogonal offers no detail level).
   await page.getByRole('radio', { name: 'Detail', exact: true }).click();
   await ready(page);
+  await page.getByRole('radio', { name: 'Orthogonal' }).click();
+  await ready(page);
+  await expect(page.getByRole('radiogroup', { name: 'Detailgrad' })).toHaveCount(0);
   await expect(settingsScreen(page)).toHaveAttribute('data-style', 'orthogonal');
   await expect(settingsScreen(page)).toHaveAttribute('data-render-size', '1593x2048');
   const paths = await workers(page, 'pathGeneration');
@@ -126,7 +128,7 @@ test('13.9 whole workflow: photo → edit → Orthogonal/Detail → start point 
   // 15. Every stored setting is back, nothing recomputed.
   await expect(settingsScreen(page)).toHaveAttribute('data-style', 'orthogonal');
   await expect(settingsScreen(page)).toHaveAttribute('data-render-size', '1593x2048');
-  await expect(checked(page, 'Detailgrad')).toHaveText('Detail');
+  await expect(page.getByRole('radiogroup', { name: 'Detailgrad' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Weiter' }).click();
   await openPanel(page);
   await expect(checked(page, 'Dauer')).toHaveText('5 s');
@@ -179,7 +181,7 @@ test('13.9 whole workflow: photo → edit → Orthogonal/Detail → start point 
   await ready(page);
   await expect(settingsScreen(page)).toHaveAttribute('data-style', 'orthogonal');
   await expect(settingsScreen(page)).toHaveAttribute('data-render-size', '1593x2048');
-  await expect(checked(page, 'Detailgrad')).toHaveText('Detail');
+  await expect(page.getByRole('radiogroup', { name: 'Detailgrad' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Weiter' }).click();
   await openPanel(page);
   await expect(canvas(page)).toHaveAttribute('data-start', start);

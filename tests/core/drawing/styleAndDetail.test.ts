@@ -5,13 +5,18 @@ import {
   DETAIL_PROFILES,
   DRAWING_STYLES,
   DRAWING_STYLE_PROFILES,
-  GEOMETRIC_ENGINE_ID,
+  KNOWN_DRAWING_STYLES,
   ONE_LINE_ENGINE_ID,
+  ORTHOGONAL_ENGINE_ID,
   SMOOTHING_RANGE,
+  currentDrawingStyle,
   isCustomDrawing,
+  isLegacyDrawingStyle,
   pointBudgetFor,
   resolveAllDetailLevels,
   resolveOneLineSettings,
+  styleUsesDetail,
+  styleUsesSmoothing,
 } from '../../../src/core';
 
 const budget = (detail: number) => {
@@ -90,33 +95,52 @@ describe('line smoothing', () => {
     expect(resolveOneLineSettings({ smoothing: 0 }).parameters.smoothingIterations).toBe(0);
   });
 
-  it('does not apply to styles without smoothing (geometric keeps its key)', () => {
-    expect(DRAWING_STYLE_PROFILES.geometric.smoothing).toBe(false);
-    const plain = resolveOneLineSettings({ style: 'geometric' });
-    const smoothed = resolveOneLineSettings({ style: 'geometric', smoothing: 5 });
+  it('does not apply to styles without smoothing (orthogonal keeps its key)', () => {
+    expect(DRAWING_STYLE_PROFILES.orthogonal.smoothing).toBe(false);
+    const plain = resolveOneLineSettings({ style: 'orthogonal' });
+    const smoothed = resolveOneLineSettings({ style: 'orthogonal', smoothing: 5 });
     expect(smoothed.key).toBe(plain.key);
     expect(smoothed.parameters).toEqual(plain.parameters);
   });
 });
 
 describe('drawing styles', () => {
-  it('exactly three styles; Organic is the default and uses the original engine', () => {
-    expect(DRAWING_STYLES).toEqual(['organic', 'geometric', 'orthogonal']);
+  it('phase 16: exactly two styles are offered; Organic is the default and uses the original engine', () => {
+    expect(DRAWING_STYLES).toEqual(['organic', 'orthogonal']);
+    expect(KNOWN_DRAWING_STYLES).toEqual(['organic', 'orthogonal', 'geometric']);
     const organic = resolveOneLineSettings();
     expect(organic.drawing.style).toBe('organic');
     expect(organic.engineId).toBe(ONE_LINE_ENGINE_ID);
+    expect(resolveOneLineSettings({ style: 'orthogonal' }).engineId).toBe(ORTHOGONAL_ENGINE_ID);
   });
 
-  it('Geometric uses its own engine and gets its own key (never mixed up in the cache)', () => {
+  it('Orthogonal uses its own engine and gets its own key (never mixed up in the cache); its detail level is not a user choice', () => {
     for (const level of DETAIL_LEVELS) {
       const organic = resolveOneLineSettings({ detailLevel: level });
-      const geometric = resolveOneLineSettings({ detailLevel: level, style: 'geometric' });
-      expect(geometric.engineId).toBe(GEOMETRIC_ENGINE_ID);
-      expect(geometric.key).not.toBe(organic.key);
-      // Same detail semantics: presets map to the same parameters in both styles.
-      expect(geometric.parameters).toEqual(organic.parameters);
-      expect(geometric.settings).toEqual(organic.settings);
+      const orthogonal = resolveOneLineSettings({ detailLevel: level, style: 'orthogonal' });
+      expect(orthogonal.engineId).toBe(ORTHOGONAL_ENGINE_ID);
+      expect(orthogonal.key).not.toBe(organic.key);
     }
+    expect(styleUsesDetail('organic')).toBe(true);
+    expect(styleUsesDetail('orthogonal')).toBe(false);
+    // A detail value is only "custom" where the detail applies.
+    expect(isCustomDrawing({ style: 'orthogonal', detail: 0.7, smoothing: null })).toBe(false);
+    expect(isCustomDrawing({ style: 'organic', detail: 0.7, smoothing: null })).toBe(true);
+  });
+
+  it('legacy Geometric (phase 16): still readable, resolved as Organic with the same detail choices (reported)', () => {
+    for (const level of DETAIL_LEVELS) {
+      const legacy = resolveOneLineSettings({ detailLevel: level, style: 'geometric', seed: 5 });
+      const organic = resolveOneLineSettings({ detailLevel: level, style: 'organic', seed: 5 });
+      expect(legacy.drawing.style).toBe('organic');
+      expect(legacy.engineId).toBe(ONE_LINE_ENGINE_ID);
+      expect(legacy.key).toBe(organic.key);
+      expect(legacy.issues.map((i) => i.name)).toContain('style');
+    }
+    expect(currentDrawingStyle('geometric')).toBe('organic');
+    expect(isLegacyDrawingStyle('geometric')).toBe(true);
+    expect(isLegacyDrawingStyle('orthogonal')).toBe(false);
+    expect(styleUsesSmoothing('geometric')).toBe(true);
   });
 
   it('an unknown style falls back to Organic (reported)', () => {
@@ -126,9 +150,9 @@ describe('drawing styles', () => {
   });
 
   it('presets reset custom values but keep the style', () => {
-    const all = resolveAllDetailLevels({ style: 'geometric', detail: 0.8, smoothing: 1 });
+    const all = resolveAllDetailLevels({ style: 'orthogonal', detail: 0.8, smoothing: 1 });
     for (const level of DETAIL_LEVELS) {
-      expect(all[level].drawing).toMatchObject({ style: 'geometric', detailLevel: level, detail: null, smoothing: null });
+      expect(all[level].drawing).toMatchObject({ style: 'orthogonal', detailLevel: level, detail: null, smoothing: null });
       expect(isCustomDrawing(all[level].drawing)).toBe(false);
     }
   });

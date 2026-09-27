@@ -22,8 +22,20 @@ describe('detail levels and profiles', () => {
     expect(resolveOneLineSettings().drawing.detailLevel).toBe('balanced');
   });
 
-  it('Balanced is exactly the calibrated Part 4 engine default', () => {
-    expect(resolveOneLineSettings({ detailLevel: 'balanced' }).parameters).toEqual(DEFAULT_ENGINE_PARAMETERS);
+  it('Balanced is exactly the calibrated Part 4 engine default plus the phase-16 line spacing', () => {
+    expect(resolveOneLineSettings({ detailLevel: 'balanced' }).parameters).toEqual({ ...DEFAULT_ENGINE_PARAMETERS, spacingFactor: 0.6, spacingFloor: 1 });
+  });
+
+  it('phase 16: the line spacing of the presets (tested in phase 15.5) and the Detail lead over Balanced', () => {
+    const [minimal, balanced, detail] = DETAIL_LEVELS.map((level) => resolveOneLineSettings({ detailLevel: level }).parameters);
+    expect([minimal!.spacingFactor, minimal!.spacingFloor]).toEqual([0.6, 1]);
+    expect([balanced!.spacingFactor, balanced!.spacingFloor]).toEqual([0.6, 1]);
+    expect([detail!.spacingFactor, detail!.spacingFloor]).toEqual([0.7, 1]);
+    // The lead refers to Balanced exactly: its position on the detail axis and its spacing factor.
+    expect(detail!.spacingLead).toBe(1.2);
+    expect(detail!.spacingLeadDetail).toBe(DETAIL_PROFILES.balanced.detail);
+    expect(detail!.spacingLeadFactor).toBe(balanced!.spacingFactor);
+    expect(balanced!.spacingLead).toBeUndefined();
   });
 
   it('every profile resolves to valid parameters without adjustments', () => {

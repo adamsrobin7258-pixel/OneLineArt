@@ -3,8 +3,8 @@ import { sanitizeVariableWidthParameters, type VariableWidthIssue, type Variable
 import { arcSpiral, flowCurve, organicMeander, type CurvedRouteDiagnostics } from './curvedRoutes';
 import { grownMaze, orthogonalMaze } from './orthogonalMaze';
 import { meanderColumns, meanderRows, spiral, type Route, type RouteOptions } from './routes';
-import { buildToneField, sampleField, type ToneField } from './toneField';
-import { createWidthTransfer } from './transfer';
+import type { ToneField } from './toneField';
+import { SAMPLE_STEP, buildWidthLine } from '../../engine/maze/widthLine';
 
 export const VARIABLE_WIDTH_GENERATOR_ID = 'experimental-variable-width';
 export const VARIABLE_WIDTH_VERSION = '0.2.0';
@@ -47,14 +47,6 @@ export interface VariableWidthDiagnostics {
   readonly curved: CurvedRouteDiagnostics | null;
 }
 
-/** Sample distance along the centre line, working px (the width can change this finely). */
-const SAMPLE_STEP = 1;
-/** Merging straight runs: deviations below these are invisible (working px). */
-const POSITION_TOLERANCE = 0.02;
-const WIDTH_TOLERANCE = 0.02;
-/** Longest merged run in samples: bounds the work and the segment length. */
-const MAX_RUN = 32;
-
 /** Flowing curve: rows across the sweep diagonal, river-curve wavelength 1.8 canvas diagonals. */
 export const FLOW_SHAPE = { tilt: 0.5, wavelength: 1.8 } as const;
 
@@ -76,74 +68,14 @@ export function variableWidthRoute(size: Size, p: VariableWidthParameters): Rout
   return meanderRows(size, options);
 }
 
-/**
- * Drops samples that lie on the straight line (and linear width ramp) between
- * their neighbours. Keeps first and last point; deterministic, O(n · MAX_RUN).
- */
-function mergeStraightRuns(coords: Float64Array, widths: Float64Array): number[] {
-  const n = coords.length >> 1;
-  const along = new Float64Array(n);
-  for (let i = 1; i < n; i++) along[i] = along[i - 1]! + Math.hypot(coords[i * 2]! - coords[i * 2 - 2]!, coords[i * 2 + 1]! - coords[i * 2 - 1]!);
-  const keep: number[] = [0];
-  let anchor = 0;
-  let j = anchor + 2;
-  while (j < n) {
-    let ok = j - anchor <= MAX_RUN;
-    if (ok) {
-      const ax = coords[anchor * 2]!, ay = coords[anchor * 2 + 1]!, aw = widths[anchor]!;
-      const bx = coords[j * 2]!, by = coords[j * 2 + 1]!, bw = widths[j]!;
-      const total = along[j]! - along[anchor]!;
-      for (let i = anchor + 1; i < j && ok; i++) {
-        const t = total > 0 ? (along[i]! - along[anchor]!) / total : 0;
-        const ex = ax + (bx - ax) * t, ey = ay + (by - ay) * t, ew = aw + (bw - aw) * t;
-        ok = Math.hypot(coords[i * 2]! - ex, coords[i * 2 + 1]! - ey) <= POSITION_TOLERANCE && Math.abs(widths[i]! - ew) <= WIDTH_TOLERANCE;
-      }
-    }
-    if (ok) {
-      j++;
-      continue;
-    }
-    anchor = j - 1;
-    keep.push(anchor);
-    j = anchor + 2;
-  }
-  if (n > 1) keep.push(n - 1);
-  return keep;
-}
-
 export function generateVariableWidthLine(image: RasterImage, input: Partial<VariableWidthParameters> = {}): VariableWidthLine {
   if (!(image.width > 0 && image.height > 0) || image.data.length !== image.width * image.height * 4) {
     throw new RangeError(`Invalid image ${image.width}×${image.height}`);
   }
   const { value: p, issues } = sanitizeVariableWidthParameters(input);
-  const tone = buildToneField(image, p);
-  const working: Size = { width: tone.field.width, height: tone.field.height };
-  const route = variableWidthRoute(working, p);
-  const widthOf = createWidthTransfer(p);
-
+  const line = buildWidthLine(image, p, (size) => variableWidthRoute(size, p));
+  const { coords, widths: outWidths, tone, working, route, frame, scale } = line;
   const n = route.coords.length >> 1;
-  const widths = new Float64Array(n);
-  let frame = 0;
-  for (let i = 0; i < n; i++) {
-    if (route.frame[i]) {
-      widths[i] = p.minWidth;
-      frame++;
-    } else {
-      widths[i] = widthOf(sampleField(tone.field, route.coords[i * 2]!, route.coords[i * 2 + 1]!));
-    }
-  }
-
-  const keep = mergeStraightRuns(route.coords, widths);
-  const sx = image.width / working.width;
-  const sy = image.height / working.height;
-  const scale = (sx + sy) / 2;
-  const coords = new Float32Array(keep.length * 2);
-  const outWidths = new Float32Array(keep.length);
-  keep.forEach((k, i) => {
-    coords[i * 2] = Math.min(image.width, route.coords[k * 2]! * sx);
-    coords[i * 2 + 1] = Math.min(image.height, route.coords[k * 2 + 1]! * sy);
-    outWidths[i] = widths[k]! * scale;
-  });
   let length = 0;
   for (let i = 2; i < coords.length; i += 2) length += Math.hypot(coords[i]! - coords[i - 2]!, coords[i + 1]! - coords[i - 1]!);
 
@@ -163,7 +95,7 @@ export function generateVariableWidthLine(image: RasterImage, input: Partial<Var
     diagnostics: {
       lines: route.lines,
       routePoints: n,
-      points: keep.length,
+      points: coords.length >> 1,
       frameShare: n ? frame / n : 0,
       levels: tone.levels,
       noiseSigma: tone.noiseSigma,

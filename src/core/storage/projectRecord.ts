@@ -1,5 +1,5 @@
 import { sanitizeAnimationSettings } from '../animation/animationSettings';
-import { DETAIL_LEVELS, DRAWING_STYLES, type EffectiveOneLineSettings } from '../drawing';
+import { DETAIL_LEVELS, KNOWN_DRAWING_STYLES, type EffectiveOneLineSettings } from '../drawing';
 import { sanitizeImageEdit, type ImageEdit } from '../imageEdit';
 import { ANALYSIS_ALGORITHM_VERSION } from '../imageAnalysis/parameters';
 import { ONE_LINE_ENGINE_VERSION } from '../engine/oneLine/parameters';
@@ -48,6 +48,8 @@ export interface ProjectRecord {
 /** Store "paths", key = project id. */
 export interface PathRecord {
   readonly coords: Float32Array;
+  /** Phase 16: line width per point (Orthogonal); absent in older records and for Organic. */
+  readonly widths?: Float32Array;
 }
 
 /** Store "images", key = content hash (one copy per distinct photo). */
@@ -92,6 +94,10 @@ export function validateProject(project: ArtworkProject): void {
   if (!Number.isInteger(points) || points < 2) throw invalid('Path needs at least 2 points');
   if (points > STORAGE_LIMITS.maxPathPoints) throw invalid(`Path has ${points} points (limit ${STORAGE_LIMITS.maxPathPoints})`);
   for (let i = 0; i < path.coords.length; i++) if (!Number.isFinite(path.coords[i])) throw invalid('Path contains non-finite coordinates');
+  if (path.widths !== undefined) {
+    if (path.widths.length !== points) throw invalid('Path widths must have one value per point');
+    for (let i = 0; i < path.widths.length; i++) if (!(Number.isFinite(path.widths[i]) && path.widths[i]! > 0)) throw invalid('Path contains invalid widths');
+  }
   if (path.meta.sourceImageId !== undefined && path.meta.sourceImageId !== image.id) throw invalid('Path belongs to another image');
   if (image.source.size > STORAGE_LIMITS.maxImageBytes) throw invalid('Original image too large to store');
   if (!project.id || !isDate(project.createdAt) || !isDate(project.updatedAt)) throw invalid('Missing id or dates');
@@ -141,7 +147,7 @@ export function parseProjectRecord(raw: unknown): ProjectRecord {
       isText(record.oneLine.engineVersion) &&
       isObject(record.oneLine.drawing) &&
       (DETAIL_LEVELS as readonly unknown[]).includes(record.oneLine.drawing.detailLevel) &&
-      (record.oneLine.drawing.style === undefined || (DRAWING_STYLES as readonly unknown[]).includes(record.oneLine.drawing.style)) &&
+      (record.oneLine.drawing.style === undefined || (KNOWN_DRAWING_STYLES as readonly unknown[]).includes(record.oneLine.drawing.style)) &&
       isOptionalNumber(record.oneLine.drawing.detail) &&
       isOptionalNumber(record.oneLine.drawing.smoothing) &&
       isObject(record.oneLine.settings) &&
@@ -207,7 +213,11 @@ export function parsePathRecord(raw: unknown, record: ProjectRecord): OneLinePat
   if (coords.length !== record.path.pointCount * 2) throw damaged('path length');
   for (let i = 0; i < coords.length; i++) if (!Number.isFinite(coords[i])) throw damaged('path coordinates');
   if (record.path.meta.sourceImageId !== undefined && record.path.meta.sourceImageId !== record.image.id) throw damaged('path belongs to another image');
-  return { coords: new Float32Array(coords), bounds: { ...record.path.bounds }, meta: { ...record.path.meta } };
+  const path = { coords: new Float32Array(coords), bounds: { ...record.path.bounds }, meta: { ...record.path.meta } };
+  if (raw.widths === undefined) return path;
+  if (!(raw.widths instanceof Float32Array) || raw.widths.length !== record.path.pointCount) throw damaged('path widths length');
+  for (let i = 0; i < raw.widths.length; i++) if (!(Number.isFinite(raw.widths[i]) && raw.widths[i]! > 0)) throw damaged('path widths');
+  return { ...path, widths: new Float32Array(raw.widths) };
 }
 
 export function parseImageRecord(raw: unknown, record: ProjectRecord): ImageRecord {

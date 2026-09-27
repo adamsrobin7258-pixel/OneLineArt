@@ -3,6 +3,8 @@ import type { RenderContext2D } from '../../../src/core';
 export type Op =
   | { op: 'moveTo' | 'lineTo'; x: number; y: number }
   | { op: 'stroke'; style: unknown; width: number; alpha: number }
+  | { op: 'fill'; style: unknown; alpha: number }
+  | { op: 'closePath' }
   | { op: 'fillRect'; style: unknown; w: number; h: number }
   | { op: 'clearRect' }
   | { op: 'drawImage'; image: unknown; w: number; h: number }
@@ -25,6 +27,8 @@ export function recordingContext(): RenderContext2D & { ops: Op[] } {
     moveTo: (x: number, y: number) => ops.push({ op: 'moveTo', x, y }),
     lineTo: (x: number, y: number) => ops.push({ op: 'lineTo', x, y }),
     stroke: () => ops.push({ op: 'stroke', style: ctx.strokeStyle, width: ctx.lineWidth, alpha: ctx.globalAlpha }),
+    fill: () => ops.push({ op: 'fill', style: ctx.fillStyle, alpha: ctx.globalAlpha }),
+    closePath: () => ops.push({ op: 'closePath' }),
     fillRect: (_x: number, _y: number, w: number, h: number) => ops.push({ op: 'fillRect', style: ctx.fillStyle, w, h }),
     clearRect: () => ops.push({ op: 'clearRect' }),
     drawImage: (image: never, _x: number, _y: number, w: number, h: number) => ops.push({ op: 'drawImage', image, w, h }),

@@ -1,4 +1,4 @@
-import { FACTORY_WORK_DEFAULTS, RENDER_CONTROLS, SPEED_PRESETS, type AnimationDirection, type DefaultBackground, type WorkDefaults } from '../../core';
+import { FACTORY_WORK_DEFAULTS, RENDER_CONTROLS, styleUsesDetail, SPEED_PRESETS, type AnimationDirection, type DefaultBackground, type WorkDefaults } from '../../core';
 import { Button } from '../../ui/components/Button';
 import { Icon } from '../../ui/components/Icon';
 import { OptionGroup } from '../../ui/components/OptionGroup';
@@ -51,7 +51,7 @@ export function PreferencesScreen({ defaults, onChange, onBack }: PreferencesScr
         <fieldset className="preferences__group">
           <legend className="export__title">Zeichnung</legend>
           <StyleChoice value={defaults.style} onChange={(style) => set({ style })} fill />
-          <DetailChoice value={defaults.detailLevel} onChange={(detailLevel) => set({ detailLevel })} fill />
+          {styleUsesDetail(defaults.style) && <DetailChoice value={defaults.detailLevel} onChange={(detailLevel) => set({ detailLevel })} fill />}
         </fieldset>
 
         <fieldset className="preferences__group">

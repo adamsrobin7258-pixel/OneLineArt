@@ -49,6 +49,11 @@ export function validateOneLinePath(path: OneLinePath, options: PathValidationOp
   }
   if (firstNonFinite >= 0) errors.push(`Non-finite coordinate at point ${firstNonFinite}.`);
   if (firstOutside >= 0) errors.push(`Point ${firstOutside} lies outside the ${width}×${height} canvas.`);
+  // Phase 16: styles whose width carries the tone have one positive, finite width per point.
+  if (path.widths !== undefined) {
+    if (!(path.widths instanceof Float32Array) || path.widths.length !== n) errors.push('Widths must have one value per point.');
+    else if (path.widths.some((w) => !(Number.isFinite(w) && w > 0))) errors.push('Every width must be finite and positive.');
+  }
 
   let length = 0;
   let zeroSegments = 0;

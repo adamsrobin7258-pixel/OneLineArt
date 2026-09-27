@@ -16,7 +16,12 @@ import { STORAGE_LIMITS, StorageError, type ProjectThumbnail } from './types';
  *   manifest     UTF-8 JSON: { kind, formatVersion, project, sections }
  *   then, in this order and exactly as long as the manifest says:
  *     original image (the untouched file, once), path (float32 x/y, little
- *     endian), thumbnail (optional)
+ *     endian), [version 2 only: widths (float32 per point, little endian)],
+ *     thumbnail (optional)
+ *
+ * Version 2 (phase 16) exists only for paths with a width per point (the
+ * Orthogonal style); every path without widths is still written as version 1,
+ * byte for byte as before. Both versions are read.
  *
  * `project` has the shape of the stored project record, so importing runs it
  * through the SAME strict validation as loading from storage. Nothing unknown
@@ -24,14 +29,16 @@ import { STORAGE_LIMITS, StorageError, type ProjectThumbnail } from './types';
  */
 export const PROJECT_FILE_EXTENSION = 'onelineart';
 export const PROJECT_FILE_MIME_TYPE = 'application/octet-stream';
-export const PROJECT_FILE_VERSION = 1;
+export const PROJECT_FILE_VERSION = 2;
+/** Files without per-point widths keep the original format. */
+const PLAIN_FILE_VERSION = 1;
 const MAGIC = 'ONELINEART';
 const HEADER_BYTES = 16;
 const MAX_MANIFEST_BYTES = 4 * 1024 * 1024;
 const KIND = 'onelineart-project';
 
 /** Largest file that can be valid: manifest + original + path + thumbnail (checked before parsing). */
-export const MAX_PROJECT_FILE_BYTES = HEADER_BYTES + MAX_MANIFEST_BYTES + STORAGE_LIMITS.maxImageBytes + STORAGE_LIMITS.maxPathPoints * 8 + STORAGE_LIMITS.maxThumbnailBytes;
+export const MAX_PROJECT_FILE_BYTES = HEADER_BYTES + MAX_MANIFEST_BYTES + STORAGE_LIMITS.maxImageBytes + STORAGE_LIMITS.maxPathPoints * 12 + STORAGE_LIMITS.maxThumbnailBytes;
 
 interface Section {
   readonly length: number;
@@ -43,6 +50,8 @@ interface Manifest {
   readonly sections: {
     readonly image: Section & { readonly mimeType: string };
     readonly path: Section;
+    /** Version 2 only. */
+    readonly widths?: Section;
     readonly thumbnail: (Section & { readonly mimeType: string; readonly width: number; readonly height: number }) | null;
   };
 }
@@ -53,6 +62,8 @@ export interface ProjectFileContents {
   readonly record: ProjectRecord;
   readonly image: { readonly bytes: Uint8Array; readonly mimeType: string };
   readonly coords: Float32Array;
+  /** Line width per point (version 2 files); absent otherwise. */
+  readonly widths?: Float32Array;
   readonly thumbnail: { readonly bytes: Uint8Array; readonly mimeType: string; readonly width: number; readonly height: number } | null;
 }
 
@@ -65,27 +76,35 @@ export async function encodeProjectFile(project: ArtworkProject, thumbnail: Proj
   const path = new Uint8Array(coords.length * 4);
   const view = new DataView(path.buffer);
   for (let i = 0; i < coords.length; i++) view.setFloat32(i * 4, coords[i]!, true);
+  const w = project.path.widths;
+  const widths = w ? new Uint8Array(w.length * 4) : null;
+  if (w && widths) {
+    const wv = new DataView(widths.buffer);
+    for (let i = 0; i < w.length; i++) wv.setFloat32(i * 4, w[i]!, true);
+  }
+  const version = widths ? PROJECT_FILE_VERSION : PLAIN_FILE_VERSION;
   const thumb = thumbnail ? new Uint8Array(await thumbnail.data.slice(0, thumbnail.data.size).arrayBuffer()) : null;
 
   // The favourite marker belongs to the own gallery and is not part of the file.
   const record = toProjectRecord(project, thumbnail, false);
   const manifest: Manifest = {
     kind: KIND,
-    formatVersion: PROJECT_FILE_VERSION,
+    formatVersion: version,
     project: record,
     sections: {
       image: { length: image.length, mimeType: project.image.metadata.mimeType },
       path: { length: path.length },
+      ...(widths ? { widths: { length: widths.length } } : {}),
       thumbnail: thumb && thumbnail ? { length: thumb.length, mimeType: thumbnail.mimeType, width: thumbnail.width, height: thumbnail.height } : null,
     },
   };
   const json = encodeUtf8(JSON.stringify(manifest));
-  const out = new Uint8Array(HEADER_BYTES + json.length + image.length + path.length + (thumb?.length ?? 0));
+  const out = new Uint8Array(HEADER_BYTES + json.length + image.length + path.length + (widths?.length ?? 0) + (thumb?.length ?? 0));
   for (let i = 0; i < MAGIC.length; i++) out[i] = MAGIC.charCodeAt(i);
-  out[10] = PROJECT_FILE_VERSION;
+  out[10] = version;
   new DataView(out.buffer).setUint32(12, json.length, true);
   let offset = HEADER_BYTES;
-  for (const part of [json, image, path, thumb]) {
+  for (const part of [json, image, path, widths, thumb]) {
     if (!part) continue;
     out.set(part, offset);
     offset += part.length;
@@ -133,12 +152,16 @@ function decode(bytes: Uint8Array): ProjectFileContents {
   const thumb = sections.thumbnail === null ? null : isObject(sections.thumbnail) ? sections.thumbnail : undefined;
   if (thumb === undefined) throw invalidFile('thumbnail section');
   if (!isLength(image.length) || typeof image.mimeType !== 'string' || !isLength(path.length)) throw invalidFile('section sizes');
+  // Widths: exactly in version 2, never in version 1.
+  const widthsSection = sections.widths;
+  if (version >= 2 ? !isObject(widthsSection) || !isLength(widthsSection.length) : widthsSection !== undefined) throw invalidFile('widths section');
+  const widthsLength = version >= 2 ? ((widthsSection as { length: number }).length) : 0;
   if (thumb && (!isLength(thumb.length) || thumb.length > STORAGE_LIMITS.maxThumbnailBytes || typeof thumb.mimeType !== 'string' || !thumb.mimeType.startsWith('image/') || !isLength(thumb.width) || !isLength(thumb.height) || thumb.width < 1 || thumb.height < 1)) {
     throw invalidFile('thumbnail');
   }
   // The parts fill the file exactly: nothing missing, nothing appended.
   const start = HEADER_BYTES + manifestLength;
-  if (start + image.length + path.length + ((thumb?.length as number | undefined) ?? 0) !== bytes.length) throw invalidFile('size does not match its contents');
+  if (start + image.length + path.length + widthsLength + ((thumb?.length as number | undefined) ?? 0) !== bytes.length) throw invalidFile('size does not match its contents');
 
   // The same strict checks as a stored project; ids are placeholders (new ones on import).
   if (!isObject(manifest.project)) throw invalidFile('project');
@@ -156,14 +179,22 @@ function decode(bytes: Uint8Array): ProjectFileContents {
   const view = new DataView(bytes.buffer, bytes.byteOffset + start + image.length, path.length);
   const coords = new Float32Array(record.path.pointCount * 2);
   for (let i = 0; i < coords.length; i++) coords[i] = view.getFloat32(i * 4, true);
-  // Finite, right length, belongs to this image: the storage's own path checks.
-  parsePathRecord({ coords }, record);
+  let widths: Float32Array | undefined;
+  if (version >= 2) {
+    if (widthsLength !== record.path.pointCount * 4) throw invalidFile('widths size');
+    const wv = new DataView(bytes.buffer, bytes.byteOffset + start + image.length + path.length, widthsLength);
+    widths = new Float32Array(record.path.pointCount);
+    for (let i = 0; i < widths.length; i++) widths[i] = wv.getFloat32(i * 4, true);
+  }
+  // Finite, right length, positive widths, belongs to this image: the storage's own path checks.
+  parsePathRecord(widths ? { coords, widths } : { coords }, record);
 
-  const thumbStart = start + image.length + path.length;
+  const thumbStart = start + image.length + path.length + widthsLength;
   return {
     record,
     image: { bytes: imageBytes, mimeType: image.mimeType },
     coords,
+    ...(widths ? { widths } : {}),
     thumbnail: thumb
       ? { bytes: bytes.slice(thumbStart, thumbStart + (thumb.length as number)), mimeType: thumb.mimeType as string, width: thumb.width as number, height: thumb.height as number }
       : null,

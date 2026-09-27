@@ -124,9 +124,7 @@ test('whole workflow: import → edit → drawing → colour → animation → s
   await page.getByRole('button', { name: 'Weiter' }).click();
   await ready(page);
 
-  // 3. Drawing: geometric, own detail; organic smoothing is kept for later; line width, strength, lightness.
-  await page.getByRole('radio', { name: 'Geometrisch' }).click();
-  await ready(page);
+  // 3. Drawing: organic with an own detail value; line width, strength, lightness.
   await page.getByRole('button', { name: 'Anpassen' }).click();
   await slide(page, 'Detailgrad', ['ArrowRight', 'ArrowRight', 'ArrowRight']);
   await ready(page);
@@ -171,7 +169,7 @@ test('whole workflow: import → edit → drawing → colour → animation → s
   await ready(page);
   await save(page);
   const before = await readAll(page);
-  expect(before.drawing).toMatchObject({ style: 'geometric', custom: 'true', colorMode: 'gradient', palette: 'Ozean', background: 'Eigene', width: '1,50', strength: '90 %' });
+  expect(before.drawing).toMatchObject({ style: 'organic', custom: 'true', colorMode: 'gradient', palette: 'Ozean', background: 'Eigene', width: '1,50', strength: '90 %' });
   expect(before.animation).toMatchObject({ duration: '11,5 s', speed: '2×', direction: 'reverse', marker: 1 });
   expect(before.image.edited).toBe('true');
 
@@ -179,7 +177,7 @@ test('whole workflow: import → edit → drawing → colour → animation → s
   await page.reload();
   await openGallery(page);
   await expect(items(page)).toHaveCount(1);
-  await expect(items(page).first()).toContainText('Geometrisch');
+  await expect(items(page).first()).toContainText('Organisch');
   await items(page).first().getByRole('button', { name: /öffnen/ }).click();
   await ready(page);
   const after = await readAll(page);

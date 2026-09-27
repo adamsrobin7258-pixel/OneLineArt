@@ -274,8 +274,10 @@ for (const [motif, width, height, colourful] of MOTIFS) {
     for (const l of [minimal, balanced, detail]) expect(l.valid).toBe(true);
     // Detail levels: clearly ordered amount of line.
     expect(minimal.length).toBeLessThan(balanced.length);
-    expect(balanced.length).toBeLessThan(detail.length);
-    expect(minimal.points).toBeLessThan(detail.points);
+    expect(minimal.points).toBeLessThan(balanced.points);
+    expect(balanced.points).toBeLessThan(detail.points);
+    // Balanced vs Detail in LENGTH is no longer guaranteed since phase 16 (see detailLevels.test.ts): Detail
+    // concentrates its extra line on structure; on bright motifs its line can be shorter (bright −14 %, square −4 %).
     // Important areas get more line than the rest (not for a motif without structure).
     if (motif !== 'low-structure') for (const l of [minimal, balanced, detail]) expect(l.high).toBeGreaterThan(l.other);
     expect(r.deterministic).toBe(true);

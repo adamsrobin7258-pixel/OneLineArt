@@ -707,7 +707,7 @@ Im Browser bleibt alles unverändert.
 ### Pfad-Parameter vs. Render-Parameter
 | Regler | wirkt auf | Umsetzung | Neuberechnung |
 |---|---|---|---|
-| Stil (Organisch/Geometrisch/Orthogonal) | Pfad | `DrawingSettings.style` → Engine-ID | neuer Pfad (einmal je Konfiguration, danach Cache) |
+| Stil (Organisch/Orthogonal; bis Phase 15: auch Geometrisch) | Pfad | `DrawingSettings.style` → Engine-ID | neuer Pfad (einmal je Konfiguration, danach Cache) |
 | Detailgrad (stufenlos) | Pfad | `DrawingSettings.detail` → `settings.detail` + interpolierte Profile | neuer Pfad beim Loslassen |
 | Linienglättung | Pfad | `DrawingSettings.smoothing` → vorhandenes `smoothingIterations` (Chaikin) | neuer Pfad beim Loslassen |
 | Linienbreite | Rendering | `RenderSettings.lineWidth` | nur Neuzeichnen |
@@ -960,6 +960,8 @@ gezeichnet (sie ist nicht Teil des Kunstwerks; gemessen 0,3–2,8 % der Bilddiag
   Startpunkt (Decodierung per WebCodecs).
 
 ### 13.3 Stil „Orthogonal“
+> **Seit Phase 16 ersetzt** durch das gewachsene Labyrinth mit variabler Dicke (s. „Finale Zeichenstile (Phase 16)“). Dieser Abschnitt beschreibt die alte Engine `orthogonal-stipple-tour`.
+
 Eigene Pfadberechnung über zwei neue, optionale `LineShape`-Haken (Organic/Geometric nutzen sie nicht und
 sind bitgenau unverändert):
 1. `placePoints` → `latticePoints`: Nachfragepunkte **auf einem Raster**, gewählt per Fehlerdiffusion
@@ -1123,6 +1125,8 @@ adaptives Arbeitsraster/Laufzeit bei Detail begrenzen; Dunkelheit in der Analyse
 (`localWeights.luminance`) ebenfalls strukturabhängig machen (würde die Analyse selbst ändern).
 
 ## Geometrisch & Orthogonal: Kreuzungen und Spitzen (Phase 14.2)
+> **Historisch:** Beide Engines wurden in Phase 16 entfernt (`routeRepair.ts` gelöscht).
+
 
 **Ursache (gemessen je Pipeline-Stufe).** Die optimierte Tour hat wenige Kreuzungen (2-opt entfernt sie auf
 den GERADEN Verbindungen; z. B. Blume, Balanced: 7 bzw. 30). Gezeichnet werden aber Eckwege: Geometrisch
@@ -1163,3 +1167,130 @@ gezeichneten Geometrie).
 (Liste nach `useDeferredValue` noch nicht neu aufgebaut) und `phase13-release` „13.9 whole workflow“ (Neuladen
 direkt nach „Umbenennen → Übernehmen“, bevor die Umbenennung gespeichert ist). Beide treten im Referenzstand
 gleich häufig auf (je ≈ 1 von 8–12 Wiederholungen unter Last) und sollen separat stabilisiert werden.
+
+## Finale Zeichenstile (Phase 16)
+
+Die App bietet genau zwei Stile an: **Organisch** und **Orthogonal**. Geometrisch ist nicht mehr wählbar.
+Die Techniken stammen aus den Testseiten der Phasen 15.4 (Orthogonal) und 15.5 (Organisch) und wurden
+unverändert übernommen. Die Hash-Tests belegen das bitgenau.
+
+### Architektur
+- `ONE_LINE_ENGINES` (`engine/oneLine/lineStyles.ts`) enthält zwei Engines:
+  - `importance-stipple-tour` (Organisch, Version 1.0.0 unverändert)
+  - `orthogonal-grown-maze` (Orthogonal, 2.0.0)
+- Die IDs der entfernten Engines stehen in `LEGACY_ENGINE_IDS`. `oneLineEngine()` lehnt sie kontrolliert ab (`invalid-parameters`).
+- Das gewachsene Labyrinth liegt jetzt in der Produktion unter `engine/maze/`:
+  - `lattice` (Grobgitter, `treeLoop`, `grownMaze`)
+  - `toneField`, `widthTransfer`
+  - `widthLine` (Abtastung, Dicken, gerade Läufe ≤ `MAX_RUN`)
+  - `orthogonalEngine`
+- Die experimentellen Module (`core/experimental/variableWidth`, `organicSpacing`) importieren und re-exportieren
+  die Produktionsfunktionen. Ihre Testseiten laufen bitgenau weiter.
+- Alte, nicht mehr genutzte Module wurden gelöscht: `oneLine/orthogonal.ts` und `oneLine/routeRepair.ts`.
+- Die optionalen `LineShape`-Haken `placePoints` und `connectionLength` in `generateOneLine.ts` nutzt
+  nach Phase 16 kein Stil mehr. Sie bleiben bewusst stehen, damit Organisch unberührt bleibt.
+- **Pfadmodell:** `OneLinePath.widths?: Float32Array` enthält eine Strichdicke je Punkt in Pfadkoordinaten.
+  Nur Orthogonal setzt sie. Validierung (Engine, Pfad, Renderer, Speicherung): Die Länge entspricht der
+  Punktzahl, jeder Wert ist endlich und > 0.
+
+### Organisch (Mindestabstand 15.5)
+Neue optionale Engine-Parameter (`engine/oneLine/lineSpacing.ts`, Grenzen in `parameterLimits.ts`):
+
+| Parameter | Bedeutung |
+|---|---|
+| `spacingFactor` f | Linienabstand × f: Punktbudget × 1/f², `maxWorkingEdge` × 1/f |
+| `spacingFloor` | Boden in px bei 800 px langer Kante: Die dichteste Stelle (aus dem Nachfragefeld vorhergesagt) wird nie enger. f_eff = min(1, max(f, Boden/Abstand)) |
+| `spacingLead`, `spacingLeadDetail`, `spacingLeadFactor` | Vorsprung: Die Stufe behält mindestens `spacingLead` × die Punkte der Referenzstufe (Detailposition + Faktor, gleicher Boden, auf dem eigenen Nachfragefeld geschätzt) |
+
+`applyLineSpacing` rechnet das vor Schritt 1 in gewöhnliche Parameter um. Ohne die Schlüssel ändert sich
+nichts, und jede Einstellung aus der Zeit vor Phase 16 behält ihre Linie.
+
+Presets (`drawing/detailLevels.ts`):
+
+| Stufe | Einstellung |
+|---|---|
+| Minimal | −40 %, Boden 1 px |
+| Ausgewogen | −40 %, Boden 1 px |
+| Detail | −30 %, Boden 1 px, Vorsprung 1,2 × Ausgewogen |
+
+- **Vorsprung (Entscheidung Phase 16):** Ohne ihn hebt der Boden Detail auf manchen Bildern fast auf die
+  Punktzahl von Ausgewogen (Porträt-Motiv: D/A ≈ 1,0). Jetzt hat Detail immer ≥ 20 % mehr Punkte.
+- **Bekannter Grenzfall, bewusst nicht geändert:** Auf sehr hellen Bildern (kleines dunkles Objekt auf Weiß)
+  greift der Boden bei Ausgewogen stärker als bei Minimal. Ausgewogen kann dann weniger Nachfragepunkte haben
+  als Minimal (synthetisch: 27 125 zu 31 111). Die Linie bleibt trotzdem ≈ 8 % länger. Das wird am Gerät
+  geprüft. Ein Ausgewogen-über-Minimal-Vorsprung wurde getestet und verworfen: Die Schätzung verkettet sich
+  ungenau (Mond: D/A 1,14 bei gleichem Median).
+- **Linienlänge Detail vs. Ausgewogen** ist nicht mehr garantiert, nur die Punktzahl (M < A < D) und
+  Minimal < Ausgewogen in der Länge. Detail legt seine zusätzliche Linie auf die Struktur.
+  - Auf 8 Fotos ist Detail 2–16 % länger.
+  - Auf den synthetischen E2E-Motiven „bright“ ist Detail −14 % kürzer, auf „square“ −4 %.
+  - `realistic.spec` und `detailLevels.test` prüfen deshalb die Punkte.
+  - Punkt für das gemeinsame Review.
+- Stufentrennung auf 8 Fotos (Punkte M/A/D):
+  - grace 31 111/61 111/81 633
+  - chelsea 31 111/51 970/63 235
+  - moon 25 483/31 161/42 476
+  - die Mediane der Abstände fallen streng.
+
+### Orthogonal (gewachsenes Labyrinth 15.4)
+- **Referenzparameter** (`ORTHOGONAL_LINE_PARAMETERS`, `ORTHOGONAL_MAZE_PARAMETERS`):
+  - Linienabstand 3 px bei 800 px Arbeitskante (dieselbe technische Bedeutung wie auf der Testseite, kein CSS-px)
+  - Breite 0,338 … 2,475 (Modus „sicher“)
+  - Kontrast 0, Detail 0,6, Glättung 0,35, wahrnehmungsbasiert, Auto-Tonwert
+  - Labyrinth: Lauf 0,9, gerade 0,2, Treppen 1, Haarnadeln 0,7, Variation 0, Maßstab 0,6
+  - Seed = `settings.seed`
+- **Detailgrad und Glättung** gelten nicht. Die UI blendet den Detailgrad aus bzw. sperrt den Regler mit Hinweis.
+- **Startpunkt:** automatisch (0, 0), sonst der gesetzte Startpunkt, wie auf der Testseite.
+- **Bildunabhängigkeit der Mittellinie:** Die Wege hängen nur von Bildgröße, Seed und Startpunkt ab, nicht vom
+  Bildinhalt (Test: schwarz, weiß, Rauschen, Porträt, Architektur).
+- **Rendering** (`rendering/renderer.ts`): Pfade mit `widths` werden als gefüllte Vierecke mit eckigen Enden
+  gezeichnet. Das ergibt exakte 90°-Ecken, alle Vierecke sind gleich orientiert, und es gibt eine Nonzero-Füllung
+  je Farblauf (Einfarbig, Verlauf, Foto). Die Render-Einstellung „Linienbreite“ wirkt als Faktor. Die Animation
+  interpoliert die Dicke an der Spitze. Vorschau, Animation, PNG- und Videoexport sowie Galerie-Vorschaubilder
+  nutzen denselben Renderer.
+
+### Persistenz und alte Projekte
+- **Projekte** speichern `widths` im `paths`-Store und behalten sie beim Duplizieren und Importieren.
+- **`.onelineart`:**
+  - Pfade ohne Dicke werden weiter als Version 1 geschrieben (byte-identisch).
+  - Pfade mit Dicke werden als Version 2 geschrieben, mit einem `widths`-Abschnitt nach `path`.
+  - Der Decoder liest beide Versionen. Ab Version 2 ist der Abschnitt Pflicht.
+- **Alte Werke** zeigen weiter ihre gespeicherte Linie, auch Geometrisch und das alte Orthogonal.
+  - `DrawingStyle` kennt `geometric` weiter als Altwert (`LEGACY_DRAWING_STYLES`).
+  - Die Stilauswahl zeigt dann nichts ausgewählt und den Hinweis „Älterer Stil ‚Geometrisch‘ – eine Änderung
+    zeichnet die Linie im Stil ‚Organisch‘ neu“.
+- **Umstellung** (Entscheidung Phase 16): Erst die erste Änderung (Einstellung oder Bildbearbeitung) zeichnet neu.
+  - Geometrisch wird zu Organisch (`LEGACY_STYLE_REPLACEMENTS`).
+  - Altes Orthogonal wird zum neuen Orthogonal.
+  - Umgesetzt über `isRunnableEngine` in `importState` und `useImageImport`.
+  - Ein gespeicherter Standardstil „Geometrisch“ in den Einstellungen fällt auf den Standard zurück.
+
+### Animation
+Die Dauer bleibt die gewählte Dauer. Die Geschwindigkeit ist wie bisher konstant entlang der Bogenlänge.
+Die Linien sind jetzt länger (Organisch: kleinerer Abstand; Orthogonal: lückenloses Labyrinth), deshalb
+zeichnet der Stift schneller.
+
+### Goldens
+
+| Status | Goldens |
+|---|---|
+| **Stillgelegt** (mit den Engines gelöscht) | `tests/core/engine/orthogonal.test.ts` (Gitterpunkte, L-Routing), `tests/core/engine/routeRepair.test.ts` (14.2 Geometrisch/Orthogonal) |
+| **Behalten, weiter geprüft** | Organisch `GOLDEN_14_1`, `GOLDEN` (vor 14.1) und `GOLDEN_13_1` in `organicGolden.test.ts`: Ohne Abstandsparameter liefert die Engine exakt diese Pfade. Dazu alle experimentellen Hash-Tests 15.1–15.5 |
+| **Neu** | `GOLDEN_16` (Produktionspresets); `lineSpacing.test.ts` (5 Hashes = Testseite 15.5; Porträt/Detail weicht bewusst ab, Vorsprung); `orthogonalStyle.test.ts` (bitgleich zu `generateVariableWidthLine` 15.4); `widthRendering.test.ts` |
+
+### Performance (Node, Produktionscode, grace/chelsea/astronaut)
+Gemessen direkt hintereinander auf derselben Maschine, Stand vorher (HEAD vor Phase 16) → nachher, Seed 1:
+
+| Motiv | Organisch Minimal | Organisch Ausgewogen | Organisch Detail | Orthogonal (alle Stufen) |
+|---|---|---|---|---|
+| grace_hopper | 1,8 → 3,2 s | 3,0 → 7,5 s | 4,6 → 9,5 s | 0,9–2,2 → 0,5 s |
+| chelsea | 3,1 → 5,8 s | 2,9 → 7,2 s | 5,3 → 8,6 s | 1,2–2,1 → 0,3–0,4 s |
+| astronaut | 1,5 → 5,4 s | 2,5 → 6,8 s | 3,9 → 8,5 s | 0,6–1,9 → 0,5 s |
+
+- **Organisch** rechnet ≈ 1,6–3,7× so lange (Ausgewogen ≈ 2,5×). Ursache: rund doppelt so viele Punkte
+  (Budget × 1/f²) auf einem größeren Arbeitsraster. Das ist der Preis des engeren Abstands.
+- **Orthogonal** ist 2–5× schneller (kein Stippling und keine Tour).
+- Die Berechnung läuft weiter im Worker mit Fortschritt und Abbruch. Die Oberfläche bleibt bedienbar.
+- **Browser, 4× gedrosselt (Messung 15.5):** Ausgewogen ≈ 17 s. Die Rechenzeit am Gerät ist Teil des
+  Xiaomi-Tests.
+- **Messung:** Node, Produktionscode über `oneLineEngine(...).run`.

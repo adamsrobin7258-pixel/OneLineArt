@@ -9,13 +9,15 @@ import {
   isDarkBackground,
   isPresetDuration,
   timelineDurationMs,
+  isLegacyDrawingStyle,
   type DrawingStyle,
+  type SelectableDrawingStyle,
   type OneLineDetailLevel,
 } from '../core';
 import { OptionGroup } from '../ui/components/OptionGroup';
 import { SegmentedControl } from '../ui/components/SegmentedControl';
 import { Slider } from '../ui/components/Slider';
-import { CUSTOM_DETAIL_LABEL, DETAIL_LEVEL_LABELS, DISPLAY_OPTIONS, DRAWING_STYLE_LABELS, LIGHT_LINE_HINT, OWN_LINE_COLOR_HINT, displayOf } from './drawingLabels';
+import { CUSTOM_DETAIL_LABEL, DETAIL_LEVEL_LABELS, DISPLAY_OPTIONS, DRAWING_STYLE_LABELS, LIGHT_LINE_HINT, OWN_LINE_COLOR_HINT, displayOf, legacyStyleHint } from './drawingLabels';
 import type { RenderSettingsController } from './state/useRenderSettings';
 
 const DETAIL_OPTIONS = DETAIL_LEVELS.map((value) => ({ value, label: DETAIL_LEVEL_LABELS[value].label }));
@@ -57,11 +59,15 @@ export function DetailChoice({
   );
 }
 
-/** Organisch | Geometrisch — which engine draws the line. */
-export function StyleChoice({ value, onChange, fill }: { value: DrawingStyle; onChange: (style: DrawingStyle) => void; fill?: boolean }) {
+/**
+ * Organisch | Orthogonal — which engine draws the line. An older work in a
+ * style no longer offered (Geometrisch) shows no selection and says what a change does.
+ */
+export function StyleChoice({ value, onChange, fill }: { value: DrawingStyle; onChange: (style: SelectableDrawingStyle) => void; fill?: boolean }) {
   return (
-    <OptionGroup label="Stil" caption={DRAWING_STYLE_LABELS[value].hint}>
-      <SegmentedControl label="Stil" options={STYLE_OPTIONS} value={value} onChange={onChange} fill={fill ?? false} />
+    <OptionGroup label="Stil" caption={isLegacyDrawingStyle(value) ? legacyStyleHint(value) : DRAWING_STYLE_LABELS[value].hint}>
+      {/* A legacy style matches no option: nothing is selected (the caption explains it). */}
+      <SegmentedControl<string> label="Stil" options={STYLE_OPTIONS} value={value} onChange={(style) => onChange(style as SelectableDrawingStyle)} fill={fill ?? false} />
     </OptionGroup>
   );
 }
